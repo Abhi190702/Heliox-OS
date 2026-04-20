@@ -94,6 +94,8 @@ class PilotServer:
         self._stress_gate: Any = None
         self._intent_predictor: Any = None
         self._voice_listener: Any = None
+        self._autonomous: Any = None
+        self._proactive: Any = None
         self._running = False
         self._pending_confirms: dict[str, PendingConfirmation] = {}
 
@@ -244,8 +246,12 @@ class PilotServer:
                 self._executor._stress_gate = self._stress_gate
             if self._fusion:
                 self._fusion._intent_predictor = self._intent_predictor
-            if getattr(self, "_screen_vision", None):
-                self._screen_vision._tribe_engine = self._tribe_engine
+            # NOTE: TRIBE injection into screen_vision is disabled because
+            # the 2-second prediction cycle downloads LLaMA tokenizer metadata
+            # from HuggingFace on every call, eventually deadlocking the event loop.
+            # TODO: fix TRIBE to cache tokenizer locally, then re-enable.
+            # if getattr(self, "_screen_vision", None):
+            #     self._screen_vision._tribe_engine = self._tribe_engine
 
             # Attempt background model load (non-blocking)
             asyncio.create_task(self._tribe_engine.load_model())
@@ -257,6 +263,33 @@ class PilotServer:
             logger.warning("Cognitive intelligence init failed (non-critical)", exc_info=True)
 
         self._notification_buffer: list[tuple[str, dict[str, Any]]] = []
+
+        # ── Autonomous Executor (JARVIS fire-and-forget) ──
+        try:
+            from pilot.agents.autonomous import AutonomousExecutor
+
+            self._autonomous = AutonomousExecutor(
+                planner=self._planner,
+                executor=self._executor,
+                verifier=self._verifier,
+                decomposer=self._decomposer,
+                screen_vision=self._screen_vision,
+            )
+            self._autonomous.set_broadcast(self._broadcast_notification)
+            logger.info("AutonomousExecutor initialized")
+        except Exception:
+            logger.warning("AutonomousExecutor init failed (non-critical)", exc_info=True)
+
+        # ── Proactive Suggestion Engine (JARVIS anticipation) ──
+        try:
+            from pilot.agents.proactive import ProactiveSuggestionEngine
+
+            self._proactive = ProactiveSuggestionEngine(screen_vision=self._screen_vision)
+            self._proactive.set_broadcast(self._broadcast_notification)
+            asyncio.create_task(self._proactive.start())
+            logger.info("ProactiveSuggestionEngine auto-started")
+        except Exception:
+            logger.warning("ProactiveSuggestionEngine init failed (non-critical)", exc_info=True)
 
         self._handlers = {
             "execute": self._handle_execute,
@@ -321,6 +354,17 @@ class PilotServer:
             "voice_listener_start": self._handle_voice_listener_start,
             "voice_listener_stop": self._handle_voice_listener_stop,
             "voice_listener_stats": self._handle_voice_listener_stats,
+            # Autonomous executor (fire-and-forget) endpoints
+            "autonomous_submit": self._handle_autonomous_submit,
+            "autonomous_cancel": self._handle_autonomous_cancel,
+            "autonomous_jobs": self._handle_autonomous_jobs,
+            "autonomous_job": self._handle_autonomous_job,
+            # Proactive suggestions endpoints
+            "proactive_start": self._handle_proactive_start,
+            "proactive_stop": self._handle_proactive_stop,
+            "proactive_stats": self._handle_proactive_stats,
+            "proactive_accept": self._handle_proactive_accept,
+            "proactive_dismiss": self._handle_proactive_dismiss,
         }
 
     async def _broadcast_notification(self, method: str, params: Any) -> None:
@@ -902,7 +946,7 @@ class PilotServer:
         return {"backends": backends}
 
     async def _handle_ping(self, params: dict, ws: ServerConnection) -> dict:
-        return {"pong": True, "version": "0.2.0"}
+        return {"pong": True, "version": "0.7.1"}
 
     async def _handle_system_status(self, params: dict, ws: ServerConnection) -> dict:
         """Return current system information."""
@@ -1414,6 +1458,110 @@ class PilotServer:
         if not self._voice_listener:
             return {"running": False, "message": "Voice listener not initialized"}
         return self._voice_listener.get_stats()
+
+    # ── Autonomous Executor Handlers ──
+
+    async def _handle_autonomous_submit(self, params: dict, ws: ServerConnection) -> dict:
+        """Submit a task for autonomous background execution."""
+        if not self._autonomous:
+            return {"error": "Autonomous executor not initialized"}
+
+        goal = params.get("goal", "")
+        if not goal.strip():
+            return {"error": "Empty goal"}
+
+        source = params.get("source", "text")
+        job = await self._autonomous.submit(goal, source=source)
+        return {"status": "submitted", "job": job.to_dict()}
+
+    async def _handle_autonomous_cancel(self, params: dict, ws: ServerConnection) -> dict:
+        """Cancel a running autonomous job."""
+        if not self._autonomous:
+            return {"error": "Autonomous executor not initialized"}
+
+        job_id = params.get("job_id", "")
+        success = await self._autonomous.cancel(job_id)
+        return {"cancelled": success, "job_id": job_id}
+
+    async def _handle_autonomous_jobs(self, params: dict, ws: ServerConnection) -> dict:
+        """List all autonomous jobs."""
+        if not self._autonomous:
+            return {"jobs": []}
+        return {"jobs": self._autonomous.list_jobs()}
+
+    async def _handle_autonomous_job(self, params: dict, ws: ServerConnection) -> dict:
+        """Get a specific autonomous job by ID."""
+        if not self._autonomous:
+            return {"error": "Autonomous executor not initialized"}
+
+        job_id = params.get("job_id", "")
+        job = self._autonomous.get_job(job_id)
+        if not job:
+            return {"error": f"Job not found: {job_id}"}
+        return job.to_dict()
+
+    # ── Proactive Suggestions Handlers ──
+
+    async def _handle_proactive_start(self, params: dict, ws: ServerConnection) -> dict:
+        """Start the proactive suggestion engine."""
+        if not self._proactive:
+            return {"error": "Proactive engine not initialized"}
+        result = await self._proactive.start()
+        return {"status": "started", "message": result}
+
+    async def _handle_proactive_stop(self, params: dict, ws: ServerConnection) -> dict:
+        """Stop the proactive suggestion engine."""
+        if not self._proactive:
+            return {"error": "Proactive engine not initialized"}
+        result = await self._proactive.stop()
+        return {"status": "stopped", "message": result}
+
+    async def _handle_proactive_stats(self, params: dict, ws: ServerConnection) -> dict:
+        """Get proactive engine statistics."""
+        if not self._proactive:
+            return {"running": False, "message": "Proactive engine not initialized"}
+        return self._proactive.get_stats()
+
+    async def _handle_proactive_accept(self, params: dict, ws: ServerConnection) -> dict:
+        """Accept a proactive suggestion — execute the suggested action."""
+        if not self._proactive:
+            return {"error": "Proactive engine not initialized"}
+
+        suggestion_id = params.get("suggestion_id", "")
+        action_command = await self._proactive.accept_suggestion(suggestion_id)
+        if not action_command:
+            return {"error": f"Suggestion not found: {suggestion_id}"}
+
+        # Execute the suggested action via autonomous executor or direct pipeline
+        if self._autonomous:
+            job = await self._autonomous.submit(action_command, source="proactive")
+            return {"status": "executing", "action": action_command, "job": job.to_dict()}
+        else:
+            # Fallback: run directly through planner
+            screen_ctx = ""
+            if self._screen_vision:
+                try:
+                    screen_ctx = self._screen_vision.get_context_for_planner()
+                except Exception:
+                    pass
+            plan = await self._planner.plan(action_command, screen_context=screen_ctx)
+            if plan.error:
+                return {"error": plan.error}
+            results = await self._executor.execute(plan)
+            return {
+                "status": "completed",
+                "action": action_command,
+                "results": [{"success": r.success, "output": r.output[:200]} for r in results],
+            }
+
+    async def _handle_proactive_dismiss(self, params: dict, ws: ServerConnection) -> dict:
+        """Dismiss a proactive suggestion."""
+        if not self._proactive:
+            return {"error": "Proactive engine not initialized"}
+
+        suggestion_id = params.get("suggestion_id", "")
+        dismissed = await self._proactive.dismiss_suggestion(suggestion_id)
+        return {"dismissed": dismissed, "suggestion_id": suggestion_id}
 
 
 def _setup_logging() -> None:

@@ -207,6 +207,11 @@ class TribeEngine:
                                 )
                                 text_ext.model_name = _UNGATED_LLAMA
                             text_ext.device = _device
+
+                            # Pre-cache the tokenizer so predict() doesn't block the event loop
+                            from transformers import AutoTokenizer
+                            _ = AutoTokenizer.from_pretrained(_UNGATED_LLAMA)
+
                     except Exception as patch_err:
                         logger.debug("Text extractor patch skipped: %s", patch_err)
 
