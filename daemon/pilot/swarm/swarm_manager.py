@@ -67,7 +67,7 @@ class SwarmManager:
         self._local_node = DaemonNode(
             node_id=secrets.token_hex(8),
             addr="127.0.0.1",
-            port=self._config.get("daemon_port", 8000),
+            port=getattr(self._config.server, "port", 8000),
             hardware=hardware,
         )
         self._nodes.append(self._local_node)
@@ -91,9 +91,7 @@ class SwarmManager:
             if torch.cuda.is_available():
                 hardware["has_gpu"] = True
                 hardware["gpu_name"] = torch.cuda.get_device_name(0)
-                hardware["gpu_vram_gb"] = round(
-                    torch.cuda.get_device_properties(0).total_memory / (1024**3), 2
-                )
+                hardware["gpu_vram_gb"] = round(torch.cuda.get_device_properties(0).total_memory / (1024**3), 2)
         except ImportError:
             pass
 
@@ -147,23 +145,24 @@ class SwarmManager:
         self._nodes = list(set(self._nodes + discovered))
         return discovered
 
-    def get_nodes_by_capability(
-        self, capability: HardwareCapability
-    ) -> list[DaemonNode]:
+    def get_nodes_by_capability(self, capability: HardwareCapability) -> list[DaemonNode]:
         """Get nodes that meet the specified hardware capability."""
         nodes = []
         for node in self._nodes:
             if node.is_healthy:
                 gpu_vram = node.hardware.get("gpu_vram_gb", 0)
-                if capability == HardwareCapability.CPU_ONLY and not node.hardware.get("has_gpu"):
-                    nodes.append(node)
-                elif capability == HardwareCapability.GPU_VRAM_4GB and gpu_vram >= 4:
-                    nodes.append(node)
-                elif capability == HardwareCapability.GPU_VRAM_8GB and gpu_vram >= 8:
-                    nodes.append(node)
-                elif capability == HardwareCapability.GPU_VRAM_12GB and gpu_vram >= 12:
-                    nodes.append(node)
-                elif capability == HardwareCapability.GPU_VRAM_16GB and gpu_vram >= 16:
+                if (
+                    capability == HardwareCapability.CPU_ONLY
+                    and not node.hardware.get("has_gpu")
+                    or capability == HardwareCapability.GPU_VRAM_4GB
+                    and gpu_vram >= 4
+                    or capability == HardwareCapability.GPU_VRAM_8GB
+                    and gpu_vram >= 8
+                    or capability == HardwareCapability.GPU_VRAM_12GB
+                    and gpu_vram >= 12
+                    or capability == HardwareCapability.GPU_VRAM_16GB
+                    and gpu_vram >= 16
+                ):
                     nodes.append(node)
         return nodes
 
@@ -195,9 +194,7 @@ class SwarmManager:
         node.tasks_completed += 1
         return node
 
-    async def execute_remote(
-        self, node: DaemonNode, plan: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def execute_remote(self, node: DaemonNode, plan: dict[str, Any]) -> dict[str, Any]:
         """Execute a task on a remote daemon node via WebSocket JSON-RPC."""
         if not node.is_healthy:
             raise RuntimeError(f"Node {node.node_id} is not healthy")
