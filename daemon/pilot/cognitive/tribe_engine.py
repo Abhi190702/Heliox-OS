@@ -220,15 +220,19 @@ class TribeEngine:
 
                         # Disable exca/HuggingFace multiprocessing which freezes on Windows
                         import os
+
                         os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
                         import exca.cachedict.inflight
+
                         _orig_is_pid_alive = exca.cachedict.inflight._is_pid_alive
+
                         def safe_is_pid_alive(pid):
                             try:
                                 return _orig_is_pid_alive(pid)
                             except OSError:
                                 return False
+
                         exca.cachedict.inflight._is_pid_alive = safe_is_pid_alive
 
                         if hasattr(text_ext, "infra"):
@@ -240,20 +244,25 @@ class TribeEngine:
                         # while keeping device_map="auto" to prevent system RAM page file exhaustion.
                         if _device == "accelerate":
                             import transformers.modeling_utils
+
                             _orig_warmup = getattr(transformers.modeling_utils, "caching_allocator_warmup", None)
                             if _orig_warmup:
+
                                 def _noop_warmup(*args, **kwargs):
                                     pass
+
                                 transformers.modeling_utils.caching_allocator_warmup = _noop_warmup
 
                             original_load = getattr(text_ext.__class__, "_load_model", None)
                             if original_load:
+
                                 def _patched_load(self_instance, **kwargs):
                                     try:
                                         return original_load(self_instance, **kwargs)
                                     finally:
                                         if _orig_warmup:
                                             transformers.modeling_utils.caching_allocator_warmup = _orig_warmup
+
                                 text_ext.__class__._load_model = _patched_load
 
                         from transformers import AutoTokenizer
@@ -502,6 +511,7 @@ class TribeEngine:
             )
         except Exception as e:
             import traceback
+
             traceback.print_exc()
             logger.warning("TRIBE v2 prediction failed: %s — using fallback", e)
             return self._predict_with_heuristics()
