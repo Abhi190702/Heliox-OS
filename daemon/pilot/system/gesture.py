@@ -147,10 +147,11 @@ async def start_gesture_listener(
         logger.info("Gesture listener already running")
         return
 
-    import cv2 as cv
-    import mediapipe as _mp
     import os
     import urllib.request
+
+    import cv2 as cv
+    import mediapipe as _mp
     from mediapipe.tasks import python
     from mediapipe.tasks.python import vision
 
@@ -158,8 +159,8 @@ async def start_gesture_listener(
     if not os.path.exists(model_path):
         logger.info("Downloading MediaPipe hand_landmarker.task model...")
         urllib.request.urlretrieve(
-            "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", 
-            model_path
+            "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            model_path,
         )
 
     _cap = cv.VideoCapture(camera_index)
@@ -169,7 +170,7 @@ async def start_gesture_listener(
 
     base_options = python.BaseOptions(model_asset_path=model_path)
     options = vision.HandLandmarkerOptions(
-        base_options=base_options, 
+        base_options=base_options,
         num_hands=1,
         min_hand_detection_confidence=0.6,
         min_hand_presence_confidence=0.5,
@@ -193,7 +194,7 @@ async def start_gesture_listener(
 
             # Convert BGR to RGB for MediaPipe
             rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
-            
+
             mp_image = _mp.Image(image_format=_mp.ImageFormat.SRGB, data=rgb)
             results = hands.detect(mp_image)
 
