@@ -605,7 +605,7 @@ class PilotServer:
             asyncio.create_task(
                 self._screen_vision.start(interval_seconds=sv_config.capture_interval_seconds, enable_describe=False)
             )
-            logger.info("ScreenVisionAgent auto-started (every %.1fs, JARVIS mode)", interval_seconds)
+            logger.info("ScreenVisionAgent auto-started (every %.1fs, JARVIS mode)", sv_config.capture_interval_seconds)
         except Exception:
             logger.warning("ScreenVisionAgent init failed (non-critical)", exc_info=True)
 
