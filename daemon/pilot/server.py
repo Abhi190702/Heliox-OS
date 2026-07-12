@@ -528,10 +528,14 @@ class PilotServer:
                 )
                 asyncio.create_task(self._fusion.on_gesture_event(event))
 
-            asyncio.create_task(
-                start_gesture_listener(on_gesture=_on_local_gesture, camera_index=self.config.vision.camera_index)
-            )
-            logger.info("Local gesture listener auto-started (camera %s)", self.config.vision.camera_index)
+            # DISABLED: The backend gesture listener locks the Windows webcam hardware,
+            # which prevents the frontend Tauri UI (GestureControl.svelte) from accessing it.
+            # We defer gesture recognition exclusively to the rich frontend UI.
+            # asyncio.create_task(
+            #     start_gesture_listener(on_gesture=_on_local_gesture, camera_index=self.config.vision.camera_index)
+            # )
+            # logger.info("Local gesture listener auto-started (camera %s)", self.config.vision.camera_index)
+            logger.info("Local gesture listener disabled in favor of frontend UI MediaPipe engine")
         except Exception:
             logger.warning("Local gesture listener init failed (non-critical)", exc_info=True)
 
