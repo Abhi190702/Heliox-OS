@@ -1,11 +1,68 @@
+use enigo::{Button, Coordinate, Direction, Enigo, Mouse, Settings};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Emitter};
-use sysinfo::System;
 use std::process::Command;
+use std::sync::Mutex;
+use sysinfo::System;
+use tauri::{AppHandle, Emitter, Manager};
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DaemonStatus {
     pub connected: bool,
     pub version: String,
+}
+
+/// Managed state wrapping a single lazily-shared `Enigo` instance for the
+/// gesture-cursor bridge. Constructing `Enigo` can involve a real connection
+/// to the platform's input subsystem (X11/Wayland on Linux, etc.), so it's
+/// created once at startup and reused, not recreated per cursor-move call —
+/// that matters for a ~30fps continuous stream. `Option` because
+/// `Enigo::new()` can fail (e.g. no display session available); when it
+/// does, cursor-control commands fail gracefully with an error instead of
+/// panicking the whole app.
+pub struct GestureCursor(pub Mutex<Option<Enigo>>);
+
+impl GestureCursor {
+    pub fn init() -> Self {
+        match Enigo::new(&Settings::default()) {
+            Ok(enigo) => Self(Mutex::new(Some(enigo))),
+            Err(e) => {
+                eprintln!("[Heliox OS] Gesture cursor control unavailable: {}", e);
+                Self(Mutex::new(None))
+            }
+        }
+    }
+}
+
+/// Move the OS mouse cursor to an absolute screen position, driven by the
+/// gesture-cursor bridge (continuous, ~30fps stream from GestureControl.svelte
+/// while cursor mode is active). Bypasses the WebSocket/daemon path entirely
+/// for latency — see the "Architecture decision" section in the gesture
+/// cursor bridge design notes (GESTURES.md).
+#[tauri::command]
+pub fn move_gesture_cursor(
+    state: tauri::State<GestureCursor>,
+    x: i32,
+    y: i32,
+) -> Result<(), String> {
+    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+    let enigo = guard
+        .as_mut()
+        .ok_or("Gesture cursor control is not available on this platform/session")?;
+    enigo
+        .move_mouse(x, y, Coordinate::Abs)
+        .map_err(|e| e.to_string())
+}
+
+/// Perform a left mouse click at the cursor's current position — used for
+/// the pinch-to-click gesture while cursor mode is active.
+#[tauri::command]
+pub fn click_gesture_cursor(state: tauri::State<GestureCursor>) -> Result<(), String> {
+    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+    let enigo = guard
+        .as_mut()
+        .ok_or("Gesture cursor control is not available on this platform/session")?;
+    enigo
+        .button(Button::Left, Direction::Click)
+        .map_err(|e| e.to_string())
 }
 
 // 1. Command to show/hide main application window
@@ -165,7 +222,7 @@ pub fn system_scan() -> serde_json::Value {
     serde_json::json!({
         "status": "Healthy (0 threats / anomalies detected)",
         "host_os": format!("{} ({})", System::name().unwrap_or_else(|| "Windows".into()), System::os_version().unwrap_or_else(|| "10/11".into())),
-        "cpu_processor": sys.global_cpu_info().brand().trim(),
+        "cpu_processor": sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default(),
         "active_threads": sys.cpus().len(),
         "memory_utilization": format!("{} MB / {} MB ({:.0}%)", used_mem, total_mem, (used_mem as f32 / total_mem as f32) * 100.0),
         "system_uptime": format!("{}h {}m", System::uptime() / 3600, (System::uptime() % 3600) / 60)
@@ -204,7 +261,7 @@ pub fn get_dashboard_status() -> serde_json::Value {
         "agents": 4,
         "cpu": format!(
             "{:.0}%",
-            sys.global_cpu_info().cpu_usage()
+            sys.global_cpu_usage()
         ),
         "memory": format!(
             "{:.0}%",
@@ -316,6 +373,7 @@ pub fn get_auth_token() -> String {
     String::new()
 }
 
+#[tauri::command]
 pub async fn extract_file_text(app: AppHandle, path: String) -> Result<String, String> {
     // 1. Canonicalize ΓÇö resolves "..", symlinks, etc.
     let canonical = std::fs::canonicalize(&path)

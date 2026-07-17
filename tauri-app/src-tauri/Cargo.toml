@@ -28,6 +28,7 @@ battery = "0.7"
 screenshots = "0.8"
 
 opener = "0.8"
+enigo = "0.6"
 
 
 [features]

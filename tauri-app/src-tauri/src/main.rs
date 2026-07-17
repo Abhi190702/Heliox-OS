@@ -129,11 +129,14 @@ fn setup_venv_in_background() {
 #[tauri::command]
 fn get_system_stats() -> serde_json::Value {
     let mut system = System::new_all();
-    system.refresh_cpu();
+    system.refresh_cpu_all();
     // CPU
-    let cpu = system.global_cpu_info().cpu_usage();
-    let cpu_name =
-    system.global_cpu_info().brand();
+    let cpu = system.global_cpu_usage();
+    let cpu_name = system
+        .cpus()
+        .first()
+        .map(|c| c.brand().to_string())
+        .unwrap_or_default();
     let total_ram_gb =
     system.total_memory() / 1024 / 1024;
     let disks_info =
@@ -165,7 +168,7 @@ fn get_system_stats() -> serde_json::Value {
     // NETWORKS
     let mut networks =
     Networks::new_with_refreshed_list();
-   networks.refresh();
+   networks.refresh(false);
    let mut upload = 0;
     let mut download = 0;
    for (_name, data) in &networks {
@@ -446,10 +449,11 @@ fn get_temperature_stats() -> serde_json::Value {
    let mut sys = System::new_all();
    sys.refresh_all();
 // REAL CPU NAME
-let cpu_name =
-    sys.global_cpu_info()
-        .brand()
-        .to_string();
+let cpu_name = sys
+    .cpus()
+    .first()
+    .map(|c| c.brand().to_string())
+    .unwrap_or_default();
 // REAL CPU THREADS
 let cpu_threads =
     sys.cpus().len();
@@ -622,6 +626,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .manage(DaemonProcess(Mutex::new(daemon_child)))
         .manage(file_access::AllowedPaths::new())
+        .manage(commands::GestureCursor::init())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
             
@@ -661,6 +666,8 @@ fn main() {
             commands::set_hotkey,
             commands::get_auth_token,
             commands::extract_file_text,
+            commands::move_gesture_cursor,
+            commands::click_gesture_cursor,
             file_access::register_allowed_path,
             file_access::revoke_allowed_path,
         ])
