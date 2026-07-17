@@ -86,10 +86,23 @@ export function handSize(landmarks: Landmark[]): number {
  * approximate, not physically derived; revisit if real-camera testing shows
  * false positives/negatives.
  */
-const THUMB_EXTENDED_RATIO = 0.55;
+export const THUMB_EXTENDED_RATIO = 0.55;
 
-export function isThumbExtended(landmarks: Landmark[], size: number = handSize(landmarks)): boolean {
-  return dist3d(landmarks[THUMB_TIP], landmarks[INDEX_MCP]) / size > THUMB_EXTENDED_RATIO;
+/** The raw thumb-tip-to-index-MCP distance ratio `isThumbExtended()` compares
+ * against a threshold — exposed separately so the calibration layer
+ * (calibration.ts) can record what this specific hand actually measures at
+ * the moment a thumbs_up/thumbs_down gesture fires, without duplicating the
+ * distance math. */
+export function thumbExtensionRatio(landmarks: Landmark[], size: number = handSize(landmarks)): number {
+  return dist3d(landmarks[THUMB_TIP], landmarks[INDEX_MCP]) / size;
+}
+
+export function isThumbExtended(
+  landmarks: Landmark[],
+  size: number = handSize(landmarks),
+  threshold: number = THUMB_EXTENDED_RATIO
+): boolean {
+  return thumbExtensionRatio(landmarks, size) > threshold;
 }
 
 // ── Temporal filtering (One Euro filter) ──
