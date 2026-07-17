@@ -2,6 +2,7 @@
   import { invoke } from "../api/invoke";
   import type { GitConflictPayload } from "../stores/session";
   import { session } from "../stores/session";
+  import { isTauriRuntime } from "../utils/runtime";
 
   interface Props {
     payload: GitConflictPayload;
@@ -28,10 +29,7 @@
 
     try {
       // Check if running inside the native Tauri container or standard web browser
-      let isTauri = false;
-      try {
-        isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-      } catch (e) {}
+      const isTauri = isTauriRuntime();
 
       for (let i = 0; i < payload.conflicts.length; i++) {
         const conflict = payload.conflicts[i];

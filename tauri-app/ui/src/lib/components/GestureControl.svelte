@@ -40,9 +40,18 @@
    */
 
   import { session } from "../stores/session";
+  import { settings } from "../stores/settings";
   import { tick } from "svelte";
   import { Hands, type Results } from "@mediapipe/hands";
-  import { LandmarkFilterBank, computeHandQuality, isThumbExtended, handSize } from "../gesture/spatialModel";
+  import {
+    LandmarkFilterBank,
+    computeHandQuality,
+    isThumbExtended,
+    handSize,
+    predictCursorTarget,
+    type Landmark,
+  } from "../gesture/spatialModel";
+  import { isTauriRuntime } from "../utils/runtime";
 
   // ── Props ──
   let { onGesture = (name: string) => {} }: { onGesture?: (name: string) => void } = $props();
@@ -69,6 +78,110 @@
   // ── Spatial/world-model layer: temporal landmark filtering + quality gating ──
   const landmarkFilter = new LandmarkFilterBank();
   const QUALITY_CONFIDENCE_FLOOR = 0.35;
+
+  // Shared with classifyGesture()'s OK/pinch checks — single source of truth
+  // so the cursor-mode click logic can't silently drift from the discrete
+  // pinch gesture's own threshold.
+  const PINCH_DISTANCE_THRESHOLD = 0.05;
+
+  // ── Gesture Cursor Control (continuous gesture-to-cursor bridge) ──
+  //
+  // Off by default (gated on $settings.gesture_cursor.enabled) and only
+  // toggled by an explicit UI button, never by a gesture — this drives the
+  // real OS mouse cursor. While active: index-fingertip position (blended
+  // with its predicted near-future position from spatialModel.ts) drives the
+  // cursor, pinch fires a click, and every other discrete gesture is
+  // suppressed so reaching for e.g. a swipe doesn't misfire while pointing.
+  // Open palm and stopGestures() both force-exit cursor mode immediately as
+  // safety escape hatches.
+  let cursorModeActive = $state(false);
+  let lastCursorX = 0;
+  let lastCursorY = 0;
+  let pinchClickFired = false; // debounce: one click per pinch-close, not per frame
+
+  async function moveGestureCursor(x: number, y: number): Promise<void> {
+    try {
+      if (isTauriRuntime()) {
+        const { invoke } = await import("../api/invoke");
+        await invoke("move_gesture_cursor", { x, y });
+      } else {
+        const { call } = await import("../api/daemon");
+        await call("cursor_move", { x, y });
+      }
+    } catch {
+      // Best-effort — a single dropped cursor-move frame isn't worth surfacing.
+    }
+  }
+
+  async function clickGestureCursor(x: number, y: number): Promise<void> {
+    try {
+      if (isTauriRuntime()) {
+        const { invoke } = await import("../api/invoke");
+        await invoke("click_gesture_cursor");
+      } else {
+        // The daemon fallback has no "click at current position" concept —
+        // reuse the same coordinates the last cursor_move call already sent.
+        const { call } = await import("../api/daemon");
+        await call("cursor_click", { x, y });
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  function exitCursorMode() {
+    cursorModeActive = false;
+    pinchClickFired = false;
+  }
+
+  function toggleCursorMode() {
+    if (!$settings.gesture_cursor?.enabled) return;
+    if (cursorModeActive) {
+      exitCursorMode();
+    } else {
+      cursorModeActive = true;
+    }
+  }
+
+  /** Per-frame cursor tracking + pinch-to-click while cursor mode is active.
+   * `landmarks` must be the temporally-filtered set (same space as raw). */
+  function updateGestureCursor(landmarks: Landmark[]) {
+    const indexTip = landmarks[8];
+    const thumbTip = landmarks[4];
+    const predictionMs = $settings.gesture_cursor?.prediction_ms ?? 80;
+    const blend = $settings.gesture_cursor?.blend ?? 0.3;
+    const predicted = landmarkFilter.predictAhead(predictionMs);
+
+    const target = predicted ? predictCursorTarget(indexTip, predicted[8], blend) : indexTip;
+
+    // The video element is mirrored (`transform: scaleX(-1)`) for natural
+    // selfie-view display, but MediaPipe processes the raw, unmirrored
+    // frame — flip x so cursor motion matches what the user sees (moving
+    // their hand right visually moves the cursor right).
+    const screenX = Math.round(
+      Math.max(0, Math.min(window.screen.width - 1, (1 - target.x) * window.screen.width))
+    );
+    const screenY = Math.round(Math.max(0, Math.min(window.screen.height - 1, target.y * window.screen.height)));
+    lastCursorX = screenX;
+    lastCursorY = screenY;
+    void moveGestureCursor(screenX, screenY);
+
+    // Pinch-to-click on the PREDICTED distance, so the click fires before
+    // the pinch pose has fully, stably closed — the literal "fire before a
+    // gesture completes" case this predictive layer targets.
+    const predictedThumb = predicted ? predicted[4] : thumbTip;
+    const predictedIndex = predicted ? predicted[8] : indexTip;
+    const predictedPinchDist = Math.hypot(predictedThumb.x - predictedIndex.x, predictedThumb.y - predictedIndex.y);
+
+    if (predictedPinchDist < PINCH_DISTANCE_THRESHOLD) {
+      if (!pinchClickFired) {
+        pinchClickFired = true;
+        void clickGestureCursor(screenX, screenY);
+      }
+    } else {
+      pinchClickFired = false;
+    }
+  }
 
   // Finger trail tracking for air drawing
   let fingerTrail: { x: number; y: number; t: number }[] = [];
@@ -210,6 +323,7 @@
     wristHistory = [];
     indexHistory = [];
     landmarkFilter.reset();
+    exitCursorMode(); // safety hatch: never leave cursor mode active with the engine stopped
 
     stopping = false;
   }
@@ -258,6 +372,22 @@
     if (gesture.name && gesture.confidence < QUALITY_CONFIDENCE_FLOOR) {
       gesture.name = "";
       gesture.confidence = 0;
+    }
+
+    if (cursorModeActive) {
+      // Open palm is the hands-only escape hatch — checked before anything
+      // else so it always wins over cursor tracking/pinch-click.
+      if (gesture.name === "palm") {
+        exitCursorMode();
+        drawLandmarks(landmarks);
+        return;
+      }
+      updateGestureCursor(filteredLandmarks);
+      // Every other discrete gesture is suppressed while pointing/clicking —
+      // reaching for a swipe/peace/thumbs-up mid-point would otherwise
+      // misfire constantly.
+      drawLandmarks(landmarks);
+      return;
     }
 
     // Track index finger for air drawing
@@ -452,12 +582,12 @@
     }
 
     // 👌 OK Sign — thumb tip touching index tip, others up
-    if (dist(THUMB_TIP, INDEX_TIP) < 0.05 && middleUp && ringUp && pinkyUp) {
+    if (dist(THUMB_TIP, INDEX_TIP) < PINCH_DISTANCE_THRESHOLD && middleUp && ringUp && pinkyUp) {
       return { name: "ok", confidence: 0.85 };
     }
 
     // 🤏 Pinch — thumb tip close to index tip, others curled
-    if (dist(THUMB_TIP, INDEX_TIP) < 0.05 && !middleUp && !ringUp && !pinkyUp) {
+    if (dist(THUMB_TIP, INDEX_TIP) < PINCH_DISTANCE_THRESHOLD && !middleUp && !ringUp && !pinkyUp) {
       return { name: "pinch", confidence: 0.85 };
     }
 
@@ -810,6 +940,19 @@
     {/if}
   </button>
 
+  {#if isActive && $settings.gesture_cursor?.enabled}
+    <button
+      class="cursor-mode-btn"
+      class:active={cursorModeActive}
+      onclick={toggleCursorMode}
+      title={cursorModeActive
+        ? "Exit cursor mode (or show an open palm)"
+        : "Enable gesture cursor control — point to move, pinch to click"}
+    >
+      {cursorModeActive ? "🖱️ Cursor Mode: ON" : "🖱️ Cursor Mode"}
+    </button>
+  {/if}
+
   {#if currentGesture}
     <div class="gesture-label" class:high-conf={confidence > 0.8}>
       <span class="gesture-emoji">{GESTURE_EMOJIS[currentGesture] || "🖐️"}</span>
@@ -889,6 +1032,32 @@
   @keyframes gesture-pulse {
     0%, 100% { box-shadow: 0 0 8px rgba(0, 255, 136, 0.15); }
     50% { box-shadow: 0 0 20px rgba(0, 255, 136, 0.3); }
+  }
+
+  .cursor-mode-btn {
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 120, 60, 0.35);
+    background: rgba(255, 120, 60, 0.08);
+    color: rgba(255, 150, 90, 0.9);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+  }
+
+  .cursor-mode-btn:hover {
+    border-color: rgba(255, 120, 60, 0.6);
+    background: rgba(255, 120, 60, 0.15);
+  }
+
+  .cursor-mode-btn.active {
+    border-color: rgba(255, 60, 60, 0.7);
+    background: rgba(255, 60, 60, 0.18);
+    color: rgba(255, 200, 200, 1);
+    animation: gesture-pulse 2s ease-in-out infinite;
   }
 
   .hand-icon { width: 18px; height: 18px; z-index: 1; }
