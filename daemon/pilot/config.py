@@ -137,6 +137,25 @@ class VisionConfig:
 
 
 @dataclass
+class GestureCursorConfig:
+    """Continuous gesture-to-cursor bridge (see GESTURES.md). Off by default
+    — this drives the real OS mouse cursor, so it must be an explicit opt-in,
+    never silently enabled by a gesture or a config migration."""
+
+    enabled: bool = False
+    sensitivity: float = 1.0
+    # How far ahead (ms) the kinematic predictor in spatialModel.ts
+    # extrapolates hand trajectory — see predictAhead()/predictCursorTarget().
+    prediction_ms: float = 80.0
+    # Blend between the current filtered position (0.0) and the predicted
+    # position (1.0) fed to the cursor. Kept modest by default: the
+    # predictor's velocity estimate is empirically amplified for a sustained
+    # motion (see spatialModel.test.ts), so a small blend avoids overshoot
+    # until this is tuned against real camera data.
+    blend: float = 0.3
+
+
+@dataclass
 class ProxyConfig:
     http: str | None = None
     https: str | None = None
@@ -243,6 +262,7 @@ class PilotConfig:
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     screen_vision: ScreenVisionConfig = field(default_factory=ScreenVisionConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
+    gesture_cursor: GestureCursorConfig = field(default_factory=GestureCursorConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     rss: RSSConfig = field(default_factory=RSSConfig)
     calendar: CalendarConfig = field(default_factory=CalendarConfig)
@@ -355,6 +375,12 @@ def _validate_config_types(raw: dict) -> None:
         },
         "vision": {
             "camera_index": int,
+        },
+        "gesture_cursor": {
+            "enabled": bool,
+            "sensitivity": (int, float),
+            "prediction_ms": (int, float),
+            "blend": (int, float),
         },
         "memory": {
             "checkpoint_interval_seconds": int,
@@ -481,6 +507,14 @@ def _merge_config(config: PilotConfig, raw: dict[str, Any]) -> PilotConfig:
         for k, v in raw["vision"].items():
             if hasattr(config.vision, k):
                 setattr(config.vision, k, v)
+
+    if "gesture_cursor" in raw:
+        for k, v in raw["gesture_cursor"].items():
+            if hasattr(config.gesture_cursor, k):
+                if k == "enabled":
+                    setattr(config.gesture_cursor, k, bool(v))
+                else:
+                    setattr(config.gesture_cursor, k, float(v))
 
     if "memory" in raw:
         for k, v in raw["memory"].items():

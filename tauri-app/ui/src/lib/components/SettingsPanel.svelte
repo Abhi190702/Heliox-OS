@@ -140,6 +140,28 @@
     settings.updateSection("screen_vision", { capture_interval_seconds });
   }
 
+  // Gesture cursor control drives the real OS mouse cursor - default off,
+  // must be an explicit opt-in via this toggle (never silently enabled).
+  function toggleGestureCursor() {
+    settings.updateSection("gesture_cursor", {
+      enabled: !$settings.gesture_cursor?.enabled,
+    });
+  }
+
+  function updateGestureCursorSensitivity(e: Event) {
+    const rawValue = Number((e.target as HTMLInputElement).value);
+    if (!Number.isFinite(rawValue)) return;
+    const sensitivity = Math.min(3, Math.max(0.1, rawValue));
+    settings.updateSection("gesture_cursor", { sensitivity });
+  }
+
+  function updateGestureCursorBlend(e: Event) {
+    const rawValue = Number((e.target as HTMLInputElement).value);
+    if (!Number.isFinite(rawValue)) return;
+    const blend = Math.min(1, Math.max(0, rawValue));
+    settings.updateSection("gesture_cursor", { blend });
+  }
+
   function updateOllamaModel(e: Event) {
     const val = (e.target as HTMLInputElement).value;
     settings.updateSection("model", { ollama_model: val });
@@ -449,6 +471,62 @@
         step="0.5"
       />
     </div>
+  </section>
+
+  <section class="settings-group">
+    <h3>{$_('settings.gesture_cursor')}</h3>
+
+    <p class="gesture-cursor-warning">{$_('settings.gesture_cursor_warning')}</p>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">{$_('settings.gesture_cursor_enabled')}</span>
+        <span class="setting-desc">{$_('settings.gesture_cursor_enabled_desc')}</span>
+      </div>
+      <button
+        class="toggle"
+        class:active={$settings.gesture_cursor?.enabled}
+        onclick={toggleGestureCursor}
+        aria-label="Toggle Gesture Cursor Control"
+        title="Toggle Gesture Cursor Control"
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    {#if $settings.gesture_cursor?.enabled}
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">{$_('settings.gesture_cursor_sensitivity')}</span>
+          <span class="setting-desc">{$_('settings.gesture_cursor_sensitivity_desc')}</span>
+        </div>
+        <input
+          type="number"
+          class="input-sm"
+          value={$settings.gesture_cursor?.sensitivity ?? 1.0}
+          onchange={updateGestureCursorSensitivity}
+          min="0.1"
+          max="3"
+          step="0.1"
+        />
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">{$_('settings.gesture_cursor_blend')}</span>
+          <span class="setting-desc">{$_('settings.gesture_cursor_blend_desc')}</span>
+        </div>
+        <input
+          type="number"
+          class="input-sm"
+          value={$settings.gesture_cursor?.blend ?? 0.3}
+          onchange={updateGestureCursorBlend}
+          min="0"
+          max="1"
+          step="0.05"
+        />
+      </div>
+    {/if}
   </section>
 
   <section class="settings-group">
@@ -1007,6 +1085,16 @@
   @keyframes toastSlide {
     from { opacity: 0; transform: translateY(-6px); }
     to { opacity: 1; transform: translateY(0); }
+  }
+
+  .gesture-cursor-warning {
+    margin: 0;
+    padding: 10px 14px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--warning, #f59e0b);
+    background: rgba(245, 158, 11, 0.08);
+    border-bottom: 1px solid var(--border);
   }
 
   .root-status-banner {

@@ -35,6 +35,12 @@ export interface PilotSettings {
   screen_vision: {
     capture_interval_seconds: number;
   };
+  gesture_cursor: {
+    enabled: boolean;
+    sensitivity: number;
+    prediction_ms: number;
+    blend: number;
+  };
   restrictions: {
     protected_folders: string[];
     protected_packages: string[];
@@ -75,6 +81,12 @@ const defaultSettings: PilotSettings = {
   },
   screen_vision: {
     capture_interval_seconds: 3,
+  },
+  gesture_cursor: {
+    enabled: false,
+    sensitivity: 1.0,
+    prediction_ms: 80.0,
+    blend: 0.3,
   },
   restrictions: {
     protected_folders: [],
