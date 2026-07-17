@@ -448,7 +448,7 @@ class Executor:
             return await self._execute_dry_run(plan, plan_id, on_action_start, on_action_complete)
 
         snapshot_id: str | None = None
-        if plan.needs_snapshot and self._config.security.snapshot_on_destructive:
+        if self._permissions.plan_requires_snapshot(plan):
             try:
                 snapshot_id = await self._snapshot_mgr.create_snapshot(
                     plan_id, f"Pre-action snapshot for plan {plan_id}"

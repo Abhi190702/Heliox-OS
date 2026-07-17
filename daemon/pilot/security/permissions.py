@@ -28,17 +28,26 @@ class PermissionDecision:
     requires_confirmation: bool
     requires_snapshot: bool
     requires_root_toggle: bool
+    irreversible: bool = False
     denial_reason: str = ""
 
 
 class PermissionChecker:
-    """Evaluates actions against the permission tier system."""
+    """Evaluates actions against the permission tier system.
+
+    This is the single source of truth for confirmation/snapshot/allow
+    policy — server.py and Executor both go through this rather than
+    re-deriving tier/confirmation logic directly from Action fields, so
+    there is only one place policy (root_enabled, irreversibility, snapshot
+    config) is computed.
+    """
 
     def __init__(self, config: PilotConfig) -> None:
         self._config = config
 
     def check_action(self, action: Action) -> PermissionDecision:
         tier = action.permission_tier
+        irreversible = action.is_irreversible
 
         if tier == PermissionTier.ROOT_CRITICAL and not self._config.security.root_enabled:
             return PermissionDecision(
@@ -47,15 +56,20 @@ class PermissionChecker:
                 requires_confirmation=True,
                 requires_snapshot=True,
                 requires_root_toggle=True,
+                irreversible=irreversible,
                 denial_reason="Root access is disabled. Enable it in settings to proceed.",
             )
 
         return PermissionDecision(
             allowed=True,
             tier=tier,
-            requires_confirmation=tier >= PermissionTier.SYSTEM_MODIFY,
+            # Irreversible actions require confirmation unconditionally —
+            # never bypassable by tier alone (e.g. an email send is only
+            # Tier 2 but cannot be undone once it fires).
+            requires_confirmation=tier >= PermissionTier.SYSTEM_MODIFY or irreversible,
             requires_snapshot=(tier >= PermissionTier.DESTRUCTIVE and self._config.security.snapshot_on_destructive),
             requires_root_toggle=tier >= PermissionTier.ROOT_CRITICAL,
+            irreversible=irreversible,
         )
 
     def check_plan(self, plan: ActionPlan) -> list[PermissionDecision]:

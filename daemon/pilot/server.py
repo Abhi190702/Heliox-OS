@@ -337,6 +337,7 @@ class PilotServer:
         self._executor: Any = None
         self._verifier: Any = None
         self._destructive_critic: Any = None
+        self._permission_checker: Any = None
         self._reflector: Any = None
         self._multi_agent: Any = None
         self._background: Any = None
@@ -427,6 +428,7 @@ class PilotServer:
         await self._checkpoint_store.initialize()
         validator = ActionValidator(self.config)
         permissions = PermissionChecker(self.config)
+        self._permission_checker = permissions
         self._memory = MemoryStore(
             checkpoint_interval_seconds=self.config.memory.checkpoint_interval_seconds,
             pruning_interval_seconds=self.config.memory.pruning_interval_seconds,
@@ -1292,7 +1294,7 @@ class PilotServer:
                 }
                 await ws.send(_notification("critic_verdict", critic_verdict_payload))
 
-            needs_confirm = any(a.requires_confirmation for a in plan.actions) and not dry_run
+            needs_confirm = self._permission_checker.plan_requires_confirmation(plan) and not dry_run
             if needs_confirm:
                 confirm_phase = ""
                 if emit:
@@ -1886,12 +1888,19 @@ class PilotServer:
         pending = PendingConfirmation(plan_id=plan_id, event=asyncio.Event())
         self._pending_confirms[plan_id] = pending
 
+        def _dump_confirm_action(a: Any) -> dict[str, Any]:
+            payload = a.model_dump()
+            payload["irreversible"] = a.is_irreversible
+            return payload
+
         await ws.send(
             _notification(
                 "confirm_required",
                 {
                     "plan_id": plan_id,
-                    "actions": [a.model_dump() for a in plan.actions if a.requires_confirmation],
+                    "actions": [
+                        _dump_confirm_action(a) for a in plan.actions if a.requires_confirmation or a.is_irreversible
+                    ],
                 },
             )
         )
