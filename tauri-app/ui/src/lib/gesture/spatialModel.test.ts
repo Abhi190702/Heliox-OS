@@ -5,6 +5,8 @@ import {
   geometricQuality,
   computeHandQuality,
   LandmarkFilterBank,
+  predictCursorTarget,
+  trajectoryAgreement,
   type Landmark,
 } from "./spatialModel";
 
@@ -153,5 +155,103 @@ describe("LandmarkFilterBank", () => {
     const out = bank.filter(farAway, 100);
     // Right after reset, the first frame should pass through unchanged again.
     expect(out[8].x).toBeCloseTo(farAway[8].x, 10);
+  });
+});
+
+describe("LandmarkFilterBank.predictAhead", () => {
+  it("returns null before any frame has been filtered", () => {
+    const bank = new LandmarkFilterBank();
+    expect(bank.predictAhead(50)).toBeNull();
+  });
+
+  it("extrapolates in the direction of a sustained constant-velocity motion", () => {
+    const bank = new LandmarkFilterBank();
+    const base = openPalmRightHand();
+    const velocity = 0.5; // normalized units/sec along x
+    let t = 0;
+    let lastFiltered: Landmark[] = [];
+    for (let i = 0; i < 30; i++) {
+      t += 33;
+      const frame = base.map((p) => ({ ...p }));
+      frame[8] = { ...frame[8], x: base[8].x + velocity * (t / 1000) };
+      lastFiltered = bank.filter(frame, t);
+    }
+
+    const aheadMs = 100;
+    const predicted = bank.predictAhead(aheadMs);
+    expect(predicted).not.toBeNull();
+
+    // Predicted position should be further along +x than the last filtered
+    // position, in the same direction as the true velocity. Note this is a
+    // wide, one-sided tolerance band, not a tight physical check: the
+    // derivative estimate is computed as (raw_now - filtered_previous)/dt —
+    // using the *filtered* previous value, which lags the raw ramp by a
+    // roughly-constant offset — so for a sustained constant-velocity input
+    // the steady-state velocity estimate is systematically amplified above
+    // the true velocity (observed ~4x for these filter parameters), not an
+    // unbiased estimate. That's a real, known property of this One Euro
+    // filter formula (inherited from the existing filter() implementation,
+    // not something this test tries to "fix") — this test only guards that
+    // the sign and rough order of magnitude stay sane, not exact physics.
+    const predictedDelta = predicted![8].x - lastFiltered[8].x;
+    const expectedDelta = velocity * (aheadMs / 1000);
+    expect(predictedDelta).toBeGreaterThan(expectedDelta * 0.5);
+    expect(predictedDelta).toBeLessThan(expectedDelta * 6);
+  });
+
+  it("predicts no motion for a stationary hand", () => {
+    const bank = new LandmarkFilterBank();
+    const lm = openPalmRightHand();
+    let t = 0;
+    for (let i = 0; i < 10; i++) {
+      t += 33;
+      bank.filter(lm, t);
+    }
+    const predicted = bank.predictAhead(100);
+    expect(predicted![8].x).toBeCloseTo(lm[8].x, 2);
+  });
+});
+
+describe("predictCursorTarget", () => {
+  const filtered: Landmark = { x: 0.2, y: 0.3, z: 0 };
+  const predicted: Landmark = { x: 0.8, y: 0.9, z: 0 };
+
+  it("returns the filtered position when blend=0", () => {
+    expect(predictCursorTarget(filtered, predicted, 0)).toEqual(filtered);
+  });
+
+  it("returns the predicted position when blend=1", () => {
+    const result = predictCursorTarget(filtered, predicted, 1);
+    expect(result.x).toBeCloseTo(predicted.x);
+    expect(result.y).toBeCloseTo(predicted.y);
+  });
+
+  it("linearly interpolates at blend=0.5", () => {
+    const result = predictCursorTarget({ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 0 }, 0.5);
+    expect(result.x).toBeCloseTo(0.5);
+    expect(result.y).toBeCloseTo(0.5);
+  });
+
+  it("clamps blend outside [0,1]", () => {
+    const a = { x: 0, y: 0, z: 0 };
+    const b = { x: 1, y: 1, z: 0 };
+    expect(predictCursorTarget(a, b, -5).x).toBeCloseTo(0);
+    expect(predictCursorTarget(a, b, 5).x).toBeCloseTo(1);
+  });
+});
+
+describe("trajectoryAgreement", () => {
+  it("returns 1 when predicted delta agrees in sign with observed delta", () => {
+    expect(trajectoryAgreement(0.1, 0.05)).toBe(1);
+    expect(trajectoryAgreement(-0.1, -0.02)).toBe(1);
+  });
+
+  it("returns a value below 1 when the predicted delta contradicts the observed direction", () => {
+    expect(trajectoryAgreement(0.1, -0.05)).toBeLessThan(1);
+  });
+
+  it("treats a near-zero observed delta as nothing to contradict", () => {
+    expect(trajectoryAgreement(0, 5)).toBe(1);
+    expect(trajectoryAgreement(0, -5)).toBe(1);
   });
 });

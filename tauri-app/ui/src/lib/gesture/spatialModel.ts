@@ -22,6 +22,17 @@
  *    reported gesture confidence instead of letting brittle rules misfire
  *    silently on a degenerate/occluded hand pose.
  *
+ *  - A short-horizon predictive layer ("world model") — the One Euro filter
+ *    already tracks a smoothed velocity estimate internally; `predict()`/
+ *    `predictAhead()` expose a constant-velocity extrapolation of that state
+ *    a few tens of milliseconds into the future. This is a kinematic
+ *    extrapolator, NOT a generative model — it does not predict screen
+ *    pixels/video frames (a real Genie-3/Cosmos-style world model), just
+ *    where the already-tracked hand landmarks are kinematically heading.
+ *    Used to let the gesture-cursor bridge (GestureControl.svelte) feel
+ *    lower-latency, and to fire a pinch-to-click a few frames before the
+ *    pinch pose fully closes.
+ *
  * What this does NOT do: fully re-express every classifyGesture() threshold
  * in a hand-local, scale-normalized coordinate frame. That would touch ~20
  * empirically-tuned distance constants with no way to validate the
@@ -127,6 +138,18 @@ class OneEuroScalarFilter {
     return xFiltered;
   }
 
+  /** Constant-velocity extrapolation from the current filtered position and
+   * smoothed velocity — a lightweight kinematic prediction, not a learned
+   * model. `filter()` always sets `xPrev` on its very first call (even
+   * before a velocity estimate exists, `dxPrev` starts at 0), so this only
+   * returns the degenerate `0` if called before any frame was ever filtered
+   * — callers should go through `LandmarkFilterBank.predictAhead()`, which
+   * guards that case at the bank level instead. */
+  predict(aheadMs: number): number {
+    if (this.xPrev === null) return 0;
+    return this.xPrev + this.dxPrev * (aheadMs / 1000);
+  }
+
   reset(): void {
     this.xPrev = null;
     this.dxPrev = 0;
@@ -165,10 +188,57 @@ export class LandmarkFilterBank {
     }));
   }
 
+  /** Constant-velocity extrapolation of every landmark `aheadMs` milliseconds
+   * into the future, from the current filtered position + smoothed velocity.
+   * Returns `null` if no frame has been filtered yet (nothing to
+   * extrapolate from). */
+  predictAhead(aheadMs: number): Landmark[] | null {
+    if (!this.filters) return null;
+    const n = this.filters.length / 3;
+    return Array.from({ length: n }, (_, i) => ({
+      x: this.filters![i * 3].predict(aheadMs),
+      y: this.filters![i * 3 + 1].predict(aheadMs),
+      z: this.filters![i * 3 + 2].predict(aheadMs),
+    }));
+  }
+
   reset(): void {
     this.filters = null;
     this.lastT = null;
   }
+}
+
+/** Blends a currently-filtered landmark position with its predicted future
+ * position — `blend = 0` is purely current, `1` is purely predicted. Used
+ * to feed the gesture-cursor bridge a lower-perceived-latency target without
+ * fully committing to the (noisier, longer-horizon) raw prediction. */
+export function predictCursorTarget(filtered: Landmark, predicted: Landmark, blend: number): Landmark {
+  const t = Math.max(0, Math.min(1, blend));
+  return {
+    x: filtered.x + (predicted.x - filtered.x) * t,
+    y: filtered.y + (predicted.y - filtered.y) * t,
+    z: (filtered.z ?? 0) + ((predicted.z ?? 0) - (filtered.z ?? 0)) * t,
+  };
+}
+
+/**
+ * Scores how much a predicted next position agrees with an observed
+ * per-axis motion direction (e.g. a swipe's dx, or a circular gesture's
+ * tangential direction) — used to scale down confidence when the predicted
+ * trajectory contradicts what a motion classifier just detected (reducing
+ * misfires), without touching the classifiers' own thresholds.
+ *
+ * Returns 1 when the predicted delta's sign matches `observedDelta`'s sign
+ * (or `observedDelta` is ~0 — nothing to contradict), and decays toward a
+ * floor (never fully zero — a single noisy prediction shouldn't veto an
+ * otherwise-solid classification) when they disagree.
+ */
+const TRAJECTORY_DISAGREEMENT_FLOOR = 0.5;
+
+export function trajectoryAgreement(observedDelta: number, predictedDelta: number): number {
+  if (Math.abs(observedDelta) < 1e-6) return 1;
+  const agrees = Math.sign(observedDelta) === Math.sign(predictedDelta);
+  return agrees ? 1 : TRAJECTORY_DISAGREEMENT_FLOOR;
 }
 
 // ── Occlusion/visibility-aware quality score ──
