@@ -156,6 +156,21 @@ class GestureCursorConfig:
 
 
 @dataclass
+class AdaptiveCalibrationConfig:
+    """On-device continual-learning/personalization loop for voice+gesture
+    recognition (see GESTURES.md's "Gesture Calibration" section and
+    pilot.system.voice_calibration). Both toggles default on: unlike
+    gesture_cursor (which grants a NEW capability, real cursor control),
+    this only nudges existing recognition thresholds within a bounded,
+    reversible range from implicit signals already present in normal usage
+    - there's no new capability being granted, so an opt-in default isn't
+    warranted the way it is for gesture_cursor."""
+
+    gesture_enabled: bool = True
+    voice_wake_word_enabled: bool = True
+
+
+@dataclass
 class ProxyConfig:
     http: str | None = None
     https: str | None = None
@@ -263,6 +278,7 @@ class PilotConfig:
     screen_vision: ScreenVisionConfig = field(default_factory=ScreenVisionConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
     gesture_cursor: GestureCursorConfig = field(default_factory=GestureCursorConfig)
+    adaptive_calibration: AdaptiveCalibrationConfig = field(default_factory=AdaptiveCalibrationConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     rss: RSSConfig = field(default_factory=RSSConfig)
     calendar: CalendarConfig = field(default_factory=CalendarConfig)
@@ -381,6 +397,10 @@ def _validate_config_types(raw: dict) -> None:
             "sensitivity": (int, float),
             "prediction_ms": (int, float),
             "blend": (int, float),
+        },
+        "adaptive_calibration": {
+            "gesture_enabled": bool,
+            "voice_wake_word_enabled": bool,
         },
         "memory": {
             "checkpoint_interval_seconds": int,
@@ -515,6 +535,11 @@ def _merge_config(config: PilotConfig, raw: dict[str, Any]) -> PilotConfig:
                     setattr(config.gesture_cursor, k, bool(v))
                 else:
                     setattr(config.gesture_cursor, k, float(v))
+
+    if "adaptive_calibration" in raw:
+        for k, v in raw["adaptive_calibration"].items():
+            if hasattr(config.adaptive_calibration, k):
+                setattr(config.adaptive_calibration, k, bool(v))
 
     if "memory" in raw:
         for k, v in raw["memory"].items():

@@ -16,6 +16,7 @@ from typing import Any
 
 from pilot.config import PilotConfig
 from pilot.system.platform_detect import CURRENT_PLATFORM, Platform, run_powershell
+from pilot.system.voice_calibration import WakeWordCalibrator
 
 logger = logging.getLogger("pilot.system.voice")
 
@@ -358,6 +359,10 @@ class ContinuousVoiceListener:
 
         self.config = PilotConfig.load()
         self.last_detected_language = "en"
+        # On-device wake-word calibration (continual-learning loop) — see
+        # voice_calibration.py. Only ever a fallback tried after the fixed
+        # exact-match loop below misses; the common case is untouched.
+        self._wake_calibrator = WakeWordCalibrator(self.wake_words)
 
     @property
     def is_running(self) -> bool:
@@ -416,6 +421,24 @@ class ContinuousVoiceListener:
                             "",
                         ).strip()
                         break
+
+                if wake_detected:
+                    # A real hit confirms any near-miss variant that was
+                    # pending from a recent failed wake attempt — see
+                    # voice_calibration.py.
+                    self._wake_calibrator.confirm_pending_if_followed_by_hit()
+                elif self.config.adaptive_calibration.voice_wake_word_enabled:
+                    variant_hit = self._wake_calibrator.match_promoted_variant(transcript_lower)
+                    if variant_hit:
+                        wake_detected = True
+                        command_text = transcript_lower.replace(variant_hit, "").strip()
+                        self._wake_calibrator.confirm_pending_if_followed_by_hit()
+                    else:
+                        near_miss = self._wake_calibrator.check_near_miss(transcript_lower)
+                        if near_miss:
+                            self._wake_calibrator.record_pending(near_miss)
+
+                self._wake_calibrator.tick()
 
                 if not wake_detected:
                     await asyncio.sleep(0.1)
