@@ -49,6 +49,7 @@
     isThumbExtended,
     handSize,
     predictCursorTarget,
+    trajectoryAgreement,
     type Landmark,
   } from "../gesture/spatialModel";
   import { isTauriRuntime } from "../utils/runtime";
@@ -83,6 +84,12 @@
   // so the cursor-mode click logic can't silently drift from the discrete
   // pinch gesture's own threshold.
   const PINCH_DISTANCE_THRESHOLD = 0.05;
+
+  // How far ahead classifyGesture()'s swipe-direction agreement check looks —
+  // deliberately short and not user-configurable (unlike the cursor bridge's
+  // prediction_ms setting): this only nudges confidence for an
+  // already-classified swipe, it doesn't drive anything continuous.
+  const MOTION_PREDICTION_MS = 50;
 
   // ── Gesture Cursor Control (continuous gesture-to-cursor bridge) ──
   //
@@ -536,24 +543,39 @@
     const pushPull = detectPushPull(landmarks);
     if (pushPull) return pushPull;
 
+    // Predicted near-future landmarks — used below only to scale swipe
+    // confidence by whether the trajectory agrees with the classified
+    // direction (reduces misfires from a single noisy frame), not to
+    // re-decide the classification itself. Not applied to
+    // detectCircularMotion()/detectPushPull(): "agreement" isn't a simple
+    // dx/dy sign check for a tangential/depth motion.
+    const predictedMotion = landmarkFilter.predictAhead(MOTION_PREDICTION_MS);
+
     // Two-finger swipe (peace sign + horizontal motion)
     if (prevIndexPos && indexUp && middleUp && !ringUp && !pinkyUp) {
       const dx = landmarks[WRIST].x - prevIndexPos.x;
-      if (dx < -0.09) return { name: "two_finger_swipe_left", confidence: 0.75 };
-      if (dx > 0.09) return { name: "two_finger_swipe_right", confidence: 0.75 };
+      const predictedDx = predictedMotion ? predictedMotion[WRIST].x - prevIndexPos.x : dx;
+      if (dx < -0.09) {
+        return { name: "two_finger_swipe_left", confidence: 0.75 * trajectoryAgreement(dx, predictedDx) };
+      }
+      if (dx > 0.09) {
+        return { name: "two_finger_swipe_right", confidence: 0.75 * trajectoryAgreement(dx, predictedDx) };
+      }
     }
 
     // Full-hand swipe (all fingers up + horizontal motion)
     if (prevIndexPos && indexUp && middleUp && ringUp && pinkyUp) {
       const dx = landmarks[WRIST].x - prevIndexPos.x;
       const dy = landmarks[WRIST].y - prevIndexPos.y;
+      const predictedDx = predictedMotion ? predictedMotion[WRIST].x - prevIndexPos.x : dx;
+      const predictedDy = predictedMotion ? predictedMotion[WRIST].y - prevIndexPos.y : dy;
       if (Math.abs(dx) > 0.08) {
-        if (dx < -0.08) return { name: "swipe_left", confidence: 0.7 };
-        if (dx > 0.08) return { name: "swipe_right", confidence: 0.7 };
+        if (dx < -0.08) return { name: "swipe_left", confidence: 0.7 * trajectoryAgreement(dx, predictedDx) };
+        if (dx > 0.08) return { name: "swipe_right", confidence: 0.7 * trajectoryAgreement(dx, predictedDx) };
       }
       if (Math.abs(dy) > 0.08) {
-        if (dy < -0.08) return { name: "swipe_up", confidence: 0.7 };
-        if (dy > 0.08) return { name: "swipe_down", confidence: 0.7 };
+        if (dy < -0.08) return { name: "swipe_up", confidence: 0.7 * trajectoryAgreement(dy, predictedDy) };
+        if (dy > 0.08) return { name: "swipe_down", confidence: 0.7 * trajectoryAgreement(dy, predictedDy) };
       }
     }
 
