@@ -55,6 +55,8 @@ DB_FILE = DATA_DIR / "pilot.db"
 AUDIT_FILE = DATA_DIR / "audit.jsonl"
 PERMISSION_AUDIT_DB_FILE = DATA_DIR / "permission_audit.db"
 PERMISSION_AUDIT_KEY_FILE = DATA_DIR / "permission_audit.key"
+AGENT_GATEWAY_AUDIT_DB_FILE = DATA_DIR / "agent_gateway_audit.db"
+AGENT_GATEWAY_AUDIT_KEY_FILE = DATA_DIR / "agent_gateway_audit.key"
 LOG_FILE = STATE_DIR / "pilot.log"
 
 # Derived directories shared across modules — use these instead of hardcoded paths
