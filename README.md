@@ -86,7 +86,7 @@ Heliox OS has achieved true proactive autonomy, transitioning from a reactive as
 - ⚡ **Fire-and-Forget Autonomous Jobs**: Spawn complex multi-step background tasks that decompose, execute, and verify completely independent of the UI or main event loop.
 - 👁️ **Always-On Screen Awareness**: Automatically bootstrapped computer vision that tracks your contextual state cross-platform, natively bridging exactly what you see into the LLM planner. 
 - 🎤 **Continuous Voice Listener**: Real-time push-free 'Hey Heliox' ambient wake-word dispatch for frictionless task execution.
-- 🤚 **30+ Hand Gestures & Air Drawing**: Control your PC via webcam with static poses (Palm, Pinch) and motion gestures (Two-Finger Swipe). A lightweight kinematic prediction layer smooths tracking and reduces misfires.
+- 🤚 **30+ Hand Gestures & Air Drawing**: Control your PC via webcam with static poses (Palm, Pinch) and motion gestures (Two-Finger Swipe). A lightweight kinematic prediction layer smooths tracking and reduces misfires. An opt-in 3D world-model backend (`vision.mediapipe_backend: "tasks"`) adds real-metric-scale depth via MediaPipe's `HandLandmarker` — see [GESTURES.md](GESTURES.md#3d-world-model-layer-mediapipe-tasks).
 - 🖱️ **Gesture Cursor Control** *(off by default)*: Point to move the real OS cursor, pinch to click — opt in via Settings. Open palm always exits instantly.
 - 🎯 **Adaptive Voice & Gesture Calibration** *(on by default)*: A lightweight on-device continual-learning loop personalizes pinch/thumb thresholds and wake-word matching from implicit usage signals — no retraining, no new prompts, bounded and resettable in Settings.
 - 🌀 **Arc Reactor UI & Ambient HUD**: Animated, immersive Tauri overlays responding contextually to system actions.

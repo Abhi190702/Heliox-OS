@@ -93,6 +93,102 @@ first so the recalibration can actually be verified.
 
 ---
 
+## 3D World-Model Layer (MediaPipe Tasks)
+
+An **opt-in backend switch**, `vision.mediapipe_backend` (`"legacy"` default
+/ `"tasks"`), between the two coordinate systems the gesture engine can run
+on:
+
+- **`"legacy"`** (default) — today's `@mediapipe/hands` callback API. Only
+  ever exposes normalized image-space landmarks (`x`/`y` in `[0,1]`, `z`
+  relative and unitless). This is the "Spatial/World-Model Layer" described
+  above — a 2D-normalized-space temporal-filtering + kinematic-extrapolation
+  layer, not real 3D.
+- **`"tasks"`** — `@mediapipe/tasks-vision`'s `HandLandmarker`
+  (`runningMode: "VIDEO"`, `detectForVideo()`), which additionally exposes
+  `worldLandmarks`: real-metric-scale 3D coordinates in **meters**,
+  hand-center-relative. This is what makes a genuine 3D world-model layer
+  possible — the legacy API never gives you metric scale at all.
+
+Flipping the setting requires stopping/restarting the gesture engine (not a
+hot-swap mid-session) — see `VisionConfig.mediapipe_backend` in
+`daemon/pilot/config.py`.
+
+**What the `"tasks"` backend adds** (`lib/gesture/worldModel.ts`, additive
+and separate from `spatialModel.ts`):
+
+- `toWristRelative3D()` — re-anchors `worldLandmarks` (hand-center-relative
+  by default) to the wrist, matching the wrist-relative convention
+  `handSize()`/`thumbExtensionRatio()` already use.
+- `handSize3D()` / `pinchDistance3D()` — metric (meters) analogs of the
+  existing normalized-space hand size / pinch-distance checks. Real,
+  camera-distance-invariant measurements — **new capabilities**, not
+  replacements for the tuned 2D thresholds.
+- `detectPushPull3D()` — a metric-threshold push/pull detector, replacing
+  the ad hoc `±0.06` normalized-z check with a real depth-in-meters
+  threshold. Active only under the `"tasks"` backend.
+- `WorldModelFilterBank` — like `LandmarkFilterBank`, but **coupled** across
+  x/y/z: one shared 3D velocity vector per landmark (a single adaptive
+  cutoff derived from combined 3D speed), instead of three independently
+  extrapolated axes. `predictAhead()` therefore tracks the true 3D motion
+  direction instead of each axis drifting at its own smoothed rate.
+
+**What stays untouched, on the existing 2D path, regardless of which
+backend is active**: every `classifyGesture()` static-pose threshold, the
+gesture-cursor bridge, and gesture calibration. `GestureControl.svelte`
+funnels both backends through one backend-agnostic
+`handleFrameResult(landmarks, worldLandmarks, handednessScore)` — the
+`"legacy"` path always passes `worldLandmarks: null`, and everything
+downstream of that function still classifies off the normalized `landmarks`
+array exactly as before. None of the ~20 empirically-tuned 2D distance
+constants were re-expressed in 3D (see the caution in the "Spatial/World-
+Model Layer" section above — that still applies here unchanged).
+
+**Delegate**: CPU only, unconditionally — GPU delegate support inside
+Tauri's embedded webview (WebView2 on Windows, WebKitGTK on Linux, WKWebView
+on macOS) hasn't been verified cross-platform, so it isn't defaulted on.
+
+**Asset serving**: same self-hosted, no-CDN policy as the legacy backend
+(enforced by `tests/static/no-remote-mediapipe.test.mjs`). A
+`mediapipeTasksVisionAssets()` Vite plugin (`vite.config.ts`, mirroring the
+existing `mediapipeHandsAssets()` plugin) serves the `@mediapipe/tasks-vision`
+WASM loader files plus the vendored model at `/mediapipe/tasks-vision/*`,
+both in dev (middleware) and in the production build (`writeBundle`). CSP
+was verified empirically (dev server + a live browser check) to need **no
+changes** — `HandLandmarker.createFromOptions()` and its WASM graph start
+successfully under the existing `script-src 'self' 'unsafe-eval'` policy,
+with no `worker-src`/`blob:` relaxation required.
+
+**Model provenance**: `vendor/mediapipe/hand_landmarker.task` (float16,
+~7.8MB) was downloaded from Google's official public MediaPipe model
+distribution URL
+(`storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task`)
+and its MD5 checksum verified against the source's `x-goog-hash` response
+header before committing. **License note**: Google's MediaPipe docs
+explicitly license the *code samples* Apache-2.0 but do not explicitly
+state a redistribution license for the model *weights* themselves. This
+file is vendored anyway on the judgment that it's Google's own official
+public distribution URL, used as-is (not fine-tuned or modified) by many
+other open-source projects — flagged here rather than silently assumed. If
+you need to re-fetch or update it, use the same URL and re-verify the MD5
+against `x-goog-hash` before committing.
+
+**Tests**: `worldModel.test.ts` (wrist re-anchoring, metric pinch/hand-size,
+push/pull thresholds, and a cosine-similarity check that `predictAhead()`
+extrapolates along the true 3D direction of a diagonal motion) and an
+extension to `spatialModel.test.ts` (non-zero-z fixtures — every fixture
+before this addition used `z: 0` everywhere, so the existing `dist3d()` z
+term had zero real regression coverage — plus a numeric-pinning test
+confirming the 2D static-pose path stayed bit-identical through this
+migration).
+
+**Not verified in this pass** (no physical webcam in the environment this
+was built in): real-camera `detectPushPull3D()` threshold tuning,
+real-world tracking-quality comparison between backends, and GPU-delegate
+behavior on an actual Windows/macOS/Linux Tauri build.
+
+---
+
 ## Gesture Cursor Control (continuous cursor bridge)
 
 A separate, **off-by-default** mode that continuously drives the real OS
@@ -317,14 +413,18 @@ To add a new gesture:
 | `tauri-app/ui/src/lib/components/GestureControl.svelte` | Core gesture engine + gesture-cursor bridge |
 | `tauri-app/ui/src/lib/gesture/spatialModel.ts` | Spatial/world-model layer — temporal filtering, thumb-extension check, hand quality scoring, kinematic prediction |
 | `tauri-app/ui/src/lib/gesture/spatialModel.test.ts` | Unit tests for the spatial model's pure functions |
+| `tauri-app/ui/src/lib/gesture/worldModel.ts` | Real-metric-scale 3D world-model layer (wrist-relative worldLandmarks, metric hand-size/pinch, push-pull, coupled 3D temporal filtering) — "tasks" backend only |
+| `tauri-app/ui/src/lib/gesture/worldModel.test.ts` | Unit tests for the 3D world-model layer |
+| `tauri-app/ui/vendor/mediapipe/hand_landmarker.task` | Vendored HandLandmarker model (float16) — see provenance/license note above |
+| `tauri-app/ui/vite.config.ts` | `mediapipeTasksVisionAssets()` plugin — self-hosts the Tasks-vision WASM loader + vendored model at `/mediapipe/tasks-vision/*` |
 | `tauri-app/ui/src/lib/gesture/calibration.ts` | On-device gesture calibration — EMA, reversal detection, localStorage store |
 | `tauri-app/ui/src/lib/gesture/calibration.test.ts` | Unit tests for calibration EMA/clamping/reversal-pairing logic |
 | `tauri-app/ui/src/lib/utils/runtime.ts` | `isTauriRuntime()` — used to pick the native vs. daemon-RPC cursor path |
-| `tauri-app/ui/src/lib/stores/settings.ts` | `gesture_cursor`, `adaptive_calibration` settings sections |
+| `tauri-app/ui/src/lib/stores/settings.ts` | `gesture_cursor`, `adaptive_calibration`, `vision.mediapipe_backend` settings sections |
 | `tauri-app/ui/src/lib/components/SettingsPanel.svelte` | Gesture Cursor Control + Gesture/Voice Calibration settings UI |
 | `tauri-app/src-tauri/src/commands.rs` | `move_gesture_cursor`/`click_gesture_cursor` Tauri commands (enigo) |
 | `daemon/pilot/server.py` | `cursor_move`/`cursor_click`, `reset_wake_calibration`/`list_wake_variants` RPC handlers |
-| `daemon/pilot/config.py` | `GestureCursorConfig`, `AdaptiveCalibrationConfig` |
+| `daemon/pilot/config.py` | `GestureCursorConfig`, `AdaptiveCalibrationConfig`, `VisionConfig.mediapipe_backend` |
 | `daemon/pilot/system/voice_calibration.py` | On-device wake-word calibration — Levenshtein near-miss detection, promotion, JSON store |
 | `tauri-app/ui/src/App.svelte` | Gesture to UI navigation handler |
 | `tauri-app/src-tauri/tauri.conf.json` | CSP allowing MediaPipe CDN |
