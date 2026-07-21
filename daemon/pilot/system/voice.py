@@ -21,8 +21,35 @@ from pilot.system.voice_calibration import WakeWordCalibrator
 
 logger = logging.getLogger("pilot.system.voice")
 
+# The currently in-flight speak() call, if any -- module-level so that ANY
+# two callers anywhere in the daemon (executor.py's cognitive-stress-gate
+# phrase, AutonomousExecutor's end-of-job announcement, server.py's voice
+# response path, ...) automatically supersede each other, mirroring the
+# frontend's tts.ts calling speechSynthesis.cancel() before every speak.
+# Keyed by nothing (there's only ever one daemon-side voice output device),
+# same pop/cancel idiom VoiceGestureWorkflowEngine._active_tasks uses per
+# workflow_id, just with a single slot instead of a dict.
+_current_speech_task: asyncio.Task[str] | None = None
+
 
 # ── Text-to-Speech ───────────────────────────────────────────────────
+
+
+async def _supersede_current_speech() -> None:
+    """Cancels whatever speak() call is currently in flight, if any, and
+    waits for it to actually stop (including killing its OS TTS subprocess)
+    before returning."""
+    global _current_speech_task
+    task = _current_speech_task
+    if task is not None and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.debug("Superseded speak() task raised on cancellation", exc_info=True)
+    _current_speech_task = None
 
 
 async def speak(
@@ -32,8 +59,39 @@ async def speak(
     volume: float = 1.0,
     output_file: str | None = None,
 ) -> str:
-    """Speak text aloud using system TTS."""
+    """Speak text aloud using system TTS.
 
+    Supersedes any speak() call still in progress -- the new text always
+    wins immediately rather than overlapping with or queuing behind the
+    old one, the same "cancel-and-replace" semantics tts.ts's speakText()
+    already gives the frontend via speechSynthesis.cancel().
+    """
+    global _current_speech_task
+
+    await _supersede_current_speech()
+
+    task = asyncio.ensure_future(_speak_impl(text, voice, rate, volume, output_file))
+    _current_speech_task = task
+    try:
+        return await task
+    finally:
+        if _current_speech_task is task:
+            _current_speech_task = None
+
+
+async def _speak_impl(
+    text: str,
+    voice: str | None = None,
+    rate: int = 170,
+    volume: float = 1.0,
+    output_file: str | None = None,
+) -> str:
+    """The actual OS-dispatch work for a single speak() call -- split out
+    from speak() so it can be tracked as its own cancellable task (see
+    _current_speech_task/_supersede_current_speech above) while keeping
+    speak()'s own cancellation-propagates-to-proc.kill() behavior intact:
+    cancelling a task that's awaiting another task cancels that inner task
+    too, so nothing about the existing barge-in kill path changes."""
     try:
         from pilot.cognitive.tribe_engine import TribeEngine
 
