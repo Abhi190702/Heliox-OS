@@ -281,6 +281,26 @@ class SelfHealingConfig:
 
 
 @dataclass
+class NarrationConfig:
+    """Live Execution Narrator (see pilot.agents.narrator) — narrates plan
+    execution as it happens and can pre-emptively pause a plan/action on a
+    risk signal this codebase already computes (the Agent Gateway's critic
+    WARN verdict, this session's dom_diff.assess_target pre-execution
+    check) rather than silently discarding it. Off by default: spoken
+    interruptions and pausing execution are new user-facing behavior, not
+    a pure restriction, so this gets the same opt-in-first treatment as
+    gesture_cursor/gesture_workflows/self_healing.
+
+    `interrupt_on_risk` only ever gates a plan/action BEFORE it runs — it
+    never attempts to cancel something already executing."""
+
+    enabled: bool = False
+    narrate_steps: bool = True
+    interrupt_on_risk: bool = True
+    confirm_timeout_seconds: float = 120.0
+
+
+@dataclass
 class ProxyConfig:
     http: str | None = None
     https: str | None = None
@@ -392,6 +412,7 @@ class PilotConfig:
     gateway: GatewayConfig = field(default_factory=GatewayConfig)
     gesture_workflows: GestureWorkflowConfig = field(default_factory=GestureWorkflowConfig)
     self_healing: SelfHealingConfig = field(default_factory=SelfHealingConfig)
+    narration: NarrationConfig = field(default_factory=NarrationConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     rss: RSSConfig = field(default_factory=RSSConfig)
     calendar: CalendarConfig = field(default_factory=CalendarConfig)
