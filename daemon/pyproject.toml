@@ -87,9 +87,16 @@ cognitive = [
     "tribev2 @ git+https://github.com/facebookresearch/tribev2.git",
 ]
 
+# User Manual Supervision (opt-in global keyboard/mouse hook, see
+# pilot.system.input_hook) -- kept as its own extras group since it's a much
+# bigger privacy surface than anything else in `all`.
+supervision = [
+    "pynput>=1.7",
+]
+
 # Everything
 all = [
-    "pilot-daemon[full,automation,vision,browser,documents,cognitive,ssh,network,wasm]",
+    "pilot-daemon[full,automation,vision,browser,documents,cognitive,ssh,network,wasm,supervision]",
 ]
 
 dev = [
