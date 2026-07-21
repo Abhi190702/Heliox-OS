@@ -713,6 +713,25 @@ class PilotServer:
         except Exception:
             logger.warning("AutonomousHealingEngine init failed (non-critical)", exc_info=True)
 
+        # ── Live Execution Narrator (narrates + pre-emptively interrupts
+        # in-progress plan execution, see pilot.agents.narrator) ──
+        # Wiring is entirely via Executor.set_narrator(): once set, every
+        # caller of self._executor.execute() (AutonomousExecutor, the
+        # Voice/Gesture Workflow Engine, the interactive path) is narrated
+        # automatically with zero changes of their own.
+        try:
+            from pilot.agents.narrator import ExecutionNarrator
+
+            self._narrator = ExecutionNarrator(
+                config=self.config,
+                pending_confirms=self._pending_confirms,
+                broadcast_fn=self._broadcast_notification,
+            )
+            self._executor.set_narrator(self._narrator)
+            logger.info("ExecutionNarrator initialized")
+        except Exception:
+            logger.warning("ExecutionNarrator init failed (non-critical)", exc_info=True)
+
         # ── Voice/Gesture Workflow Engine (durable, pausable/resumable
         # multi-step goals spanning multiple voice/gesture inputs) ──
         try:
@@ -832,6 +851,8 @@ class PilotServer:
             "autonomous_job": self._handle_autonomous_job,
             "self_healing_status": self._handle_self_healing_status,
             "self_healing_config_update": self._handle_self_healing_config_update,
+            "narration_status": self._handle_narration_status,
+            "narration_config_update": self._handle_narration_config_update,
             "voice_gesture_workflow_submit": self._handle_voice_gesture_workflow_submit,
             "voice_gesture_workflow_list": self._handle_voice_gesture_workflow_list,
             "voice_gesture_workflow_get": self._handle_voice_gesture_workflow_get,
@@ -2934,6 +2955,59 @@ class PilotServer:
             "cooldown_seconds": cfg.cooldown_seconds,
             "confirm_timeout_seconds": cfg.confirm_timeout_seconds,
             "watched_metrics": cfg.watched_metrics,
+        }
+
+    async def _handle_narration_status(self, params: dict, ws: ServerConnection) -> dict:
+        """Report the Live Execution Narrator's current config.
+
+        Args:
+            params: JSON-RPC parameters (unused).
+            ws: The WebSocket connection.
+
+        Returns:
+            A dict with the current narration config.
+        """
+        cfg = self.config.narration
+        return {
+            "enabled": cfg.enabled,
+            "narrate_steps": cfg.narrate_steps,
+            "interrupt_on_risk": cfg.interrupt_on_risk,
+            "confirm_timeout_seconds": cfg.confirm_timeout_seconds,
+        }
+
+    async def _handle_narration_config_update(self, params: dict, ws: ServerConnection) -> dict:
+        """Update Live Execution Narrator config.
+
+        Approving or denying a specific proposed interrupt reuses the
+        existing generic ``confirm`` RPC (same plan_id/PendingConfirmation
+        mechanism as ThreatContainmentBridge/AutonomousHealingEngine)
+        rather than a dedicated approve/reject RPC.
+
+        Args:
+            params: JSON-RPC parameters, any of {enabled, narrate_steps,
+                interrupt_on_risk, confirm_timeout_seconds}.
+            ws: The WebSocket connection.
+
+        Returns:
+            A dict with status and the updated config.
+        """
+        cfg = self.config.narration
+        if "enabled" in params:
+            cfg.enabled = bool(params["enabled"])
+        if "narrate_steps" in params:
+            cfg.narrate_steps = bool(params["narrate_steps"])
+        if "interrupt_on_risk" in params:
+            cfg.interrupt_on_risk = bool(params["interrupt_on_risk"])
+        if "confirm_timeout_seconds" in params:
+            cfg.confirm_timeout_seconds = float(params["confirm_timeout_seconds"])
+
+        self.config.save()
+        return {
+            "status": "ok",
+            "enabled": cfg.enabled,
+            "narrate_steps": cfg.narrate_steps,
+            "interrupt_on_risk": cfg.interrupt_on_risk,
+            "confirm_timeout_seconds": cfg.confirm_timeout_seconds,
         }
 
     async def _handle_agent_routing(self, params: dict, ws: ServerConnection) -> dict:
