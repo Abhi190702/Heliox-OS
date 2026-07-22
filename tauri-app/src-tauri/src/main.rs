@@ -259,7 +259,7 @@ fn get_rss_feed() -> Vec<serde_json::Value> {
     }
     if feed.len() == 1 {
         feed.push(serde_json::json!({
-            "title": "TRIBE v2 Cognitive Engine & Threat Containment Bridge Live",
+            "title": "Cognitive Engine & Threat Containment Bridge Live",
             "url": "https://github.com/VyomKulshrestha/Heliox-OS",
             "source": "System Feature"
         }));

@@ -261,7 +261,7 @@ function daemonTokenDevPlugin(): Plugin {
                 `[Monitor] Host: ${os.hostname()} (${os.platform()})`,
                 "[Core] ReAct Loop active on ws://127.0.0.1:8785",
                 "[System] Threat Containment Bridge initialized",
-                "[Cognitive] TRIBE v2 Neural Cognitive HUD active",
+                "[Cognitive] Cognitive HUD active",
               ];
               if (existsSync(logFile)) {
                 try {
@@ -413,7 +413,7 @@ function daemonTokenDevPlugin(): Plugin {
 
                 if (feedItems.length === 1) {
                   feedItems.push({
-                    title: `TRIBE v2 Cognitive Engine & Threat Containment Bridge Live`,
+                    title: `Cognitive Engine & Threat Containment Bridge Live`,
                     url: "https://github.com/VyomKulshrestha/Heliox-OS",
                     source: "System Feature"
                   });

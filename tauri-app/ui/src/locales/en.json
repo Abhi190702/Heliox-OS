@@ -158,7 +158,7 @@
     "supervision": "User Manual Supervision",
     "supervision_warning": "Watches your own independent screen activity (window title + an occasional OCR text snippet) to offer cognitive coaching and warn about risky-looking content. Off by default. This is separate from, and does not affect, Heliox's own execution narration.",
     "supervision_cognitive_coaching": "Cognitive Coaching",
-    "supervision_cognitive_coaching_desc": "Feeds a real screen snippet + window title to TRIBE v2 and offers a gentle check-in on sustained stress/overload",
+    "supervision_cognitive_coaching_desc": "Feeds a real screen snippet + window title to the cognitive engine and offers a gentle check-in on sustained stress/overload",
     "supervision_risk_detection": "Risk Pattern Detection",
     "supervision_risk_detection_desc": "Matches the OCR snippet against a small, explicit table of destructive-action patterns (e.g. rm -rf, DROP TABLE)",
     "supervision_hook_warning": "This installs a system-wide keyboard and mouse hook that observes your typing and clicks outside Heliox, to check for the same risky patterns. Off by default. Nothing you type or click is ever saved to disk or sent anywhere — only the fact that a risk pattern matched. Turning this off instantly removes the hook.",

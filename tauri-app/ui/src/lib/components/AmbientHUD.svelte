@@ -7,7 +7,7 @@
   import { call, isConnected } from "../api/daemon";
   import { invoke } from "../api/invoke";
   import BudgetMeter from "./BudgetMeter.svelte";
-  import TribeHUD from "./TribeHUD.svelte";
+  import CognitiveHUD from "./CognitiveHUD.svelte";
 
   // ── State ──
   let cpuPercent = $state(0);
@@ -244,7 +244,7 @@
       </div>
 
       <BudgetMeter />
-      <TribeHUD />
+      <CognitiveHUD />
 
       <!-- Uptime & Network -->
       <div class="hud-divider"></div>

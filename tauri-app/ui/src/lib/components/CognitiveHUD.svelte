@@ -6,10 +6,10 @@
   let load = $state(0);
   let modality = $state("VISUAL");
   let connected = $state(false);
-  
-  // Track basic user activity to feed real stimuli to the neural engine
+
+  // Track basic user activity to feed real stimuli to the cognitive engine
   let currentStimulus = "User is passively observing the dashboard";
-  
+
   function updateStimulus(activity: string) {
     currentStimulus = activity;
   }
@@ -20,7 +20,6 @@
       return;
     }
     try {
-      // Pass the stimulus so the backend uses the real TRIBE model instead of heuristics
       const state: any = await call("cognitive_state", { stimulus: currentStimulus });
       if (state && !state.error) {
         attention = state.attention_score || 0;
@@ -39,15 +38,15 @@
   $effect(() => {
     fetchCognitiveState();
     const interval = setInterval(fetchCognitiveState, 2000);
-    
+
     const onMouseMove = () => updateStimulus("User is actively moving the mouse and exploring the interface");
     const onKeyPress = () => updateStimulus("User is actively typing on the keyboard");
     const onClick = () => updateStimulus("User is clicking and interacting with the system");
-    
+
     window.addEventListener("mousemove", onMouseMove, { once: true });
     window.addEventListener("keypress", onKeyPress);
     window.addEventListener("click", onClick);
-    
+
     // Reset to passive if idle for 5 seconds
     const idleInterval = setInterval(() => {
       updateStimulus("User is passively observing the dashboard");
@@ -82,11 +81,11 @@
   }
 </script>
 
-<div class="tribe-hud" class:active={connected}>
+<div class="cognitive-hud" class:active={connected}>
   <div class="hud-header">
     <div class="title">
-      <span class="tribe-dot"></span>
-      TRIBE v2 COGNITIVE STATE
+      <span class="cognitive-dot"></span>
+      COGNITIVE STATE
     </div>
     <div class="modality">{modality}</div>
   </div>
@@ -122,16 +121,16 @@
       </div>
     </div>
   </div>
-  
+
   {#if !connected}
     <div class="overlay">
-      <span>INITIALIZING NEURAL LINK...</span>
+      <span>CONNECTING...</span>
     </div>
   {/if}
 </div>
 
 <style>
-  .tribe-hud {
+  .cognitive-hud {
     position: relative;
     margin-top: 14px;
     padding: 12px;
@@ -141,8 +140,8 @@
     overflow: hidden;
     transition: all 0.5s ease;
   }
-  
-  .tribe-hud.active {
+
+  .cognitive-hud.active {
     border-color: rgba(124, 58, 237, 0.5);
     box-shadow: 0 0 20px rgba(124, 58, 237, 0.1), inset 0 0 10px rgba(124, 58, 237, 0.05);
   }
@@ -164,7 +163,7 @@
     color: rgba(255, 255, 255, 0.9);
   }
 
-  .tribe-dot {
+  .cognitive-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;

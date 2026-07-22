@@ -62,7 +62,7 @@ export async function invoke<T = any>(command: string, args?: any): Promise<T> {
       "[System] Heliox OS Agent Daemon Connected",
       "[Core] ReAct Loop active on ws://127.0.0.1:8785",
       "[Monitor] System health metrics normal",
-      "[Cognitive] TRIBE v2 Neural Cognitive HUD loaded",
+      "[Cognitive] Cognitive HUD loaded",
     ] as unknown as T;
   }
   if (command === "get_agent_activity") {
@@ -77,7 +77,7 @@ export async function invoke<T = any>(command: string, args?: any): Promise<T> {
   if (command === "get_rss_feed") {
     return [
       { title: "Heliox OS v0.7.1 Released with JARVIS Autonomy", url: "https://github.com/VyomKulshrestha/Heliox-OS/releases", source: "GitHub" },
-      { title: "TRIBE v2 Cognitive Engine Integration Live", url: "https://helioxos.dev", source: "Heliox Blog" },
+      { title: "Cognitive Engine Integration Live", url: "https://helioxos.dev", source: "Heliox Blog" },
     ] as unknown as T;
   }
   if (command === "get_status_metrics") {
