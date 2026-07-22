@@ -94,46 +94,59 @@ async def test_synthesize_propagates_import_error_when_package_missing():
         await pocket_tts.synthesize("hello", "alba")
 
 
+def _fake_sounddevice_module(play=None, wait=None, stop=None) -> ModuleType:
+    """sounddevice is, like pocket_tts, an optional dependency never
+    installed in CI (see test_continuous_recorder.py's equivalent
+    real-hardware avoidance) -- patching "sounddevice.play" directly would
+    require the real package to be importable just to resolve the patch
+    target, which fails with ModuleNotFoundError when it isn't installed.
+    Injecting a fake module via sys.modules, mirroring
+    _fake_pocket_tts_module above, works regardless of whether the real
+    package is present."""
+    module = ModuleType("sounddevice")
+    module.play = play or MagicMock()
+    module.wait = wait or MagicMock()
+    module.stop = stop or MagicMock()
+    return module
+
+
 @pytest.mark.asyncio
 async def test_play_calls_sounddevice_play_and_wait():
     audio = np.array([1, 2, 3], dtype=np.float32)
+    play_mock = MagicMock()
+    wait_mock = MagicMock()
 
-    with patch("sounddevice.play") as mock_play, patch("sounddevice.wait") as mock_wait:
+    with patch.dict(sys.modules, {"sounddevice": _fake_sounddevice_module(play_mock, wait_mock)}):
         await pocket_tts.play(audio, 24000)
 
-    mock_play.assert_called_once_with(audio, 24000)
-    mock_wait.assert_called_once()
+    play_mock.assert_called_once_with(audio, 24000)
+    wait_mock.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_play_calls_sounddevice_stop_on_cancellation():
     audio = np.array([1, 2, 3], dtype=np.float32)
+    stop_mock = MagicMock()
+    fake_sd = _fake_sounddevice_module(wait=MagicMock(side_effect=asyncio.CancelledError()), stop=stop_mock)
 
-    with (
-        patch("sounddevice.play"),
-        patch("sounddevice.wait", side_effect=asyncio.CancelledError()),
-        patch("sounddevice.stop") as mock_stop,
-        pytest.raises(asyncio.CancelledError),
-    ):
+    with patch.dict(sys.modules, {"sounddevice": fake_sd}), pytest.raises(asyncio.CancelledError):
         await pocket_tts.play(audio, 24000)
 
-    mock_stop.assert_called_once()
+    stop_mock.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_synthesize_and_play_composes_synthesize_and_play():
     model = _fake_model(sample_rate=24000)
-    fake_module = _fake_pocket_tts_module(model)
+    fake_pocket_tts = _fake_pocket_tts_module(model)
+    play_mock = MagicMock()
+    fake_sd = _fake_sounddevice_module(play_mock)
 
-    with (
-        patch.dict(sys.modules, {"pocket_tts": fake_module}),
-        patch("sounddevice.play") as mock_play,
-        patch("sounddevice.wait"),
-    ):
+    with patch.dict(sys.modules, {"pocket_tts": fake_pocket_tts, "sounddevice": fake_sd}):
         await pocket_tts.synthesize_and_play("hello", "alba")
 
     model.generate_audio.assert_called_once_with("state-for-alba", "hello")
-    mock_play.assert_called_once()
+    play_mock.assert_called_once()
 
 
 @pytest.mark.asyncio
