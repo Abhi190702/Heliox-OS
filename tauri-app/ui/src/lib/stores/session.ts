@@ -711,6 +711,20 @@ function createSession() {
     }
   }
 
+  async function abort() {
+    try {
+      const res = (await call("abort")) as { status: string };
+      if (res.status === "no_active_execution") {
+        addSystemMessage("Nothing to stop.");
+      }
+      // On "aborted", the in-flight execute/resume_plan RPC resolves on its
+      // own with status "cancelled" (handled above), which clears loading --
+      // no state update needed here.
+    } catch (err) {
+      addSystemMessage(`Stop failed: ${String(err instanceof Error ? err.message : err)}`);
+    }
+  }
+
   function addSystemMessage(text: string) {
     update((s) => ({
       ...s,
@@ -758,6 +772,7 @@ function createSession() {
     cancelRollback,
     confirmRollback,
     exportChat,
+    abort,
     addSystemMessage,
     clearMessages,
     resetUsage,

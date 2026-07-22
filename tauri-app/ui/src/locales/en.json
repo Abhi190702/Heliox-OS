@@ -19,7 +19,8 @@
     "thinking": "Thinking",
     "streaming": "streaming",
     "copy": "Copy",
-    "copied": "Copied!"
+    "copied": "Copied!",
+    "stop": "Stop"
   },
   "plan": {
     "label": "PLAN",

@@ -260,6 +260,7 @@
                         <div class="msg-header">
                           <span class="msg-label">HELIOX</span>
                           <span class="phase-badge">{$_('chat.streaming')}</span>
+                          <button class="stop-btn" type="button" onclick={() => session.abort()}>{$_('chat.stop')}</button>
                         </div>
                         <span class="msg-text">{$session.streamingText}</span>
                       </div>
@@ -268,6 +269,7 @@
                         <div class="msg-header">
                           <span class="msg-label">HELIOX</span>
                           <span class="phase-badge">{$session.phase || $_('chat.thinking')}</span>
+                          <button class="stop-btn" type="button" onclick={() => session.abort()}>{$_('chat.stop')}</button>
                         </div>
                         <span class="msg-text loading-dots">
                           {$session.phase ? `${$session.phase}` : $_('chat.thinking')}
@@ -754,6 +756,23 @@
     background: var(--accent-muted);
     color: var(--accent);
     text-transform: lowercase;
+  }
+
+  .stop-btn {
+    margin-left: auto;
+    padding: 3px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--danger);
+    background: var(--danger-bg);
+    border-radius: var(--radius-sm);
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+
+  .stop-btn:hover {
+    background: var(--danger);
+    color: var(--bg-primary);
   }
 
   .plan-explanation {
