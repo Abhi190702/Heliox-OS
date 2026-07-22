@@ -83,6 +83,29 @@ Run the full ReAct pipeline for a user command.
 ```
 `status` is one of `"success"`, `"partial_failure"`, `"error"`, or `"cancelled"`.
 
+#### `abort`
+Stop the current execution — both cooperatively and, where possible, by
+really killing whatever is in flight right now. Sets the per-session
+`cancel_event` (so the Orchestrator/Executor halt at the next action
+boundary, as before), **and** cancels the currently tracked interactive
+execution task — cascading all the way down to a mid-flight shell
+subprocess's `proc.kill()` — **and** interrupts every live PTY session
+(`pty_exec` can't be stopped by task cancellation alone; see
+`PtySession.interrupt()`). See **Mid-flight Cancellation** in `SECURITY.md`
+for the full design and known scope limits.
+
+Returns immediately — cancellation propagates asynchronously. The in-flight
+`execute`/`resume_plan` call observes it on its own and resolves with
+`{"status": "cancelled", ...}` (see `execute` above).
+
+**Params:** `{}` (none)
+
+**Result:**
+```json
+{ "status": "aborted" }
+```
+`{ "status": "no_active_execution" }` if nothing was running to stop.
+
 #### `confirm`
 Resolve a pending confirmation gate (see `confirm_required` notification).
 
