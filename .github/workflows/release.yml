@@ -10,6 +10,42 @@ permissions:
   contents: write
 
 jobs:
+  # Publishes the daemon (pilot-daemon) to PyPI so the desktop app's
+  # first-run setup (tauri-app/src-tauri/src/main.rs's
+  # setup_venv_in_background, which runs `pip install pilot-daemon[all]`)
+  # and the .deb postinst script actually have a real package to install --
+  # without this, those install commands fail on a real user's machine
+  # since pilot-daemon has never been published. Runs independently of the
+  # Tauri builds below (no `needs:`) so a PyPI publish problem (e.g. the
+  # tagged version wasn't bumped in daemon/pyproject.toml, so PyPI rejects
+  # the re-upload) never blocks the app installers from being built and
+  # released.
+  publish-daemon-to-pypi:
+    name: Publish daemon to PyPI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: pip install build twine
+
+      - name: Build daemon distribution
+        working-directory: daemon
+        run: python -m build
+
+      - name: Publish to PyPI
+        working-directory: daemon
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
+
   build-tauri:
     strategy:
       fail-fast: false
