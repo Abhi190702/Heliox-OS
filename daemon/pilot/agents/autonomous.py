@@ -232,22 +232,33 @@ class AutonomousExecutor:
 
         job.completed_at = time.time()
         await self._notify("autonomous_complete", job)
+        await self._announce_completion(job)
 
-        # Announce via TTS
+        # Cleanup
+        self._active_tasks.pop(job.job_id, None)
+
+    async def _announce_completion(self, job: AutonomousJob) -> None:
+        """Speaks the job's completion status directly on the daemon's own
+        OS audio output (pilot.system.voice.speak(), NOT the frontend's
+        speechSynthesis) and broadcasts a paired daemon_speech notification
+        so the frontend shows a matching text bubble (session.ts's
+        addSystemMessage) -- without it, the announcement has zero visual
+        trace. daemon_speech is display-only; the frontend must never also
+        call speakText() for it, or the phrase would be spoken twice."""
         try:
             from pilot.system.voice import speak
 
             if job.status == JobStatus.SUCCESS:
-                await speak(f"Task complete. {job.result_summary}")
+                announcement = f"Task complete. {job.result_summary}"
             elif job.status == JobStatus.PARTIAL:
-                await speak(f"Task partially complete. {job.result_summary}")
+                announcement = f"Task partially complete. {job.result_summary}"
             else:
-                await speak(f"Task failed. {job.result_summary}")
+                announcement = f"Task failed. {job.result_summary}"
+            await speak(announcement)
+            if self._broadcast:
+                await self._broadcast("daemon_speech", {"text": announcement, "source": "autonomous_job"})
         except Exception:
             pass
-
-        # Cleanup
-        self._active_tasks.pop(job.job_id, None)
 
     async def _execute_single_step(self, job: AutonomousJob) -> None:
         """Execute a simple (non-decomposed) task."""

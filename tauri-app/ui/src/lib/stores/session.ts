@@ -358,6 +358,15 @@ function createSession() {
           ],
         }));
         break;
+
+      case "daemon_speech":
+        // The daemon already spoke this out loud via its own OS-level TTS
+        // (pilot.system.voice.speak(), e.g. the cognitive-stress-gate phrase
+        // or AutonomousExecutor's end-of-job announcement) -- this is
+        // display-only, so it must NOT also call speakText() here, or the
+        // phrase would be spoken twice (daemon audio + frontend speechSynthesis).
+        addSystemMessage(String(p.text ?? ""));
+        break;
     }
   });
 

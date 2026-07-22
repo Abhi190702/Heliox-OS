@@ -1237,6 +1237,17 @@ Emitted once on startup when a new daemon version introduces new capabilities.
 
 ---
 
+### `daemon_speech`
+Display-only pairing for text the daemon has already spoken directly on its own OS audio output via `pilot.system.voice.speak()` (e.g. `executor.py`'s cognitive-stress-gate pause, `AutonomousExecutor`'s end-of-job announcement) — a separate, daemon-side TTS path from the frontend's own `speechSynthesis` (see `execution_narration`, above). The frontend must render `text` as a chat bubble (`session.ts`'s `addSystemMessage`) and must **never** also call `speakText()`/`speechSynthesis` for it, or the phrase would be spoken twice.
+
+```json
+{ "text": "Your focus state is low. Confirming in 10 seconds.", "source": "stress_gate" }
+```
+
+`source` is one of `stress_gate` (executor.py's cognitive-stress-gate pause) or `autonomous_job` (AutonomousExecutor's end-of-job announcement).
+
+---
+
 ## 3. Shared Object Schemas
 
 ### Action object

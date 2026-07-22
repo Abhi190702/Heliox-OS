@@ -484,6 +484,7 @@ class PilotServer:
         await self._gateway_audit.initialize()
         self._agent_gateway = AgentGateway(self.config, permissions, self._destructive_critic, self._gateway_audit)
         self._executor.set_gateway(self._agent_gateway)
+        self._executor.set_broadcast(self._broadcast_notification)
 
         # Advanced agent components
         self._reflector = Reflector(model_router)

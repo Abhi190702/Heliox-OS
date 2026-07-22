@@ -95,6 +95,7 @@ class Executor:
         self._plugin_registry = None
         self._simulation_sandbox = SimulationSandbox(allowed_commands=config.restrictions.sandbox_allowed_commands)
         self._narrator: Any = None
+        self._broadcast: Any = None
         self._last_output = ""  # For output chaining between steps
         self._largest_output = ""  # Largest output from any step in the pipeline
 
@@ -288,6 +289,16 @@ class Executor:
         runs -- callers (AutonomousExecutor, VoiceGestureWorkflowEngine,
         the interactive path) need no changes of their own."""
         self._narrator = narrator
+
+    def set_broadcast(self, fn: Any) -> None:
+        """Wire in the WebSocket broadcast function after construction, same
+        post-construction pattern as set_gateway/set_narrator. Used for
+        events that aren't shaped like narration (e.g. the cognitive-
+        stress-gate pause, which speaks on the daemon's own OS audio via
+        pilot.system.voice.speak() and needs a paired daemon_speech
+        notification so the frontend shows a matching text bubble instead
+        of the phrase having zero visual trace)."""
+        self._broadcast = fn
 
     def _analyze_dependencies(self, actions: list[Action]) -> list[list[Action]]:
         """Analyze action dependencies and return batches that can run in parallel.
@@ -735,10 +746,16 @@ class Executor:
                 logger.warning(f"Cognitive stress triggered for {action.action_type}. Pausing 10s.")
                 import asyncio
 
+                phrase = "Your focus state is low. Confirming in 10 seconds."
                 try:
                     from pilot.system.voice import speak
 
-                    await speak("Your focus state is low. Confirming in 10 seconds.", rate=160)
+                    await speak(phrase, rate=160)
+                    if self._broadcast is not None:
+                        # Display-only: the daemon already spoke `phrase` on
+                        # its own OS audio above -- must not also trigger
+                        # frontend speechSynthesis, or it would speak twice.
+                        await self._broadcast("daemon_speech", {"text": phrase, "source": "stress_gate"})
                 except Exception:
                     pass
                 await asyncio.sleep(10)
