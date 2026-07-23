@@ -170,3 +170,85 @@ class TestAgentGatewayAuthorize:
         # untagged call sites must not suddenly break.
         decision = await gateway.authorize(_plan(ActionType.BROWSER_EXECUTE_JS), InvocationSource.UNKNOWN)
         assert decision.allowed is True
+
+
+class TestPerSpecialistAgentSourceProfiles:
+    """Every specialist agent that forwards to the shared Executor now gets
+    its own gateway-audited SourceProfile instead of silently defaulting to
+    the unrestricted 'interactive' floor -- see base_agent.py's
+    get_invocation_source() and gateway.py's InvocationSource docstring."""
+
+    def test_all_nine_specialist_profiles_exist(self):
+        for key in (
+            "system_agent",
+            "ssh_agent",
+            "code_agent",
+            "monitor_agent",
+            "comm_agent",
+            "rss_agent",
+            "calendar_agent",
+            "forensics_agent",
+            "semantic_search_agent",
+        ):
+            assert key in DEFAULT_SOURCE_PROFILES
+
+    @pytest.mark.asyncio
+    async def test_system_agent_still_allows_its_own_broad_capabilities(self, gateway):
+        # SystemAgent's job genuinely requires this reach (POWER_SHUTDOWN,
+        # REGISTRY_WRITE, FILE_DELETE) -- the profile exists for audit
+        # attribution, not to restrict a role that legitimately needs it.
+        for action_type in (ActionType.POWER_SHUTDOWN, ActionType.REGISTRY_WRITE, ActionType.FILE_DELETE):
+            decision = await gateway.authorize(_plan(action_type), InvocationSource.SYSTEM_AGENT)
+            assert decision.allowed is True, f"{action_type} should be allowed for system_agent"
+
+    @pytest.mark.asyncio
+    async def test_code_agent_allows_shell_command_denies_root(self, gateway):
+        decision = await gateway.authorize(_plan(ActionType.SHELL_COMMAND), InvocationSource.CODE_AGENT)
+        assert decision.allowed is True
+        assert DEFAULT_SOURCE_PROFILES["code_agent"].allow_root is False
+
+    @pytest.mark.asyncio
+    async def test_comm_agent_denied_shell_command(self, gateway):
+        """CommunicationAgent (API_SEND_EMAIL/SLACK/DISCORD/WEBHOOK/NOTIFY)
+        has no legitimate reason to ever touch the shell family -- this is
+        the real, meaningful hardening a defaulted-to-interactive floor
+        never provided: a bug that somehow routed SHELL_COMMAND to this
+        agent is now actually blocked, not silently allowed."""
+        decision = await gateway.authorize(_plan(ActionType.SHELL_COMMAND), InvocationSource.COMMUNICATION_AGENT)
+        assert decision.allowed is False
+
+    @pytest.mark.asyncio
+    async def test_comm_agent_allows_its_own_send_email_action(self, gateway):
+        decision = await gateway.authorize(_plan(ActionType.API_SEND_EMAIL), InvocationSource.COMMUNICATION_AGENT)
+        assert decision.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_forensics_agent_is_read_only_across_every_family(self, gateway):
+        assert all(
+            tier == int(PermissionTier.READ_ONLY)
+            for tier in DEFAULT_SOURCE_PROFILES["forensics_agent"].max_tier.values()
+        )
+        # Its own action (LOG_ANALYZE) is itself read-only, so it's still allowed.
+        decision = await gateway.authorize(_plan(ActionType.LOG_ANALYZE), InvocationSource.FORENSICS_AGENT)
+        assert decision.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_forensics_agent_denied_file_delete(self, gateway):
+        decision = await gateway.authorize(_plan(ActionType.FILE_DELETE), InvocationSource.FORENSICS_AGENT)
+        assert decision.allowed is False
+
+    @pytest.mark.asyncio
+    async def test_calendar_agent_allows_delete_event_denies_shell(self, gateway):
+        allowed = await gateway.authorize(_plan(ActionType.CALENDAR_DELETE_EVENT), InvocationSource.CALENDAR_AGENT)
+        assert allowed.allowed is True
+        denied = await gateway.authorize(_plan(ActionType.SHELL_COMMAND), InvocationSource.CALENDAR_AGENT)
+        assert denied.allowed is False
+
+    def test_no_specialist_profile_allows_root_except_system_agent(self):
+        # system_agent matches "interactive"'s full ceiling (including
+        # allow_root=True) because its job genuinely needs it; every other
+        # specialist agent should never need root through the gateway.
+        for key, profile in DEFAULT_SOURCE_PROFILES.items():
+            if key in ("interactive", "system_agent"):
+                continue
+            assert profile.allow_root is False, f"{key} should not allow_root"

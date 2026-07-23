@@ -52,7 +52,13 @@ logger = logging.getLogger("pilot.security.gateway")
 class InvocationSource(StrEnum):
     """Where a plan being executed originated from. Threaded through
     `Executor.execute()` rather than stored on `Action`/`ActionPlan` itself,
-    to avoid touching the ~150 existing action-dispatch call sites."""
+    to avoid touching the ~150 existing action-dispatch call sites.
+
+    Values matching a specialist agent are deliberately identical to that
+    agent's `AgentRole.value` (see `pilot.agents.base_agent.AgentRole`) so
+    `BaseAgent.get_invocation_source()` can derive one from the other with
+    a single `InvocationSource(self.role.value)` — one canonical name per
+    agent, not two enums drifting independently."""
 
     INTERACTIVE = "interactive"
     AUTONOMOUS = "autonomous"
@@ -60,6 +66,22 @@ class InvocationSource(StrEnum):
     VOICE = "voice"
     GESTURE = "gesture"
     SELF_HEALING = "self_healing"
+    # Per-specialist-agent sources — see SECURITY.md's Agent Gateway section
+    # for why these were added: previously only web_agent/autonomous/voice/
+    # gesture/self_healing were ever explicitly declared, so ~20 other
+    # sub-agent call sites (SystemAgent, CodeAgent, CommunicationAgent,
+    # ForensicsAgent, etc.) silently fell through to the unrestricted
+    # "interactive" floor regardless of which specialist agent actually
+    # issued the action.
+    SYSTEM_AGENT = "system_agent"
+    SSH_AGENT = "ssh_agent"
+    CODE_AGENT = "code_agent"
+    MONITOR_AGENT = "monitor_agent"
+    COMMUNICATION_AGENT = "comm_agent"
+    RSS_AGENT = "rss_agent"
+    CALENDAR_AGENT = "calendar_agent"
+    FORENSICS_AGENT = "forensics_agent"
+    SEMANTIC_SEARCH_AGENT = "semantic_search_agent"
     UNKNOWN = "unknown"  # fail-open bucket for call sites not yet tagged
 
 
@@ -209,6 +231,105 @@ DEFAULT_SOURCE_PROFILES: dict[str, SourceProfile] = {
             "registry_write",
             "browser_execute_js",
         ],
+        allow_root=False,
+    ),
+    # ── Per-specialist-agent profiles ──
+    # Ceilings below are derived directly from each agent's own declared
+    # capabilities (pilot/agents/*.py's get_capabilities()/can_handle()),
+    # not guessed — see SECURITY.md for the full accounting. Where an
+    # agent's job genuinely needs broad reach (SystemAgent), the profile
+    # matches "interactive"'s own ceiling: the point isn't to further
+    # restrict a role whose job requires this much, it's that the action
+    # is now explicitly attributed to "system_agent" in the audit log
+    # instead of silently defaulting to an untagged floor.
+    "system_agent": SourceProfile(
+        max_tier={f.value: int(PermissionTier.ROOT_CRITICAL) for f in ActionFamily},
+    ),
+    # SshAgent never routes through the shared Executor at all (it opens
+    # its own Paramiko connections, hard-restricted to
+    # config.ssh.allowed_hosts) — this profile exists only so
+    # `_profile_for()` never has to guess if that ever changes.
+    "ssh_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.SYSTEM_MODIFY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.OTHER.value: int(PermissionTier.READ_ONLY),
+        },
+        allow_root=False,
+    ),
+    # CODE_EXECUTE/SHELL_COMMAND/SHELL_SCRIPT/PTY_EXEC/SKILL_RUN all top
+    # out at SYSTEM_MODIFY under actions.py's own permission_tier property;
+    # DESTRUCTIVE leaves headroom without granting root, which no
+    # code-execution action should ever need through this agent.
+    "code_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.DESTRUCTIVE),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.OTHER.value: int(PermissionTier.USER_WRITE),
+        },
+        allow_root=False,
+    ),
+    # Read-only system-metrics reporting only (BackgroundTaskManager driven
+    # directly, doesn't route through the shared Executor today either —
+    # profiled for when/if it ever does).
+    "monitor_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.OTHER.value: int(PermissionTier.USER_WRITE),
+        },
+        allow_root=False,
+    ),
+    # API_SEND_EMAIL/API_SLACK/API_DISCORD/API_WEBHOOK/NOTIFY are all
+    # "other"-family, topping out at SYSTEM_MODIFY — this agent has no
+    # legitimate reason to ever touch shell/browsing/system_control.
+    "comm_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.OTHER.value: int(PermissionTier.SYSTEM_MODIFY),
+        },
+        allow_root=False,
+    ),
+    # API_REQUEST only (ALWAYS_SAFE-tier) — a narrow read/fetch role, and
+    # (like monitor_agent) doesn't route through the shared Executor today.
+    "rss_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.OTHER.value: int(PermissionTier.USER_WRITE),
+        },
+        allow_root=False,
+    ),
+    # CALENDAR_DELETE_EVENT is DESTRUCTIVE-tier ("other" family); nothing
+    # this agent does ever touches shell/browsing/system_control (talks to
+    # caldav/icalendar directly, doesn't route through the shared Executor
+    # today either).
+    "calendar_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.OTHER.value: int(PermissionTier.DESTRUCTIVE),
+        },
+        allow_root=False,
+    ),
+    # LOG_ANALYZE is its only action, read-only — this agent should never
+    # need to write/modify anything at all.
+    "forensics_agent": SourceProfile(
+        max_tier={f.value: int(PermissionTier.READ_ONLY) for f in ActionFamily},
+        allow_root=False,
+    ),
+    # WORKSPACE_INDEX/WORKSPACE_SEARCH are both read-only (talks to the
+    # local workspace index directly, doesn't route through the shared
+    # Executor today either).
+    "semantic_search_agent": SourceProfile(
+        max_tier={f.value: int(PermissionTier.READ_ONLY) for f in ActionFamily},
         allow_root=False,
     ),
 }

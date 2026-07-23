@@ -104,7 +104,9 @@ class CodeAgent(BaseAgent):
             raw_input=user_input,
         )
 
-        results = await self._executor.execute(sub_plan, scope_override=scope_override)
+        results = await self._executor.execute(
+            sub_plan, invocation_source=self.get_invocation_source(), scope_override=scope_override
+        )
 
         # Auto-debug: if any code execution failed, try to fix and re-run
         failed = [r for r in results if not r.success and r.action.action_type == ActionType.CODE_EXECUTE]

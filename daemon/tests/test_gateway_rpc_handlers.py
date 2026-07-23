@@ -104,6 +104,16 @@ class TestGatewayPolicyGetAndUpdate:
             "voice",
             "gesture",
             "self_healing",
+            # Per-specialist-agent profiles -- see gateway.py's InvocationSource
+            "system_agent",
+            "ssh_agent",
+            "code_agent",
+            "monitor_agent",
+            "comm_agent",
+            "rss_agent",
+            "calendar_agent",
+            "forensics_agent",
+            "semantic_search_agent",
         }
 
     @pytest.mark.asyncio

@@ -22,6 +22,7 @@ from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from pilot.actions import ActionPlan, ActionResult, ActionType
+from pilot.security.gateway import InvocationSource
 
 if TYPE_CHECKING:
     from pilot.agents.orchestrator import AgentOrchestrator
@@ -175,6 +176,23 @@ class BaseAgent(ABC):
     def get_permission_tier(self) -> int:
         """Return the minimum permission tier required (default: 1)."""
         return 1
+
+    def get_invocation_source(self) -> InvocationSource:
+        """The Agent Gateway `SourceProfile` (see `pilot.security.gateway`)
+        this agent's actions are scoped under when forwarded to the shared
+        `Executor`. `InvocationSource`'s specialist-agent members are
+        deliberately identical to `AgentRole.value`, so this derives one
+        from the other with no per-subclass override needed — every
+        concrete agent gets its own gateway-audited identity instead of
+        silently defaulting to the unrestricted `interactive` floor (the
+        gap this method closes — see SECURITY.md's Agent Gateway section).
+        Falls back to `UNKNOWN` for roles with no matching source (e.g.
+        `ORCHESTRATOR`/`GENERAL`, which never call `Executor.execute()`
+        directly)."""
+        try:
+            return InvocationSource(self.role.value)
+        except ValueError:
+            return InvocationSource.UNKNOWN
 
     def get_resource_needs(self) -> set[str]:
         """Return set of resource requirements (e.g., 'browser', 'screen', 'audio')."""

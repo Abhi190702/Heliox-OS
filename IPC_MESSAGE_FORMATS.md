@@ -181,7 +181,7 @@ Verify the HMAC hash-chain integrity of the Agent Gateway audit log — a separa
 ```
 
 #### `gateway_policy_get`
-Return the current per-`InvocationSource` enforced floors (`interactive`, `autonomous`, `web_agent`, `voice`, `gesture`).
+Return the current per-`InvocationSource` enforced floors: `interactive`, `autonomous`, `web_agent`, `voice`, `gesture`, `self_healing`, plus one per `AgentOrchestrator` specialist role (`system_agent`, `ssh_agent`, `code_agent`, `monitor_agent`, `comm_agent`, `rss_agent`, `calendar_agent`, `forensics_agent`, `semantic_search_agent`).
 
 **Params:** `{}`
 

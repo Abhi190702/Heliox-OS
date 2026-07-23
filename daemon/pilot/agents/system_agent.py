@@ -207,7 +207,9 @@ class SystemAgent(BaseAgent):
             raw_input=user_input,
         )
 
-        results = await self._executor.execute(sub_plan, scope_override=scope_override)
+        results = await self._executor.execute(
+            sub_plan, invocation_source=self.get_invocation_source(), scope_override=scope_override
+        )
         duration_ms = int((time.time() - start) * 1000)
         self._record_task(duration_ms, all(r.success for r in results))
         self.status = AgentStatus.IDLE

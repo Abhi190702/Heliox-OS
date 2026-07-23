@@ -10,7 +10,25 @@
 
   const TIER_NAMES = ["READ_ONLY", "USER_WRITE", "SYSTEM_MODIFY", "DESTRUCTIVE", "ROOT_CRITICAL"];
   const FAMILIES = ["shell", "browsing", "system_control", "other"];
-  const PROFILE_ORDER = ["interactive", "autonomous", "web_agent", "voice", "gesture"];
+  const PROFILE_ORDER = [
+    "interactive",
+    "autonomous",
+    "web_agent",
+    "voice",
+    "gesture",
+    "self_healing",
+    // One profile per AgentOrchestrator specialist role -- see
+    // SECURITY.md's "Capability-scoped multi-agent orchestration" section.
+    "system_agent",
+    "code_agent",
+    "comm_agent",
+    "forensics_agent",
+    "ssh_agent",
+    "monitor_agent",
+    "rss_agent",
+    "calendar_agent",
+    "semantic_search_agent",
+  ];
 
   let profiles = $state<Record<string, SourceProfile>>({});
   let loading = $state(true);
