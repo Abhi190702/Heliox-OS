@@ -55,7 +55,9 @@
     "title": "Heliox paused",
     "body": "This was flagged as risky before running. Continue or stop?",
     "continue": "Continue",
-    "stop": "Stop"
+    "stop": "Stop",
+    "preview_title": "Preview before running",
+    "dom_diff_prefix": "Measured effect"
   },
   "supervision_alert": {
     "risk_title": "Heads up",
@@ -101,6 +103,10 @@
     "gaze_tracking_desc": "Adds a coarse on-device screen-region gaze signal (left/right/up/down/center) as a third fusion input alongside voice and gesture. Only a region label and confidence ever leave the device — never camera frames or face landmarks. Off by default.",
     "gaze_tracking_enabled": "Enable Gaze Tracking",
     "gaze_tracking_enabled_desc": "Loads MediaPipe's FaceLandmarker to estimate a coarse gaze region",
+    "preview": "Simulate Before Executing",
+    "preview_desc": "Before an autonomous background task commits to an action, pause and show a real screenshot with the target UI element highlighted (plus, for browser actions, a real measured before/after DOM diff), and wait for you to confirm or stop. Adds latency to every gated action, so it's off by default. Never a generated image — always a real screenshot and a real measured effect.",
+    "preview_enabled": "Enable Preview",
+    "preview_enabled_desc": "Only applies to autonomous/unattended tasks — interactive voice, text, and gesture commands are unaffected",
     "gesture_cursor": "Gesture Cursor Control",
     "gesture_cursor_warning": "This drives your actual OS mouse cursor from webcam hand tracking. Off by default — an open palm or the engine's stop button always exits cursor mode immediately.",
     "gesture_cursor_enabled": "Enable Gesture Cursor Control",

@@ -175,6 +175,15 @@
     });
   }
 
+  // "Simulate before executing" preview adds real latency (a screenshot +
+  // VLM call, plus a real dry-run browser tab for browser actions) before
+  // every autonomous action - default off, explicit opt-in like gesture_cursor.
+  function togglePreview() {
+    settings.updateSection("preview", {
+      enabled: !$settings.preview?.enabled,
+    });
+  }
+
   function updateGestureCursorSensitivity(e: Event) {
     const rawValue = Number((e.target as HTMLInputElement).value);
     if (!Number.isFinite(rawValue)) return;
@@ -564,6 +573,27 @@
         onclick={toggleGazeTracking}
         aria-label="Toggle Gaze Tracking"
         title="Toggle Gaze Tracking"
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+  </section>
+
+  <section class="settings-group">
+    <h3>{$_('settings.preview')}</h3>
+    <p class="gesture-cursor-warning">{$_('settings.preview_desc')}</p>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">{$_('settings.preview_enabled')}</span>
+        <span class="setting-desc">{$_('settings.preview_enabled_desc')}</span>
+      </div>
+      <button
+        class="toggle"
+        class:active={$settings.preview?.enabled}
+        onclick={togglePreview}
+        aria-label="Toggle simulate-before-executing preview"
+        title="Toggle simulate-before-executing preview"
       >
         <span class="toggle-knob"></span>
       </button>

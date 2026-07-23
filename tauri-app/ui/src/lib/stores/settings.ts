@@ -49,6 +49,9 @@ export interface PilotSettings {
     gesture_enabled: boolean;
     voice_wake_word_enabled: boolean;
   };
+  preview: {
+    enabled: boolean;
+  };
   voice: {
     tts_engine: string;
     tts_voice: string;
@@ -107,6 +110,9 @@ const defaultSettings: PilotSettings = {
   adaptive_calibration: {
     gesture_enabled: true,
     voice_wake_word_enabled: true,
+  },
+  preview: {
+    enabled: false,
   },
   voice: {
     tts_engine: "pocket_tts",

@@ -15,7 +15,29 @@ import { speakText } from "../utils/tts";
  *
  * Consumes notification payloads directly (not a re-fetch-on-notify
  * pattern) since latency matters for a live interruption.
+ *
+ * When `kind === "action_preview"` (the "simulate before executing" gate
+ * for autonomous background tasks — see pilot.agents.narrator's
+ * on_action_preview), the payload also carries a `preview` object:
+ * a real screenshot, an optional highlighted target bbox, and — for
+ * browser actions — a real measured DOM diff summary. Never a generated
+ * image; see SECURITY.md's Pre-Execution Target Assessment section.
  */
+
+export interface ActionPreviewBbox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface ActionPreviewPayload {
+  screenshot_base64: string | null;
+  bbox: ActionPreviewBbox | null;
+  target_label: string | null;
+  caption: string;
+  dom_diff: { summary?: string; change_score?: number } | null;
+}
 
 export interface InterruptState {
   active: boolean;
@@ -23,6 +45,7 @@ export interface InterruptState {
   reason: string;
   kind: string;
   timeoutSeconds: number;
+  preview: ActionPreviewPayload | null;
 }
 
 const DEFAULT_STATE: InterruptState = {
@@ -31,6 +54,7 @@ const DEFAULT_STATE: InterruptState = {
   reason: "",
   kind: "",
   timeoutSeconds: 120,
+  preview: null,
 };
 
 function createNarration() {
@@ -53,6 +77,7 @@ function createNarration() {
         reason,
         kind: String(p.kind ?? ""),
         timeoutSeconds: Number(p.timeout_seconds ?? 120),
+        preview: (p.preview as ActionPreviewPayload | undefined) ?? null,
       });
       if (reason) speakText(reason);
       return;
