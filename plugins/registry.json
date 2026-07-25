@@ -1,73 +1,155 @@
 {
+  "schema_version": 1,
+  "repository": "VyomKulshrestha/Heliox-OS",
+  "ref": "main",
+  "submission_url": "https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/PLUGIN_MARKETPLACE.md",
   "plugins": [
     {
       "name": "home-assistant",
       "description": "Control smart home devices via Home Assistant API",
       "version": "1.0.0",
       "author": "VyomKulshrestha",
-      "url": "",
+      "url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main/plugins/home-assistant",
       "tools": [
         {
           "name": "ha_lights",
           "description": "List all lights in Home Assistant",
           "inputs": [],
-          "outputs": ["lights"]
+          "outputs": [
+            "lights"
+          ],
+          "permission_tier": 2,
+          "action_type": "api_call"
         },
         {
           "name": "ha_set_light",
           "description": "Turn a light on or off",
-          "inputs": ["entity_id", "state"],
-          "outputs": ["result"]
+          "inputs": [
+            "entity_id",
+            "state"
+          ],
+          "outputs": [
+            "result"
+          ],
+          "permission_tier": 2,
+          "action_type": "api_call"
         }
-      ]
+      ],
+      "package": {
+        "path": "plugins/home-assistant",
+        "files": [
+          {
+            "path": "manifest.json",
+            "sha256": "9530e7cc2d354d8cedf45f2c96e232cc5bbd5f2df2b7e674eae67b0f87305e27"
+          },
+          {
+            "path": "plugin.py",
+            "sha256": "04d3f2078bea2fdcaf1412c5d1c56ef217755103fd48024b3b4233d3e7a0d1e1"
+          }
+        ]
+      }
     },
     {
       "name": "spotify-control",
-      "description": "Control Spotify playback and manage playlists",
+      "description": "Control Spotify playback through the Spotify Web API",
       "version": "1.0.0",
       "author": "community",
-      "url": "",
+      "url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main/plugins/spotify-control",
       "tools": [
         {
           "name": "spotify_play",
           "description": "Start or resume Spotify playback",
           "inputs": [],
-          "outputs": ["result"]
+          "outputs": [
+            "result"
+          ],
+          "permission_tier": 2,
+          "action_type": "api_call"
         },
         {
           "name": "spotify_pause",
           "description": "Pause Spotify playback",
           "inputs": [],
-          "outputs": ["result"]
+          "outputs": [
+            "result"
+          ],
+          "permission_tier": 2,
+          "action_type": "api_call"
         },
         {
           "name": "spotify_now_playing",
           "description": "Get currently playing track info",
           "inputs": [],
-          "outputs": ["track", "artist", "album"]
+          "outputs": [
+            "track",
+            "artist",
+            "album"
+          ],
+          "permission_tier": 1,
+          "action_type": "api_call"
         }
-      ]
+      ],
+      "package": {
+        "path": "plugins/spotify-control",
+        "files": [
+          {
+            "path": "manifest.json",
+            "sha256": "c4ec509a3a3d4a0f70c3924b6376b8392b850f69b84ba652d4928e7ba943efee"
+          },
+          {
+            "path": "plugin.py",
+            "sha256": "f77f6434f1b8b8d51564d3cc1913a9e914535171ab1d68793be3ba2458e81337"
+          }
+        ]
+      }
     },
     {
       "name": "weather",
-      "description": "Get current weather and forecast for any location (live data from wttr.in)",
+      "description": "Get live current weather and forecasts from wttr.in",
       "version": "1.0.0",
       "author": "community",
-      "url": "",
+      "url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main/plugins/weather",
       "tools": [
         {
           "name": "get_weather",
           "description": "Get current weather for a city",
-          "inputs": ["city"],
-          "outputs": ["temperature", "condition", "humidity"]
+          "inputs": [
+            "city"
+          ],
+          "outputs": [
+            "temperature",
+            "condition",
+            "humidity"
+          ],
+          "permission_tier": 1,
+          "action_type": "api_call"
         },
         {
           "name": "get_forecast",
           "description": "Get 5-day weather forecast",
-          "inputs": ["city"],
-          "outputs": ["forecast"]
+          "inputs": [
+            "city"
+          ],
+          "outputs": [
+            "forecast"
+          ],
+          "permission_tier": 1,
+          "action_type": "api_call"
         }
-      ]
+      ],
+      "package": {
+        "path": "plugins/weather",
+        "files": [
+          {
+            "path": "manifest.json",
+            "sha256": "9d36d99f46b5c1d4e76a91d1363c80b8d01a33c8324f0103bb6d47d42ef12326"
+          },
+          {
+            "path": "plugin.py",
+            "sha256": "47fb24a0edea42f28c7f64bb7790782991ef0a66d1f4fb82eabb7d9f6e0a073d"
+          }
+        ]
+      }
     }
   ]
 }

@@ -348,6 +348,7 @@ class Planner:
             home=str(__import__("pathlib").Path.home()),
         )
         self._skills_context = skills_context.strip()
+        self._plugin_context = ""
         self._rebuild_system_prompt()
 
     def set_skills_context(self, skills_context: str) -> None:
@@ -355,10 +356,17 @@ class Planner:
         self._skills_context = skills_context.strip()
         self._rebuild_system_prompt()
 
+    def set_plugin_context(self, plugin_context: str) -> None:
+        """Update the installed plugin tools available to the planner."""
+        self._plugin_context = plugin_context.strip()
+        self._rebuild_system_prompt()
+
     def _rebuild_system_prompt(self) -> None:
         self._system_prompt = self._system_prompt_base
         if self._skills_context:
             self._system_prompt += "\n\n" + self._skills_context
+        if self._plugin_context:
+            self._system_prompt += "\n\n" + self._plugin_context
 
     # ------------------------------------------------------------------
     # Fast-path: instant local matching for simple commands (no LLM call)

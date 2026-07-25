@@ -14,6 +14,7 @@ Closes #<issue_number>
 - [ ] Tests / CI
 - [ ] Performance improvement
 - [ ] Refactor (no functional change)
+- [ ] Marketplace plugin submission
 
 ---
 
@@ -44,6 +45,14 @@ Closes #<issue_number>
 - [ ] All existing tests pass (`pytest` for backend, `npm run test` for frontend)
 - [ ] I have updated documentation if needed
 - [ ] I have tested on at least one platform (Windows / macOS / Linux)
+
+### Marketplace plugin submissions
+
+- [ ] The plugin returns real results or clear errors, never fabricated success
+- [ ] I documented credentials, external services, and side effects
+- [ ] I tested every declared tool
+- [ ] I ran `python scripts/validate_marketplace.py --write`
+- [ ] I committed the refreshed `plugins/registry.json` hashes
 
 ---
 

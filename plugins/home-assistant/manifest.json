@@ -22,6 +22,7 @@
     }
   ],
   "agent_type": "system",
-  "entry_point": "ha_plugin.py",
+  "entry_point": "plugin.py",
+  "runtime_type": "python",
   "dependencies": []
 }

@@ -37,6 +37,16 @@ def test_code_execute_in_system_modify():
     assert ActionType.CODE_EXECUTE in SYSTEM_MODIFY_ACTIONS
 
 
+def test_plugin_calls_require_confirmation():
+    action = Action(
+        action_type=ActionType.PLUGIN_CALL,
+        parameters=EmptyParams(),
+    )
+    assert action.requires_confirmation is True
+    assert action.permission_tier == PermissionTier.SYSTEM_MODIFY
+    assert ActionType.PLUGIN_CALL in SYSTEM_MODIFY_ACTIONS
+
+
 class TestBrowserActionRetiering:
     """Browser actions used to be blanket ALWAYS_SAFE (Tier 1) regardless of
     what they did — this is the fix for that gap (see SECURITY.md's Agent

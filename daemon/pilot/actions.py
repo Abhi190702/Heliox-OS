@@ -373,6 +373,9 @@ SYSTEM_MODIFY_ACTIONS = {
     ActionType.BROWSER_TYPE,
     ActionType.BROWSER_SELECT,
     ActionType.BROWSER_FILL_FORM,
+    # Marketplace plugins are reviewed before publication, but Python plugin
+    # tools can still perform external or local side effects at runtime.
+    ActionType.PLUGIN_CALL,
 }
 
 # Actions that cannot be undone by the local snapshot/rollback mechanism
@@ -937,7 +940,6 @@ class Action(BaseModel):
             ActionType.API_SCRAPE,
             ActionType.DOWNLOAD_FILE,
             ActionType.WASM_CALL,
-            ActionType.PLUGIN_CALL,
         }
         if self.action_type in ALWAYS_SAFE:
             return PermissionTier.USER_WRITE

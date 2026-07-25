@@ -16,13 +16,31 @@
     url: string;
     tools: PluginTool[];
     installed: boolean;
+    local_only?: boolean;
+    source?: "github" | "local";
+  }
+
+  interface MarketplaceResult {
+    plugins: Plugin[];
+    source?: "github" | "bundled";
+    registry_url?: string;
+    submission_url?: string;
+    warning?: string;
+    error?: string;
   }
 
   let plugins: Plugin[] = $state([]);
   let loading = $state(true);
   let error = $state("");
+  let notice = $state("");
   let installing = $state<string | null>(null);
   let uninstalling = $state<string | null>(null);
+  let marketplaceSource = $state<"github" | "bundled" | "">("");
+  let marketplaceWarning = $state("");
+  let submissionUrl = $state(
+    "https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/PLUGIN_MARKETPLACE.md",
+  );
+  let showPublishingGuide = $state(false);
 
   // Tool execution
   let runningTool = $state<string | null>(null);
@@ -48,11 +66,14 @@
     loading = true;
     error = "";
     try {
-      const result = await call<{ plugins: Plugin[]; error?: string }>("plugin_market_list");
+      const result = await call<MarketplaceResult>("plugin_market_list");
       if (result.error) {
         error = result.error;
       } else {
         plugins = result.plugins || [];
+        marketplaceSource = result.source || "";
+        marketplaceWarning = result.warning || "";
+        submissionUrl = result.submission_url || submissionUrl;
       }
     } catch (e) {
       error = "Failed to load plugins";
@@ -67,8 +88,8 @@
     try {
       const res = await call<{ success?: boolean; error?: string }>("plugin_install", { plugin_name: plugin.name });
       if (res.success) {
-        plugin.installed = true;
-        plugins = [...plugins]; // trigger reactivity
+        notice = `${plugin.name} was verified and installed from the approved catalog.`;
+        await loadPlugins();
       } else {
         error = res.error || "Install failed";
       }
@@ -85,10 +106,10 @@
     try {
       const res = await call<{ success?: boolean; error?: string }>("plugin_uninstall", { plugin_name: plugin.name });
       if (res.success) {
-        plugin.installed = false;
-        plugins = [...plugins];
+        notice = `${plugin.name} was uninstalled.`;
         // Clear results for this plugin
         delete toolResult[plugin.name];
+        await loadPlugins();
       }
     } catch (e) {
       console.error("Uninstall failed:", e);
@@ -147,7 +168,7 @@
     if (!createName.trim()) return;
     creating = true;
     try {
-      const res = await call<{ success?: boolean; error?: string }>("plugin_create", {
+      const res = await call<{ success?: boolean; error?: string; local_only?: boolean }>("plugin_create", {
         name: createName,
         description: createDesc || `Custom plugin: ${createName}`,
         author: createAuthor || "User",
@@ -155,6 +176,7 @@
         code: createCode,
       });
       if (res.success) {
+        notice = `${createName} was created locally. Submit it by GitHub pull request to make it available to everyone.`;
         showCreate = false;
         createName = "";
         createDesc = "";
@@ -190,10 +212,20 @@
 
 <div class="plugins-tab">
   <div class="header">
-    <h2>🧩 Plugin Marketplace</h2>
+    <div class="header-title">
+      <h2>🧩 Plugin Marketplace</h2>
+      {#if marketplaceSource}
+        <span class="catalog-source" class:offline={marketplaceSource === "bundled"}>
+          {marketplaceSource === "github" ? "GitHub catalog" : "Bundled offline catalog"}
+        </span>
+      {/if}
+    </div>
     <div class="header-actions">
+      <button class="btn-guide" onclick={() => (showPublishingGuide = !showPublishingGuide)}>
+        {showPublishingGuide ? "Hide Guide" : "How to Publish"}
+      </button>
       <button class="btn-create" onclick={() => (showCreate = !showCreate)}>
-        {showCreate ? "✕ Cancel" : "＋ Create Plugin"}
+        {showCreate ? "✕ Cancel" : "＋ Create Local Plugin"}
       </button>
       <button class="refresh-btn" onclick={loadPlugins} disabled={loading}>
         {loading ? "⟳ Loading..." : "⟳ Refresh"}
@@ -205,10 +237,53 @@
     <div class="error-message">{error} <button class="dismiss-btn" onclick={() => error = ""}>✕</button></div>
   {/if}
 
+  {#if notice}
+    <div class="notice-message">
+      {notice}
+      <button class="dismiss-btn notice-dismiss" onclick={() => notice = ""}>✕</button>
+    </div>
+  {/if}
+
+  {#if marketplaceWarning}
+    <div class="catalog-warning">
+      GitHub could not be reached, so Heliox is showing its verified bundled catalog. Refresh when you are online.
+    </div>
+  {/if}
+
+  {#if showPublishingGuide}
+    <div class="publishing-guide">
+      <div>
+        <h3>Publish a plugin for everyone</h3>
+        <p>
+          Local plugins stay on this device. Public marketplace plugins are reviewed through the
+          Heliox GitHub repository.
+        </p>
+      </div>
+      <ol>
+        <li>Create and test the plugin locally.</li>
+        <li>Fork <code>VyomKulshrestha/Heliox-OS</code> on GitHub.</li>
+        <li>Add <code>plugins/&lt;plugin-name&gt;/manifest.json</code> and <code>plugin.py</code>.</li>
+        <li>Run <code>python scripts/validate_marketplace.py --write</code>.</li>
+        <li>Open a pull request. CI validates paths, hashes, manifests, and code policy.</li>
+        <li>After review and merge to <code>main</code>, users see it when they press Refresh.</li>
+      </ol>
+      <p class="release-note">
+        A desktop app release is not required for each approved plugin.
+      </p>
+      <a href={submissionUrl} target="_blank" rel="noopener" class="guide-link">
+        Open the full submission guide on GitHub →
+      </a>
+    </div>
+  {/if}
+
   <!-- Create Plugin Panel -->
   {#if showCreate}
     <div class="create-panel">
-      <h3>Create Custom Plugin</h3>
+      <h3>Create Local Plugin</h3>
+      <p class="local-explainer">
+        This installs only on this device. Use “How to Publish” when you want to submit it to the
+        public marketplace.
+      </p>
       <div class="form-grid">
         <div class="form-group">
           <label for="cp-name">Plugin Name</label>
@@ -265,7 +340,7 @@
     </div>
   {:else if plugins.length === 0}
     <div class="empty-state">
-      <p>No plugins available. Click "Create Plugin" to build your own!</p>
+      <p>No plugins available. Click "Create Local Plugin" to build your own!</p>
     </div>
   {:else}
     <div class="plugin-grid">
@@ -274,6 +349,9 @@
           <div class="plugin-header">
             <div class="plugin-info">
               <h3>{plugin.name}</h3>
+              {#if plugin.local_only}
+                <span class="local-badge">Local only</span>
+              {/if}
               <span class="version">v{plugin.version}</span>
               <span class="author">by {plugin.author}</span>
             </div>
@@ -389,12 +467,35 @@
     gap: 8px;
   }
 
+  .header-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .catalog-source, .local-badge {
+    width: fit-content;
+    padding: 3px 8px;
+    border: 1px solid rgba(74, 222, 128, 0.35);
+    border-radius: 999px;
+    color: var(--success, #4ade80);
+    background: rgba(74, 222, 128, 0.1);
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  .catalog-source.offline {
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.1);
+  }
+
   h2 {
     font-size: 14px;
     font-weight: 600;
   }
 
-  .refresh-btn, .btn-create {
+  .refresh-btn, .btn-create, .btn-guide {
     padding: 5px 14px;
     font-size: 12px;
     font-weight: 600;
@@ -408,13 +509,13 @@
     background: var(--accent);
   }
 
-  .btn-create {
+  .btn-create, .btn-guide {
     color: var(--accent);
     background: var(--accent-muted, rgba(99, 102, 241, 0.12));
     border: 1px solid var(--accent);
   }
 
-  .btn-create:hover {
+  .btn-create:hover, .btn-guide:hover {
     background: var(--accent);
     color: white;
   }
@@ -447,6 +548,78 @@
     font-size: 14px;
     cursor: pointer;
     padding: 0 4px;
+  }
+
+  .notice-message, .catalog-warning {
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+
+  .notice-message {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid rgba(74, 222, 128, 0.4);
+    color: var(--success, #4ade80);
+    background: rgba(74, 222, 128, 0.08);
+  }
+
+  .notice-dismiss {
+    color: var(--success, #4ade80);
+  }
+
+  .catalog-warning {
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.08);
+  }
+
+  .publishing-guide {
+    padding: 16px;
+    margin-bottom: 16px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .publishing-guide h3 {
+    color: var(--accent);
+  }
+
+  .publishing-guide p {
+    margin: 5px 0 10px;
+    color: var(--text-secondary);
+  }
+
+  .publishing-guide ol {
+    margin: 8px 0 12px 20px;
+    color: var(--text-secondary);
+  }
+
+  .publishing-guide li {
+    margin: 4px 0;
+  }
+
+  .publishing-guide code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    font-family: var(--font-mono, monospace);
+  }
+
+  .publishing-guide .release-note {
+    color: var(--success, #4ade80);
+    font-weight: 600;
+  }
+
+  .guide-link {
+    color: var(--accent);
+    font-weight: 600;
   }
 
   .loading-state, .empty-state {
@@ -492,6 +665,13 @@
     font-weight: 600;
     margin: 0 0 12px 0;
     color: var(--accent);
+  }
+
+  .local-explainer {
+    margin: -4px 0 12px;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.4;
   }
 
   .create-panel h4 {

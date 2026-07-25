@@ -70,6 +70,7 @@ Plugin signatures:
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import logging
@@ -287,6 +288,7 @@ class PluginRegistry:
         self._require_signatures = require_signatures
         self._trusted_public_keys = tuple(_coerce_public_key(key) for key in (trusted_public_keys or []))
         self._wasm_plugins: dict[str, Any] = {}  # name -> WasmPlugin
+        self._python_modules: dict[str, Any] = {}
 
         # Add default plugin directories
         if PLUGINS_DIR not in self._plugin_dirs:
@@ -294,6 +296,18 @@ class PluginRegistry:
 
     def discover(self) -> int:
         """Scan plugin directories and load manifests. Returns count of loaded plugins."""
+        import sys
+
+        for plugin in self._wasm_plugins.values():
+            with contextlib.suppress(Exception):
+                plugin.close()
+        for module_key in self._python_modules:
+            sys.modules.pop(module_key, None)
+        self._plugins.clear()
+        self._tool_index.clear()
+        self._wasm_plugins.clear()
+        self._python_modules.clear()
+
         loaded: int = 0
 
         for plugin_dir in self._plugin_dirs:
@@ -414,10 +428,6 @@ class PluginRegistry:
 
             module_key = f"plugin_{manifest.name}"
 
-            # Use cached module if available
-            if not hasattr(self, "_python_modules"):
-                self._python_modules: dict[str, Any] = {}
-
             if module_key not in self._python_modules:
                 spec = importlib.util.spec_from_file_location(module_key, str(script_path))
                 if not spec or not spec.loader:
@@ -494,7 +504,11 @@ class PluginRegistry:
         if not tools:
             return ""
 
-        lines = ["Available plugin tools:"]
+        lines = [
+            "=== INSTALLED PLUGIN TOOLS ===",
+            'Use action_type plugin_call with parameters {"tool": "<tool name>", "args": {<tool arguments>}}.',
+            "Plugin actions require user confirmation before execution.",
+        ]
         for tool in tools:
             inputs_str = ", ".join(tool["inputs"]) if tool["inputs"] else "none"
             lines.append(f"  - {tool['name']}: {tool['description']} (inputs: {inputs_str}, plugin: {tool['plugin']})")
@@ -518,6 +532,25 @@ class PluginRegistry:
             plugin.enabled = False
             return True
         return False
+
+    def remove_plugin(self, name: str) -> bool:
+        """Remove all in-memory state for a plugin after uninstall."""
+        import sys
+
+        plugin = self._plugins.pop(name, None)
+        if plugin is None:
+            return False
+        for tool_name, owner in list(self._tool_index.items()):
+            if owner.name == name:
+                del self._tool_index[tool_name]
+        wasm_plugin = self._wasm_plugins.pop(name, None)
+        if wasm_plugin is not None:
+            with contextlib.suppress(Exception):
+                wasm_plugin.close()
+        module_key = f"plugin_{name}"
+        self._python_modules.pop(module_key, None)
+        sys.modules.pop(module_key, None)
+        return True
 
     def get_stats(self) -> dict[str, Any]:
         """Return plugin ecosystem statistics."""

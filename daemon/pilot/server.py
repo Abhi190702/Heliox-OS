@@ -366,6 +366,7 @@ class PilotServer:
         self._sandbox: Any = None
         self._prompt_improver: Any = None
         self._plugin_registry: Any = None
+        self._plugin_marketplace: Any = None
         self._skill_registry: Any = None
         self._subconscious: Any = None
         self._screen_vision: Any = None
@@ -605,11 +606,17 @@ class PilotServer:
 
         # Plugin Ecosystem
         from pilot.plugins import PluginRegistry
+        from pilot.plugins.marketplace import GitHubMarketplace
 
         self._plugin_registry = PluginRegistry()
         plugin_count = self._plugin_registry.discover()
         logger.info("Plugins loaded: %d", plugin_count)
         self._executor.set_plugin_registry(self._plugin_registry)
+        self._plugin_marketplace = GitHubMarketplace(
+            repo_root=Path(__file__).parent.parent.parent,
+            plugins_dir=PLUGINS_DIR,
+        )
+        self._refresh_plugin_planner_context()
 
         # Subconscious Agent — long-term memory consolidation (lazy start)
         try:
@@ -3721,44 +3728,60 @@ class PilotServer:
                 ok = self._plugin_registry.enable_plugin(name)
             else:
                 ok = self._plugin_registry.disable_plugin(name)
+            self._refresh_plugin_planner_context()
             return {"success": ok, "plugin": name, "enabled": enabled}
         return {"error": "Plugin registry not initialized"}
 
+    def _refresh_plugin_planner_context(self) -> None:
+        """Keep the planner's plugin tool inventory synchronized."""
+        if self._planner and self._plugin_registry:
+            self._planner.set_plugin_context(self._plugin_registry.get_tools_for_planner())
+
     async def _handle_plugin_market_list(self, params: dict, ws: ServerConnection) -> dict:
-        """Fetch available plugins from the community manifest.
-
-        Args:
-            params: JSON-RPC parameters (unused).
-            ws: The WebSocket connection.
-
-        Returns:
-            A dict with plugins list from registry.json.
-        """
-        import json as json_module
-
-        repo_root = Path(__file__).parent.parent.parent
-        registry_path = repo_root / "plugins" / "registry.json"
-
-        if not registry_path.exists():
-            return {"plugins": [], "error": "Registry not found"}
-
+        """Return the approved GitHub catalog plus local-only plugins."""
+        if not self._plugin_marketplace:
+            return {"plugins": [], "error": "Plugin marketplace not initialized"}
         try:
-            data = json_module.loads(registry_path.read_text(encoding="utf-8"))
-            plugins = data.get("plugins", [])
+            catalog = await asyncio.to_thread(self._plugin_marketplace.load_catalog)
+            installed_plugins = self._plugin_registry.get_all_plugins() if self._plugin_registry else []
+            installed_by_name = {plugin.name: plugin for plugin in installed_plugins}
+            approved_names: set[str] = set()
+            plugins: list[dict[str, Any]] = []
+            for approved in catalog.data["plugins"]:
+                item = dict(approved)
+                name = item["name"]
+                approved_names.add(name)
+                item["installed"] = name in installed_by_name
+                item["local_only"] = False
+                item["source"] = catalog.source
+                plugins.append(item)
 
-            installed = set()
-            if self._plugin_registry:
-                installed = {p.name for p in self._plugin_registry.get_all_plugins()}
+            for plugin in installed_plugins:
+                if plugin.name in approved_names:
+                    continue
+                item = plugin.to_dict()
+                item.update(
+                    {
+                        "installed": True,
+                        "local_only": True,
+                        "source": "local",
+                        "url": "",
+                    }
+                )
+                plugins.append(item)
 
-            for plugin in plugins:
-                plugin["installed"] = plugin.get("name") in installed
+            return {
+                "plugins": plugins,
+                "source": catalog.source,
+                "registry_url": catalog.registry_url,
+                "submission_url": catalog.data.get("submission_url", ""),
+                "warning": catalog.warning,
+            }
+        except Exception as exc:
+            logger.error("Failed to load plugin marketplace: %s", exc)
+            return {"plugins": [], "error": str(exc)}
 
-            return {"plugins": plugins}
-        except Exception as e:
-            logger.error("Failed to load plugin registry: %s", e)
-            return {"plugins": [], "error": str(e)}
-
-    async def _handle_plugin_install(self, params: dict, ws: ServerConnection) -> dict:
+    async def _handle_plugin_install_legacy(self, params: dict, ws: ServerConnection) -> dict:
         """Install a plugin from the marketplace with fully working code and Ed25519 signature."""
         import json
 
@@ -4009,13 +4032,45 @@ def handle_tool(tool_name, params):
             "path": str(plugin_dir),
         }
 
-    async def _handle_plugin_uninstall(self, params: dict, ws: ServerConnection) -> dict:
-        """Uninstall a plugin."""
-        import shutil
+    async def _handle_plugin_install(self, params: dict, ws: ServerConnection) -> dict:
+        """Install one exact package from the moderated GitHub catalog."""
+        from pilot.plugins.marketplace import MarketplaceError
 
         plugin_name = params.get("plugin_name", "")
         if not plugin_name:
             return {"error": "plugin_name is required"}
+        if not self._plugin_marketplace:
+            return {"error": "Plugin marketplace not initialized"}
+
+        try:
+            result = await asyncio.to_thread(
+                self._plugin_marketplace.install,
+                plugin_name,
+            )
+            if self._plugin_registry:
+                self._plugin_registry.discover()
+                self._refresh_plugin_planner_context()
+            logger.info("Installed approved marketplace plugin: %s", plugin_name)
+            return result
+        except MarketplaceError as exc:
+            return {"error": str(exc)}
+        except Exception as exc:
+            logger.error("Failed to install plugin %s: %s", plugin_name, exc, exc_info=True)
+            return {"error": f"Plugin install failed: {exc}"}
+
+    async def _handle_plugin_uninstall(self, params: dict, ws: ServerConnection) -> dict:
+        """Uninstall a plugin."""
+        import shutil
+
+        from pilot.plugins.marketplace import MarketplaceError, validate_plugin_name
+
+        plugin_name = params.get("plugin_name", "")
+        if not plugin_name:
+            return {"error": "plugin_name is required"}
+        try:
+            plugin_name = validate_plugin_name(plugin_name)
+        except MarketplaceError as exc:
+            return {"error": str(exc)}
 
         plugin_dir = PLUGINS_DIR / plugin_name
         if not plugin_dir.exists():
@@ -4025,26 +4080,32 @@ def handle_tool(tool_name, params):
             shutil.rmtree(plugin_dir)
             logger.info("Plugin uninstalled: %s", plugin_name)
             if self._plugin_registry:
-                # remove from memory
-                if plugin_name in self._plugin_registry._plugins:
-                    del self._plugin_registry._plugins[plugin_name]
+                self._plugin_registry.remove_plugin(plugin_name)
+                self._refresh_plugin_planner_context()
             return {"success": True, "plugin": plugin_name}
-        except Exception as e:
-            logger.error("Failed to uninstall plugin %s: %s", plugin_name, e)
-            return {"error": str(e)}
+        except Exception as exc:
+            logger.error("Failed to uninstall plugin %s: %s", plugin_name, exc)
+            return {"error": str(exc)}
 
     async def _handle_plugin_create(self, params: dict, ws: ServerConnection) -> dict:
         """Create a new custom plugin with manifest and Python code."""
         import json
 
         from pilot.plugins import sign_plugin_directory
+        from pilot.plugins.marketplace import MarketplaceError, validate_plugin_name
 
-        plugin_name = params.get("name", "").strip().lower().replace(" ", "-")
-        if not plugin_name:
+        raw_name = params.get("name", "")
+        if not raw_name:
             return {"error": "Plugin name is required"}
+        try:
+            plugin_name = validate_plugin_name(raw_name)
+        except MarketplaceError as exc:
+            return {"error": str(exc)}
 
         plugin_dir = PLUGINS_DIR / plugin_name
-        plugin_dir.mkdir(parents=True, exist_ok=True)
+        if plugin_dir.exists():
+            return {"error": f"Plugin already exists: {plugin_name}"}
+        plugin_dir.mkdir(parents=True)
 
         tools = params.get("tools", [])
         if isinstance(tools, str):
@@ -4081,8 +4142,19 @@ def handle_tool(tool_name, params):
 
         if self._plugin_registry:
             self._plugin_registry.discover()
+            self._refresh_plugin_planner_context()
 
-        return {"success": True, "plugin": plugin_name, "path": str(plugin_dir)}
+        submission_url = ""
+        if self._plugin_marketplace:
+            catalog = await asyncio.to_thread(self._plugin_marketplace.load_catalog)
+            submission_url = catalog.data.get("submission_url", "")
+        return {
+            "success": True,
+            "plugin": plugin_name,
+            "path": str(plugin_dir),
+            "local_only": True,
+            "submission_url": submission_url,
+        }
 
     async def _handle_plugin_run_tool(self, params: dict, ws: ServerConnection) -> dict:
         """Execute a tool provided by any installed plugin."""
