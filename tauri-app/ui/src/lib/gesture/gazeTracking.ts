@@ -52,6 +52,19 @@ export function resolveHandBackend(
 // otherwise an unchanged region silently expires after the first event.
 export const GAZE_HEARTBEAT_MS = 750;
 
+/**
+ * FaceLandmarker is substantially more expensive when a face is present
+ * because it emits the full 478-point mesh. Running it every sixth camera
+ * frame can monopolize the UI thread and starve HandLandmarker, especially
+ * on CPU-only systems. Two gaze samples per second are sufficient for the
+ * coarse fusion signal and leave hand/cursor tracking responsive.
+ */
+export const GAZE_INFERENCE_INTERVAL_MS = 500;
+
+export function shouldRunGazeInference(nowMs: number, previousRunAtMs: number): boolean {
+  return nowMs - previousRunAtMs >= GAZE_INFERENCE_INTERVAL_MS;
+}
+
 export function shouldSendGazeUpdate(
   region: GazeRegion,
   previousRegion: GazeRegion | null,

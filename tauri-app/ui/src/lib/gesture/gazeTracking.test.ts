@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  GAZE_INFERENCE_INTERVAL_MS,
   GAZE_HEARTBEAT_MS,
   estimateGazeRegion,
   resolveHandBackend,
+  shouldRunGazeInference,
   shouldSendGazeUpdate,
   type FaceLandmark,
 } from "./gazeTracking";
@@ -111,6 +113,14 @@ describe("shouldSendGazeUpdate", () => {
 
   it("refreshes an unchanged region before fusion context expires", () => {
     expect(shouldSendGazeUpdate("center", "center", GAZE_HEARTBEAT_MS, 0)).toBe(true);
+  });
+});
+
+describe("shouldRunGazeInference", () => {
+  it("limits face-mesh inference to two samples per second", () => {
+    expect(shouldRunGazeInference(1_499, 1_000)).toBe(false);
+    expect(shouldRunGazeInference(1_000 + GAZE_INFERENCE_INTERVAL_MS, 1_000)).toBe(true);
+    expect(shouldRunGazeInference(2_000, 1_000)).toBe(true);
   });
 });
 

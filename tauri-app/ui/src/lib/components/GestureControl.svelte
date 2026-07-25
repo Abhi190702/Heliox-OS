@@ -66,6 +66,7 @@
   import {
     estimateGazeRegion,
     resolveHandBackend,
+    shouldRunGazeInference,
     shouldSendGazeUpdate,
     type GazeRegion,
   } from "../gesture/gazeTracking";
@@ -82,6 +83,7 @@
     type GestureEvent,
   } from "../gesture/calibration";
   import { classifyControlGesture } from "../gesture/workflowControl";
+  import { LatestAsyncDispatcher } from "../gesture/latestAsyncDispatcher";
 
   // ── Props ──
   let {
@@ -130,12 +132,7 @@
   let gazeTrackingActive = false;
   let lastGazeRegion: GazeRegion | null = null;
   let lastGazeSentAt = 0;
-  let gazeFrameCounter = 0;
-  // Face detection runs far less often than hand detection -- a coarse
-  // "which rough direction" signal doesn't need 30fps, and running two
-  // ML inference passes every single frame on a CPU delegate is a real
-  // cost this keeps in check.
-  const GAZE_FRAME_INTERVAL = 6;
+  let lastGazeInferenceAt = 0;
 
   let animFrameId: number = 0;
   let lastGestureTime = 0;
@@ -234,22 +231,46 @@
   // Open palm and stopGestures() both force-exit cursor mode immediately as
   // safety escape hatches.
   let cursorModeActive = $state(false);
+  let handDetected = $state(false);
+  let cursorRuntimePhase: "idle" | "waiting" | "tracking" | "error" = $state("idle");
+  let cursorRuntimeMessage = $state("");
   let lastCursorX = 0;
   let lastCursorY = 0;
   let pinchClickFired = false; // debounce: one click per pinch-close, not per frame
+  let cursorRetryAfter = 0;
 
-  async function moveGestureCursor(x: number, y: number): Promise<void> {
+  async function dispatchGestureCursor({ x, y }: { x: number; y: number }): Promise<void> {
     try {
       if (isTauriRuntime()) {
         const { invoke } = await import("../api/invoke");
         await invoke("move_gesture_cursor", { x, y });
       } else {
         const { call } = await import("../api/daemon");
-        await call("cursor_move", { x, y });
+        const result = await call<{ status?: string; message?: string }>("cursor_move", { x, y });
+        if (result?.status === "error") {
+          throw new Error(result.message || "Cursor move was rejected");
+        }
       }
-    } catch {
-      // Best-effort — a single dropped cursor-move frame isn't worth surfacing.
+      cursorRetryAfter = 0;
+      if (cursorModeActive) {
+        cursorRuntimePhase = "tracking";
+        cursorRuntimeMessage = "Hand tracking active — point to move, pinch to click";
+      }
+    } catch (error) {
+      cursorRetryAfter = Date.now() + 1000;
+      cursorRuntimePhase = "error";
+      cursorRuntimeMessage = error instanceof Error
+        ? `Cursor control unavailable: ${error.message}`
+        : "Cursor control unavailable";
+      throw error;
     }
+  }
+
+  const cursorMoveDispatcher = new LatestAsyncDispatcher(dispatchGestureCursor);
+
+  function moveGestureCursor(x: number, y: number): void {
+    if (Date.now() < cursorRetryAfter) return;
+    cursorMoveDispatcher.enqueue({ x, y });
   }
 
   async function clickGestureCursor(x: number, y: number): Promise<void> {
@@ -261,15 +282,25 @@
         // The daemon fallback has no "click at current position" concept —
         // reuse the same coordinates the last cursor_move call already sent.
         const { call } = await import("../api/daemon");
-        await call("cursor_click", { x, y });
+        const result = await call<{ status?: string; message?: string }>("cursor_click", { x, y });
+        if (result?.status === "error") {
+          throw new Error(result.message || "Cursor click was rejected");
+        }
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      cursorRuntimePhase = "error";
+      cursorRuntimeMessage = error instanceof Error
+        ? `Cursor click unavailable: ${error.message}`
+        : "Cursor click unavailable";
     }
   }
 
   function exitCursorMode() {
+    cursorMoveDispatcher.reset();
     cursorModeActive = false;
+    cursorRuntimePhase = "idle";
+    cursorRuntimeMessage = "";
+    cursorRetryAfter = 0;
     pinchClickFired = false;
   }
 
@@ -285,6 +316,10 @@
       exitCursorMode();
     } else {
       cursorModeActive = true;
+      cursorRuntimePhase = handDetected ? "tracking" : "waiting";
+      cursorRuntimeMessage = handDetected
+        ? "Hand tracking active — point to move, pinch to click"
+        : "Show one hand to the camera";
     }
   }
 
@@ -312,7 +347,7 @@
     );
     lastCursorX = screenX;
     lastCursorY = screenY;
-    void moveGestureCursor(screenX, screenY);
+    moveGestureCursor(screenX, screenY);
 
     // Pinch-to-click on the PREDICTED distance, so the click fires before
     // the pinch pose has fully, stably closed — the literal "fire before a
@@ -418,6 +453,9 @@
         },
         runningMode: "VIDEO",
         numHands: 1,
+        minHandDetectionConfidence: 0.4,
+        minHandPresenceConfidence: 0.4,
+        minTrackingConfidence: 0.4,
       });
       mpLoaded = true;
       return true;
@@ -520,7 +558,7 @@
     gazeTrackingActive = false;
     lastGazeRegion = null;
     lastGazeSentAt = 0;
-    gazeFrameCounter = 0;
+    lastGazeInferenceAt = 0;
     resetGazeRuntime();
   }
 
@@ -655,7 +693,10 @@
 
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 320, height: 240, facingMode: "user" },
+        // A face and hand sharing a 320×240 frame leaves too few pixels for
+        // reliable hand detection. Keep the compact PiP display, but analyse
+        // a 640×480 stream so gaze and gestures can remain active together.
+        video: { width: 640, height: 480, facingMode: "user" },
       });
     } catch (e: any) {
       cameraError = `Camera error: ${e.name || e.message || 'Access denied or no device found'}`;
@@ -732,6 +773,7 @@
     showCamera = false;
     currentGesture = "";
     confidence = 0;
+    handDetected = false;
     fingerTrail = [];
     prevIndexPos = null;
     candidateGesture = "";
@@ -755,7 +797,7 @@
           const result = handLandmarker.detectForVideo(videoEl, performance.now());
           const landmarks = (result.landmarks?.[0] as Landmark[] | undefined) ?? null;
           const worldLandmarks = (result.worldLandmarks?.[0] as Landmark[] | undefined) ?? null;
-          const handednessScore = result.handednesses?.[0]?.[0]?.score;
+          const handednessScore = result.handedness?.[0]?.[0]?.score;
           handleFrameResult(landmarks, worldLandmarks, handednessScore);
         } catch { /* ignore */ }
       }
@@ -766,11 +808,14 @@
     }
 
     if (gazeTrackingActive && faceLandmarker) {
-      gazeFrameCounter++;
-      if (gazeFrameCounter >= GAZE_FRAME_INTERVAL) {
-        gazeFrameCounter = 0;
+      const gazeNow = performance.now();
+      if (shouldRunGazeInference(gazeNow, lastGazeInferenceAt)) {
+        // Record before the synchronous FaceLandmarker call so an expensive
+        // detected-face pass cannot trigger another run immediately after it
+        // returns and starve the hand/cursor path.
+        lastGazeInferenceAt = gazeNow;
         try {
-          const faceResult = faceLandmarker.detectForVideo(videoEl, performance.now());
+          const faceResult = faceLandmarker.detectForVideo(videoEl, gazeNow);
           const faceLandmarks = faceResult.faceLandmarks?.[0] as { x: number; y: number; z?: number }[] | undefined;
           const estimate = estimateGazeRegion(faceLandmarks ?? null);
           if (estimate) {
@@ -862,6 +907,12 @@
     lastWorldLandmarks = worldLandmarks;
 
     if (!landmarks || landmarks.length === 0) {
+      clearLandmarks();
+      handDetected = false;
+      if (cursorModeActive && cursorRuntimePhase !== "error") {
+        cursorRuntimePhase = "waiting";
+        cursorRuntimeMessage = "Show one hand to the camera";
+      }
       currentGesture = "";
       confidence = 0;
       prevIndexPos = null;
@@ -872,6 +923,8 @@
       worldWristHistory = [];
       return;
     }
+
+    handDetected = true;
 
     // Update motion buffers — deliberately built from RAW (unfiltered) landmarks.
     // Swipe/circular/push-pull thresholds are already tuned against raw jitter;
@@ -954,6 +1007,11 @@
         drawLandmarks(landmarks);
         return;
       }
+      // Cursor mode pauses gesture actions to prevent accidental commands,
+      // but recognition remains visible so users can tell that the hand
+      // model is working.
+      currentGesture = gesture.name;
+      confidence = gesture.confidence;
       updateGestureCursor(filteredLandmarks);
       // Every other discrete gesture is suppressed while pointing/clicking —
       // reaching for a swipe/peace/thumbs-up mid-point would otherwise
@@ -1497,6 +1555,13 @@
   }
 
   // ── Canvas Drawing ──
+  function clearLandmarks() {
+    if (!canvasEl) return;
+    const ctx = canvasEl.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+  }
+
   function drawLandmarks(landmarks: any[]) {
     if (!canvasEl) return;
     const ctx = canvasEl.getContext("2d");
@@ -1625,12 +1690,22 @@
     <button
       class="cursor-mode-btn"
       class:active={cursorModeActive}
+      class:error={cursorRuntimePhase === "error"}
+      class:waiting={cursorRuntimePhase === "waiting"}
       onclick={toggleCursorMode}
       title={cursorModeActive
-        ? "Exit cursor mode (or show an open palm)"
+        ? `${cursorRuntimeMessage}. Gesture commands are paused; show an open palm to exit.`
         : "Enable gesture cursor control — point to move, pinch to click"}
     >
-      {cursorModeActive ? "🖱️ Cursor Mode: ON" : "🖱️ Cursor Mode"}
+      {#if !cursorModeActive}
+        🖱️ Cursor Mode
+      {:else if cursorRuntimePhase === "error"}
+        🖱️ Cursor unavailable
+      {:else if cursorRuntimePhase === "waiting"}
+        🖱️ Cursor: show hand
+      {:else}
+        🖱️ Cursor: tracking
+      {/if}
     </button>
   {/if}
 
@@ -1651,7 +1726,7 @@
   {/if}
 
   {#if showCamera}
-    <div class="camera-pip" class:gesture-detected={!!currentGesture}>
+    <div class="camera-pip" class:gesture-detected={!!currentGesture} class:hand-detected={handDetected}>
       <video bind:this={videoEl} class="cam-video" playsinline muted autoplay></video>
       <canvas bind:this={canvasEl} class="cam-overlay" width="320" height="240"></canvas>
       <canvas bind:this={trailCanvas} class="cam-trail" width="320" height="240"></canvas>
@@ -1664,6 +1739,9 @@
       {/if}
       <!-- Gesture count badge -->
       <div class="pip-badge">30+ gestures</div>
+      <div class="pip-hand-badge" class:active={handDetected}>
+        {handDetected ? "Hand detected" : "Show hand"}
+      </div>
       {#if $settings.vision?.gaze_tracking_enabled}
         <div
           class="pip-gaze-badge"
@@ -1760,6 +1838,19 @@
     background: rgba(255, 60, 60, 0.18);
     color: rgba(255, 200, 200, 1);
     animation: gesture-pulse 2s ease-in-out infinite;
+  }
+
+  .cursor-mode-btn.active.waiting {
+    border-color: rgba(245, 158, 11, 0.75);
+    background: rgba(245, 158, 11, 0.14);
+    color: rgba(255, 220, 150, 1);
+  }
+
+  .cursor-mode-btn.active.error {
+    border-color: rgba(255, 70, 80, 0.85);
+    background: rgba(180, 35, 45, 0.22);
+    color: rgba(255, 180, 185, 1);
+    animation: none;
   }
 
   .hand-icon { width: 18px; height: 18px; z-index: 1; }
@@ -1862,7 +1953,8 @@
     z-index: 1000; transition: border-color 0.3s;
   }
 
-  .camera-pip.gesture-detected {
+  .camera-pip.gesture-detected,
+  .camera-pip.hand-detected {
     border-color: rgba(0, 255, 136, 0.6);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 255, 136, 0.15);
   }
@@ -1904,6 +1996,23 @@
     color: rgba(255,255,255,0.7); font-size: 8px;
     font-family: "Inter", sans-serif; letter-spacing: 0.5px;
     z-index: 2;
+  }
+
+  .pip-hand-badge {
+    position: absolute;
+    top: 45px;
+    left: 4px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(60, 70, 90, 0.82);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 9px;
+    font-family: "Inter", sans-serif;
+    z-index: 2;
+  }
+
+  .pip-hand-badge.active {
+    background: rgba(0, 130, 80, 0.85);
   }
 
   .pip-gaze-badge {
