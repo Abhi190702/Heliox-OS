@@ -30,6 +30,7 @@ MAX_PLUGIN_FILES = 64
 PLUGIN_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 SIGNATURE_METADATA_FILES = frozenset({"plugin.ed25519.pub", "plugin.ed25519.sig"})
+CANONICAL_TEXT_SUFFIXES = frozenset({".json", ".py"})
 
 
 class MarketplaceError(ValueError):
@@ -71,6 +72,28 @@ def _safe_package_path(raw_path: str) -> str:
     ):
         raise MarketplaceError(f"Unsafe marketplace package path: {raw_path!r}")
     return path.as_posix()
+
+
+def canonicalize_package_payload(file_path: str, payload: bytes) -> bytes:
+    """Return stable package bytes across Git newline conversion.
+
+    Git can check text files out with CRLF on Windows even though GitHub's raw
+    endpoint serves the repository blob with LF. Marketplace hashes are defined
+    over canonical LF bytes so the same reviewed Python or JSON file verifies
+    on every supported operating system.
+    """
+
+    suffix = PurePosixPath(file_path).suffix.lower()
+    if suffix in CANONICAL_TEXT_SUFFIXES:
+        return payload.replace(b"\r\n", b"\n")
+    return payload
+
+
+def package_sha256(file_path: str, payload: bytes) -> str:
+    """Return the cross-platform marketplace digest for one package file."""
+
+    canonical_payload = canonicalize_package_payload(file_path, payload)
+    return hashlib.sha256(canonical_payload).hexdigest()
 
 
 def validate_catalog(data: Any) -> dict[str, Any]:
@@ -259,12 +282,13 @@ class GitHubMarketplace:
         file_path = _safe_package_path(file_entry["path"])
         if len(payload) > MAX_PLUGIN_FILE_BYTES:
             raise MarketplaceError(f"Marketplace file is too large: {file_path}")
-        actual_hash = hashlib.sha256(payload).hexdigest()
+        canonical_payload = canonicalize_package_payload(file_path, payload)
+        actual_hash = package_sha256(file_path, canonical_payload)
         if actual_hash != file_entry["sha256"]:
             raise MarketplaceError(f"SHA-256 mismatch for marketplace file: {file_path}")
         destination = staging.joinpath(*PurePosixPath(file_path).parts)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(payload)
+        destination.write_bytes(canonical_payload)
 
     @staticmethod
     def _validate_staged_plugin(staging: Path, *, expected_name: str) -> dict[str, Any]:

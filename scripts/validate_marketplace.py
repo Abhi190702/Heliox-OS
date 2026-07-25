@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
 import importlib.util
 import json
 import sys
@@ -33,6 +32,7 @@ SIGNATURE_METADATA_FILES = MARKETPLACE_MODULE.SIGNATURE_METADATA_FILES
 MarketplaceError = MARKETPLACE_MODULE.MarketplaceError
 validate_catalog = MARKETPLACE_MODULE.validate_catalog
 validate_plugin_name = MARKETPLACE_MODULE.validate_plugin_name
+package_sha256 = MARKETPLACE_MODULE.package_sha256
 
 REGISTRY_PATH = REPO_ROOT / "plugins" / "registry.json"
 ALLOWED_IMPORT_ROOTS = frozenset(
@@ -94,7 +94,7 @@ def _package_files(plugin_dir: Path) -> list[dict[str, str]]:
         files.append(
             {
                 "path": relative,
-                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "sha256": package_sha256(relative, path.read_bytes()),
             }
         )
     return files

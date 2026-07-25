@@ -53,7 +53,9 @@ plugin created in the app is local to its creator's device.
 
 - `manifest.json` and `plugin.py` are required. A package may contain at most
   64 files and each file may be at most 5 MB.
-- Every package file has a SHA-256 digest in `plugins/registry.json`.
+- Every package file has a SHA-256 digest in `plugins/registry.json`. Python
+  and JSON digests use canonical LF newlines so Windows and Unix checkouts
+  verify identically.
 - Tool names are globally unique and use lowercase `snake_case`.
 - Dependencies must be declared truthfully. Credentials must come from the
   environment or an authenticated service and must never be committed.

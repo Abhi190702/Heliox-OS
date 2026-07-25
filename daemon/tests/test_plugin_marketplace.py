@@ -105,6 +105,37 @@ def test_hash_mismatch_does_not_leave_partial_install(tmp_path, monkeypatch):
     assert not (tmp_path / "installed" / "weather").exists()
 
 
+def test_install_normalizes_windows_newlines_before_hash_verification(
+    tmp_path,
+    monkeypatch,
+):
+    repo_root = tmp_path / "repo"
+    shutil.copytree(REPO_ROOT / "plugins", repo_root / "plugins")
+    package_dir = repo_root / "plugins" / "weather"
+    for file_name in ("manifest.json", "plugin.py"):
+        file_path = package_dir / file_name
+        payload = file_path.read_bytes().replace(b"\r\n", b"\n")
+        file_path.write_bytes(payload.replace(b"\n", b"\r\n"))
+
+    marketplace = GitHubMarketplace(
+        repo_root=repo_root,
+        plugins_dir=tmp_path / "installed",
+    )
+
+    def fail_remote(_url: str):
+        raise OSError("offline")
+
+    monkeypatch.setattr(marketplace, "_fetch_json", fail_remote)
+
+    result = marketplace.install("weather")
+    installed = tmp_path / "installed" / "weather"
+
+    assert result["success"] is True
+    assert b"\r\n" not in (installed / "manifest.json").read_bytes()
+    assert b"\r\n" not in (installed / "plugin.py").read_bytes()
+    verify_plugin_signature(installed)
+
+
 def test_discover_rebuilds_indexes_after_plugin_removal(tmp_path):
     plugin_root = tmp_path / "plugins"
     plugin_dir = plugin_root / "temporary"
