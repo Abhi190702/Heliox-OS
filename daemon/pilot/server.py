@@ -919,6 +919,8 @@ class PilotServer:
             "autonomous_cancel": self._handle_autonomous_cancel,
             "autonomous_jobs": self._handle_autonomous_jobs,
             "autonomous_job": self._handle_autonomous_job,
+            "risk_gate_status": self._handle_risk_gate_status,
+            "risk_gate_config_update": self._handle_risk_gate_config_update,
             "self_healing_status": self._handle_self_healing_status,
             "self_healing_config_update": self._handle_self_healing_config_update,
             "narration_status": self._handle_narration_status,
@@ -1441,12 +1443,14 @@ class PilotServer:
             plan_has_tier4 = any(a.permission_tier == PermissionTier.ROOT_CRITICAL for a in plan.actions)
             plan_has_tier3 = any(a.permission_tier == PermissionTier.DESTRUCTIVE for a in plan.actions)
             plan_has_irreversible = any(getattr(a, "is_irreversible", False) for a in plan.actions)
-            risk_score = compute_risk_score(plan, self.config) if (plan_has_tier3 or plan_has_irreversible) else 0.0
-            # Tier 4 always gets the LLM critic. Tier 3 / irreversible-only plans
-            # only pay for the LLM round-trip when the cheap heuristic flags them
-            # as ambiguous/high-risk — trivial single-file deletes skip straight
-            # to the confirmation dialog, but say so explicitly in the audit trail.
-            needs_critic_review = plan_has_tier4 or plan_has_tier3 or plan_has_irreversible
+            risk_score = compute_risk_score(plan, self.config)
+            # Tier 4 always gets the LLM critic. Other plans pay for that
+            # round-trip only when the heuristic or risk world model crosses
+            # the review threshold; trivial single-file deletes still skip
+            # straight to confirmation and say so in the audit trail.
+            needs_critic_review = (
+                plan_has_tier4 or plan_has_tier3 or plan_has_irreversible or risk_score >= HEURISTIC_RISK_THRESHOLD
+            )
             critic_skipped_reason: str | None = None
             if needs_critic_review and not (plan_has_tier4 or risk_score >= HEURISTIC_RISK_THRESHOLD):
                 needs_critic_review = False
@@ -3181,6 +3185,22 @@ class PilotServer:
         task_id = params.get("task_id", "")
         ok = self._background.stop(task_id)
         return {"status": "stopped" if ok else "error", "task_id": task_id}
+
+    async def _handle_risk_gate_status(self, params: dict, ws: ServerConnection) -> dict:
+        """Report the trained risk-world-model state and latest prediction."""
+        from pilot.security.risk_gate import get_risk_gate
+
+        return {
+            "status": "ok",
+            **get_risk_gate().status(enabled=self.config.gateway.risk_gate_enabled),
+        }
+
+    async def _handle_risk_gate_config_update(self, params: dict, ws: ServerConnection) -> dict:
+        """Enable or disable risk-world-model evaluation and persist it."""
+        if "enabled" in params:
+            self.config.gateway.risk_gate_enabled = bool(params["enabled"])
+        self.config.save()
+        return await self._handle_risk_gate_status({}, ws)
 
     async def _handle_self_healing_status(self, params: dict, ws: ServerConnection) -> dict:
         """Report self-healing config plus recent remediation attempts.

@@ -140,3 +140,33 @@ class TestGatewayPolicyGetAndUpdate:
         updated = server.config.gateway.source_profiles["autonomous"]
         assert isinstance(updated, SourceProfile)
         assert updated.max_tier["shell"] == 0
+
+
+class TestRiskGateStatusAndUpdate:
+    @pytest.mark.asyncio
+    async def test_status_exposes_loaded_shipped_model(self):
+        server = PilotServer(PilotConfig())
+        result = await server._handle_risk_gate_status({}, ws=None)
+
+        assert result["status"] == "ok"
+        assert result["enabled"] is True
+        assert result["weights_loaded"] is True
+        assert result["model_version"] == "risk-mlp-v2-action-types"
+        assert result["training_samples"] == 36_000
+        assert result["learnable_action_types"]
+
+    @pytest.mark.asyncio
+    async def test_update_persists_enabled_state(self, monkeypatch):
+        server = PilotServer(PilotConfig())
+        saved = False
+
+        def mark_saved():
+            nonlocal saved
+            saved = True
+
+        monkeypatch.setattr(server.config, "save", mark_saved)
+        result = await server._handle_risk_gate_config_update({"enabled": False}, ws=None)
+
+        assert result["enabled"] is False
+        assert server.config.gateway.risk_gate_enabled is False
+        assert saved is True

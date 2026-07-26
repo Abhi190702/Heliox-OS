@@ -1,6 +1,11 @@
+import numpy as np
+import pytest
+
 from pilot.actions import Action, ActionPlan, ActionType, EmptyParams
 from pilot.config import PilotConfig
 from pilot.security.risk_gate import RiskGate, get_risk_gate
+from pilot.security.risk_model import EMBEDDING_SIZE
+from pilot.security.risk_observation import OsSnapshot
 
 
 def _plan(*action_types: ActionType, target: str = "") -> ActionPlan:
@@ -45,3 +50,66 @@ def test_get_risk_gate_returns_singleton():
     a = get_risk_gate()
     b = get_risk_gate()
     assert a is b
+
+
+def test_learned_prediction_cannot_weaken_deterministic_warning(tmp_path, monkeypatch):
+    weights = tmp_path / "zero-model.npz"
+    np.savez(
+        weights,
+        w1=np.zeros((EMBEDDING_SIZE, 2), dtype=np.float32),
+        b1=np.zeros(2, dtype=np.float32),
+        w2=np.zeros((2, 2), dtype=np.float32),
+        b2=np.zeros(2, dtype=np.float32),
+    )
+    monkeypatch.setattr(
+        "pilot.security.risk_gate.capture_os_snapshot",
+        lambda: OsSnapshot(
+            proc_count=100,
+            disk_usage_fraction=0.94,
+            memory_usage_fraction=0.5,
+            disk_path="/",
+        ),
+    )
+
+    gate = RiskGate(weights_path=str(weights))
+    risk, reasons = gate.evaluate_plan(_plan(ActionType.FILE_WRITE), PilotConfig())
+
+    assert risk == pytest.approx(0.8)
+    assert any("disk usage" in reason for reason in reasons)
+    assert gate.status(enabled=True)["last_evaluation"]["prediction_sources"] == ["learned", "rule"]
+
+
+def test_repeated_process_actions_are_evaluated_cumulatively(monkeypatch):
+    monkeypatch.setattr(
+        "pilot.security.risk_gate.capture_os_snapshot",
+        lambda: OsSnapshot(
+            proc_count=100,
+            disk_usage_fraction=0.5,
+            memory_usage_fraction=0.5,
+            disk_path="/",
+        ),
+    )
+    gate = RiskGate(weights_path="/nonexistent.npz")
+    risk, reasons = gate.evaluate_plan(_plan(*([ActionType.SHELL_COMMAND] * 51)), PilotConfig())
+
+    assert risk == pytest.approx(0.7)
+    assert any("fork-bomb" in reason for reason in reasons)
+
+
+def test_status_reports_model_metadata_and_sanitized_last_evaluation():
+    gate = RiskGate()
+    gate.evaluate_plan(_plan(ActionType.FILE_READ), PilotConfig())
+
+    status = gate.status(enabled=True)
+    assert status["enabled"] is True
+    assert status["weights_loaded"] is True
+    assert status["embedding_size"] == EMBEDDING_SIZE
+    assert status["learnable_action_types"]
+    assert set(status["last_evaluation"]) == {
+        "evaluated_at",
+        "action_count",
+        "risk_score",
+        "reasons",
+        "worst_action_type",
+        "prediction_sources",
+    }

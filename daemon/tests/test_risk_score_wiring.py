@@ -24,9 +24,13 @@ def test_no_config_falls_back_to_heuristic_risk_unchanged():
 
 def test_gate_disabled_falls_back_to_heuristic_risk_unchanged():
     config = PilotConfig()
-    assert config.gateway.risk_gate_enabled is False
+    config.gateway.risk_gate_enabled = False
     plan = _plan(ActionType.FILE_DELETE)
     assert risk_score(plan, config) == heuristic_risk(plan)
+
+
+def test_gate_is_enabled_by_default_for_new_configs():
+    assert PilotConfig().gateway.risk_gate_enabled is True
 
 
 def test_gate_enabled_with_no_new_signal_matches_heuristic_risk():

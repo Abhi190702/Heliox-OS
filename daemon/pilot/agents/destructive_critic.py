@@ -70,8 +70,9 @@ def heuristic_risk(plan: ActionPlan) -> float:
 
 
 def risk_score(plan: ActionPlan, config: PilotConfig | None = None) -> float:
-    """Decides whether a Tier-3-only/irreversible-only plan is worth the
-    LLM critic round-trip — combines the cheap rule-based heuristic_risk()
+    """Decides whether any plan is worth the LLM critic round-trip.
+
+    Combines the cheap rule-based heuristic_risk()
     above with the Learned Risk Gate (pilot.security.risk_gate), when
     enabled, via max().
 
@@ -89,8 +90,8 @@ def risk_score(plan: ActionPlan, config: PilotConfig | None = None) -> float:
     (server.py, gateway.py's _maybe_run_critic).
 
     Falls back to heuristic_risk() unchanged if config is None, the gate
-    is disabled, or no learned weights are staged — see RiskGate's own
-    graceful-degradation philosophy.
+    is disabled, or evaluation fails. Missing learned weights still retain
+    RiskGate's deterministic transition checks.
     """
     base = heuristic_risk(plan)
     if config is None or not config.gateway.risk_gate_enabled:

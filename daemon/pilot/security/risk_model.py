@@ -31,7 +31,7 @@ import numpy as np
 
 from pilot.actions import ActionType, PermissionTier
 from pilot.security.gateway import ActionFamily, action_family
-from pilot.security.risk_observation import OsSnapshot
+from pilot.security.risk_observation import NOMINAL_PROC_CAPACITY, OsSnapshot
 
 if TYPE_CHECKING:
     from pilot.actions import Action
@@ -51,7 +51,6 @@ IDX_DANGEROUS_FLAGS = 6
 IDX_FAMILY_BASE = 7  # 4 contiguous one-hot slots: shell/browsing/system_control/other
 
 FAMILY_ORDER = [ActionFamily.SHELL, ActionFamily.BROWSING, ActionFamily.SYSTEM_CONTROL, ActionFamily.OTHER]
-EMBEDDING_SIZE = IDX_FAMILY_BASE + len(FAMILY_ORDER)
 
 # Action families the rule table (and, once trained, the learned model)
 # actually have well-understood, repeatable effects for. Mirrors
@@ -79,6 +78,11 @@ _PROC_DELTA_RULES: dict[ActionType, float] = {
 # to — a subset of the rule table's keys, exactly the ones real sandboxed
 # telemetry was collected for. See collect_risk_training_data.py.
 LEARNABLE_ACTION_TYPES = frozenset(_DISK_DELTA_RULES) | frozenset(_PROC_DELTA_RULES)
+LEARNABLE_ACTION_TYPE_ORDER = tuple(sorted(LEARNABLE_ACTION_TYPES, key=lambda action_type: action_type.value))
+IDX_ACTION_TYPE_BASE = IDX_FAMILY_BASE + len(FAMILY_ORDER)
+EMBEDDING_SIZE = IDX_ACTION_TYPE_BASE + len(LEARNABLE_ACTION_TYPE_ORDER)
+
+MODEL_VERSION = "risk-mlp-v2-action-types"
 
 
 @dataclass(frozen=True)
@@ -107,6 +111,9 @@ def encode(snapshot: OsSnapshot, action: Action) -> np.ndarray:
     if family in FAMILY_ORDER:
         v[IDX_FAMILY_BASE + FAMILY_ORDER.index(family)] = 1.0
 
+    if action.action_type in LEARNABLE_ACTION_TYPE_ORDER:
+        v[IDX_ACTION_TYPE_BASE + LEARNABLE_ACTION_TYPE_ORDER.index(action.action_type)] = 1.0
+
     return v
 
 
@@ -115,7 +122,7 @@ def _rule_based_outcome(snapshot: OsSnapshot, action: Action) -> PredictedOutcom
     predicts NO change, exactly like transition.rs's rule_based_delta —
     Phase 1 doesn't try to model low-consequence/unrecognized actions."""
     disk_delta = _DISK_DELTA_RULES.get(action.action_type, 0.0)
-    proc_delta = _PROC_DELTA_RULES.get(action.action_type, 0.0)
+    proc_delta = _PROC_DELTA_RULES.get(action.action_type, 0.0) / NOMINAL_PROC_CAPACITY
     return PredictedOutcome(
         disk_usage_after=min(1.0, max(0.0, snapshot.disk_usage_fraction + disk_delta)),
         proc_count_delta_normalized=proc_delta,
@@ -134,6 +141,8 @@ class RiskTransitionModel:
     def __init__(self, weights_path: str | None = None) -> None:
         self._loaded = False
         self._w1 = self._b1 = self._w2 = self._b2 = None
+        self._model_version = "rule-fallback"
+        self._training_samples = 0
         self._weights_path = weights_path or _default_weights_path()
         self._try_load()
 
@@ -150,6 +159,10 @@ class RiskTransitionModel:
                 )
                 return
             self._w1, self._b1, self._w2, self._b2 = w1, b1, w2, b2
+            self._model_version = (
+                str(data["model_version"].item()) if "model_version" in data.files else "legacy-learned-model"
+            )
+            self._training_samples = int(data["training_samples"].item()) if "training_samples" in data.files else 0
             self._loaded = True
             logger.info("Loaded learned risk transition model from %s", self._weights_path)
         except FileNotFoundError:
@@ -160,6 +173,22 @@ class RiskTransitionModel:
     @property
     def is_loaded(self) -> bool:
         return self._loaded
+
+    @property
+    def model_version(self) -> str:
+        return self._model_version
+
+    @property
+    def training_samples(self) -> int:
+        return self._training_samples
+
+    def predict_rule(self, snapshot: OsSnapshot, action: Action) -> PredictedOutcome:
+        """Return the deterministic baseline even when learned weights exist.
+
+        The gate scores this in parallel with learned output, so a noisy model
+        can add caution but can never erase a stronger deterministic warning.
+        """
+        return _rule_based_outcome(snapshot, action)
 
     def predict(self, snapshot: OsSnapshot, action: Action) -> PredictedOutcome:
         if not self._loaded or action.action_type not in LEARNABLE_ACTION_TYPES:

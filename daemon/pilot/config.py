@@ -233,13 +233,12 @@ class GatewayConfig:
     # fields (disk usage, process-count delta) for a proposed action,
     # scored by hardcoded rules (risk_safety.py) that can only ADD
     # caution on top of the existing heuristic_risk() signal (see
-    # destructive_critic.py's risk_score()), never remove it. Off by
-    # default: unlike gateway.enabled, this is a genuinely new detection
-    # capability (protected-path/predicted-resource-exhaustion checks
-    # heuristic_risk() has no visibility into at all), not yet validated
-    # against real-world usage, so it needs an explicit opt-in the same
-    # way gesture_cursor does.
-    risk_gate_enabled: bool = False
+    # destructive_critic.py's risk_score()), never remove it. The v2 gate
+    # is enabled for new installs because learned output is scored beside
+    # (never instead of) deterministic rules, so it cannot weaken the
+    # established safety baseline. Existing explicit user settings remain
+    # unchanged when loading a saved config.
+    risk_gate_enabled: bool = True
 
 
 @dataclass

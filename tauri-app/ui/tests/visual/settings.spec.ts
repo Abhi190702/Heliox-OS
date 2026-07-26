@@ -106,6 +106,33 @@ test.describe("Settings Panel", () => {
     await expect(section).toHaveScreenshot("settings-restrictions-section.png");
   });
 
+  test("learned risk world model exposes runtime status and saves its toggle", async ({
+    page,
+  }) => {
+    const section = page
+      .locator(".settings-group")
+      .filter({ hasText: "Learned Risk World Model" });
+    await section.scrollIntoViewIfNeeded();
+
+    await expect(section).toContainText("Loaded");
+    await expect(section).toContainText("36,000 real samples");
+    await expect(section).toContainText("risk-mlp-v2-action-types");
+    await expect(section).toContainText("80% risk");
+    await expect(section).toContainText("learned + rule");
+
+    await section.getByRole("button", { name: "Toggle Learned Risk World Model" }).click();
+    await section.getByRole("button", { name: "Save" }).click();
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as any).__risk_gate_update__)
+      )
+      .toMatchObject({
+        method: "risk_gate_config_update",
+        params: { enabled: false },
+      });
+  });
+
   test("full window with settings tab active matches baseline", async ({
     page,
   }) => {

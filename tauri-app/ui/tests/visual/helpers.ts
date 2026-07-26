@@ -77,7 +77,49 @@ export async function mockTauriIpc(page: Page): Promise<void> {
       
       send(data: string) {
         // Intercept sent messages and store them globally for tests to inspect
-        (window as any).__last_ws_send__ = JSON.parse(data);
+        const request = JSON.parse(data);
+        (window as any).__last_ws_send__ = request;
+
+        if (request.method === "risk_gate_config_update") {
+          (window as any).__risk_gate_enabled__ = request.params.enabled;
+          (window as any).__risk_gate_update__ = request;
+        }
+        if (
+          request.method === "auth" ||
+          request.method === "risk_gate_status" ||
+          request.method === "risk_gate_config_update"
+        ) {
+          const result =
+            request.method === "auth"
+              ? { status: "ok" }
+              : {
+                  status: "ok",
+                  enabled: (window as any).__risk_gate_enabled__ ?? true,
+                  weights_loaded: true,
+                  model_version: "risk-mlp-v2-action-types",
+                  training_samples: 36000,
+                  embedding_size: 23,
+                  learnable_action_types: [
+                    "file_write",
+                    "file_delete",
+                    "service_start",
+                    "service_stop",
+                  ],
+                  last_evaluation: {
+                    evaluated_at: "2026-07-26T10:00:00Z",
+                    action_count: 2,
+                    risk_score: 0.8,
+                    reasons: ["predicted disk usage 96% exceeds the safe threshold"],
+                    worst_action_type: "file_write",
+                    prediction_sources: ["learned", "rule"],
+                  },
+                };
+          setTimeout(() => {
+            this.onmessage?.({
+              data: JSON.stringify({ jsonrpc: "2.0", id: request.id, result }),
+            });
+          }, 0);
+        }
       }
       
       close() {

@@ -546,11 +546,13 @@ class AgentGateway:
         plan_has_tier3 = any(a.permission_tier == PermissionTier.DESTRUCTIVE for a in plan.actions)
         plan_has_irreversible = any(getattr(a, "is_irreversible", False) for a in plan.actions)
 
-        needs_review = plan_has_tier4 or plan_has_tier3 or plan_has_irreversible
+        risk_score = compute_risk_score(plan, self._config)
+        needs_review = (
+            plan_has_tier4 or plan_has_tier3 or plan_has_irreversible or risk_score >= HEURISTIC_RISK_THRESHOLD
+        )
         if not needs_review:
             return None
 
-        risk_score = compute_risk_score(plan, self._config) if (plan_has_tier3 or plan_has_irreversible) else 0.0
         if not (plan_has_tier4 or risk_score >= HEURISTIC_RISK_THRESHOLD):
             return None
 

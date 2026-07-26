@@ -28,7 +28,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np  # noqa: E402
 
-from pilot.security.risk_model import EMBEDDING_SIZE  # noqa: E402
+from pilot.actions import ActionType  # noqa: E402
+from pilot.security.risk_model import (  # noqa: E402
+    EMBEDDING_SIZE,
+    IDX_ACTION_TYPE_BASE,
+    LEARNABLE_ACTION_TYPE_ORDER,
+    MODEL_VERSION,
+)
 
 OUTPUT_SIZE = 2  # [disk_delta, proc_delta_normalized]
 
@@ -42,7 +48,16 @@ def load_dataset(path: str) -> tuple[np.ndarray, np.ndarray]:
             if not line:
                 continue
             row = json.loads(line)
-            embeddings.append(row["embedding"])
+            embedding = list(row["embedding"])
+            if len(embedding) == IDX_ACTION_TYPE_BASE:
+                # Datasets collected before v2 contain the original state +
+                # family embedding. Preserve that real telemetry and append
+                # the exact action identity recorded alongside every row.
+                action_type = ActionType(row["action_type"])
+                action_slots = [0.0] * len(LEARNABLE_ACTION_TYPE_ORDER)
+                action_slots[LEARNABLE_ACTION_TYPE_ORDER.index(action_type)] = 1.0
+                embedding.extend(action_slots)
+            embeddings.append(embedding)
             targets.append([row["disk_delta"], row["proc_delta"]])
 
     X = np.array(embeddings, dtype=np.float32)
@@ -129,8 +144,16 @@ def train(
     return w1, b1, w2, b2
 
 
-def write_weights(path: str, w1: np.ndarray, b1: np.ndarray, w2: np.ndarray, b2: np.ndarray) -> None:
-    np.savez(path, w1=w1, b1=b1, w2=w2, b2=b2)
+def write_weights(path: str, w1: np.ndarray, b1: np.ndarray, w2: np.ndarray, b2: np.ndarray, samples: int) -> None:
+    np.savez(
+        path,
+        w1=w1,
+        b1=b1,
+        w2=w2,
+        b2=b2,
+        model_version=np.array(MODEL_VERSION),
+        training_samples=np.array(samples, dtype=np.int64),
+    )
 
 
 def _mse(X: np.ndarray, Y: np.ndarray, w1, b1, w2, b2) -> float:
@@ -144,7 +167,7 @@ def main() -> None:
     parser.add_argument(
         "--out", type=str, default=str(Path(__file__).parent.parent / "pilot" / "security" / "risk_gate_weights.npz")
     )
-    parser.add_argument("--hidden", type=int, default=8)
+    parser.add_argument("--hidden", type=int, default=16)
     parser.add_argument("--epochs", type=int, default=2000)
     parser.add_argument("--lr", type=float, default=0.05)
     parser.add_argument(
@@ -191,7 +214,7 @@ def main() -> None:
     # actually shipped, since there's no reason to withhold real data from
     # the production model once its generalization is confirmed.
     w1, b1, w2, b2 = train(X, Y, hidden_size=args.hidden, epochs=args.epochs, lr=args.lr, seed=args.seed)
-    write_weights(args.out, w1, b1, w2, b2)
+    write_weights(args.out, w1, b1, w2, b2, X.shape[0])
     print(f"Wrote weights (trained on all {X.shape[0]} samples) to {args.out}")
 
 

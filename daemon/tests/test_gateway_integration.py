@@ -156,3 +156,39 @@ class TestCriticBypassFix:
 
         await ex.execute(plan, invocation_source=InvocationSource.INTERACTIVE, critic_already_reviewed=True)
         assert critic.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_world_model_can_escalate_a_low_tier_plan_to_critic(self):
+        config = PilotConfig()
+        config.restrictions.protected_folders = ["/protected"]
+        permissions = PermissionChecker(config)
+
+        class _StubVerdict:
+            def to_dict(self):
+                return {"verdict": "WARN", "risk_score": 0.9, "recommendation": "reviewed"}
+
+        class _StubCritic:
+            def __init__(self):
+                self.calls = 0
+
+            async def review(self, user_input, plan):
+                self.calls += 1
+                return _StubVerdict()
+
+        critic = _StubCritic()
+        gateway = AgentGateway(config, permissions, destructive_critic=critic)
+        plan = ActionPlan(
+            actions=[
+                Action(
+                    action_type=ActionType.FILE_READ,
+                    target="/protected/config.txt",
+                    parameters=EmptyParams(),
+                )
+            ],
+            raw_input="read protected config",
+        )
+
+        verdict = await gateway._maybe_run_critic(plan, critic_already_reviewed=False)
+
+        assert critic.calls == 1
+        assert verdict["verdict"] == "WARN"
