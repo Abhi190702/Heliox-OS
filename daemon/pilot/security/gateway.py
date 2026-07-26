@@ -27,9 +27,11 @@ widen it — see `resolve_effective_profile()`.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 
 from pydantic import BaseModel, Field
 
@@ -47,6 +49,22 @@ if TYPE_CHECKING:
 PLAN_LEVEL_AUDIT_INDEX = -1
 
 logger = logging.getLogger("pilot.security.gateway")
+
+_critic_already_reviewed_context: ContextVar[bool] = ContextVar(
+    "heliox_critic_already_reviewed",
+    default=False,
+)
+
+
+@contextmanager
+def mark_critic_already_reviewed() -> Iterator[None]:
+    """Keep nested specialist execution from reviewing one plan twice."""
+
+    token = _critic_already_reviewed_context.set(True)
+    try:
+        yield
+    finally:
+        _critic_already_reviewed_context.reset(token)
 
 
 class InvocationSource(StrEnum):
@@ -472,7 +490,10 @@ class AgentGateway:
         if reasons:
             return GatewayDecision(allowed=False, reasons=reasons)
 
-        critic_verdict = await self._maybe_run_critic(plan, critic_already_reviewed)
+        critic_verdict = await self._maybe_run_critic(
+            plan,
+            critic_already_reviewed or _critic_already_reviewed_context.get(),
+        )
         if critic_verdict is not None and critic_verdict.get("verdict") == "BLOCK":
             reason = f"Blocked by safety critic: {critic_verdict.get('recommendation', '')}"
             await self._record_decision(
@@ -536,17 +557,17 @@ class AgentGateway:
         safety review interactive requests already receive, instead of
         silently skipping it because they never pass through server.py's
         confirmation-gate code path."""
-        if critic_already_reviewed or self._destructive_critic is None:
+        if critic_already_reviewed:
             return None
 
-        from pilot.agents.destructive_critic import HEURISTIC_RISK_THRESHOLD
-        from pilot.agents.destructive_critic import risk_score as compute_risk_score
+        from pilot.agents.destructive_critic import HEURISTIC_RISK_THRESHOLD, assess_plan_risk
 
         plan_has_tier4 = any(a.permission_tier == PermissionTier.ROOT_CRITICAL for a in plan.actions)
         plan_has_tier3 = any(a.permission_tier == PermissionTier.DESTRUCTIVE for a in plan.actions)
         plan_has_irreversible = any(getattr(a, "is_irreversible", False) for a in plan.actions)
 
-        risk_score = compute_risk_score(plan, self._config)
+        risk_assessment = assess_plan_risk(plan, self._config)
+        risk_score = risk_assessment.combined_score
         needs_review = (
             plan_has_tier4 or plan_has_tier3 or plan_has_irreversible or risk_score >= HEURISTIC_RISK_THRESHOLD
         )
@@ -556,5 +577,20 @@ class AgentGateway:
         if not (plan_has_tier4 or risk_score >= HEURISTIC_RISK_THRESHOLD):
             return None
 
+        if self._destructive_critic is None:
+            if not risk_assessment.requires_confirmation:
+                return None
+            return {
+                "verdict": "WARN",
+                "risk_score": risk_assessment.combined_score,
+                "issues": risk_assessment.reasons,
+                "safe_actions": [],
+                "flagged_actions": [action.action_type.value for action in plan.actions],
+                "recommendation": "World model predicted a risky outcome; execution requires approval.",
+                "world_model": risk_assessment.to_dict(),
+            }
+
         verdict = await self._destructive_critic.review(plan.raw_input, plan)
-        return verdict.to_dict()
+        payload = verdict.to_dict()
+        payload["world_model"] = risk_assessment.to_dict()
+        return payload

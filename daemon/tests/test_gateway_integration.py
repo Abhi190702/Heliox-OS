@@ -11,7 +11,12 @@ from pilot.actions import Action, ActionPlan, ActionType, EmptyParams
 from pilot.agents.executor import Executor
 from pilot.config import PilotConfig
 from pilot.security.audit import AuditLogger
-from pilot.security.gateway import AgentGateway, InvocationSource, TaskScopeOverride
+from pilot.security.gateway import (
+    AgentGateway,
+    InvocationSource,
+    TaskScopeOverride,
+    mark_critic_already_reviewed,
+)
 from pilot.security.permissions import PermissionChecker
 from pilot.security.validator import ActionValidator
 
@@ -155,6 +160,39 @@ class TestCriticBypassFix:
         )
 
         await ex.execute(plan, invocation_source=InvocationSource.INTERACTIVE, critic_already_reviewed=True)
+        assert critic.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_outer_review_context_skips_nested_orchestrator_critic(self, tmp_path):
+        config = PilotConfig()
+        permissions = PermissionChecker(config)
+
+        class _StubCritic:
+            def __init__(self):
+                self.calls = 0
+
+            async def review(self, user_input, plan):
+                self.calls += 1
+                raise AssertionError("nested specialist execution repeated the critic review")
+
+        critic = _StubCritic()
+        gateway = AgentGateway(config, permissions, destructive_critic=critic)
+        ex = _executor(tmp_path, gateway=gateway)
+        plan = ActionPlan(
+            actions=[
+                Action(
+                    action_type=ActionType.FILE_DELETE,
+                    target="/tmp/x",
+                    parameters=EmptyParams(),
+                    dangerous_flags=["rm -rf pattern detected"],
+                )
+            ],
+            raw_input="delete a file",
+        )
+
+        with mark_critic_already_reviewed():
+            await ex.execute(plan, invocation_source=InvocationSource.SYSTEM_AGENT)
+
         assert critic.calls == 0
 
     @pytest.mark.asyncio

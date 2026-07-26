@@ -6,11 +6,21 @@
     actions: PlanAction[];
     onconfirm: (approvedIndices: number[]) => void;
     ondeny: () => void;
+    reason?: string;
+    riskAssessment?: Record<string, unknown> | null;
     submitting?: boolean;
     error?: string;
   }
 
-  let { actions, onconfirm, ondeny, submitting = false, error = "" }: Props = $props();
+  let {
+    actions,
+    onconfirm,
+    ondeny,
+    reason = "",
+    riskAssessment = null,
+    submitting = false,
+    error = "",
+  }: Props = $props();
 
   let approved = $state<boolean[]>([]);
   let anyApproved = $derived(approved.some((v) => v));
@@ -45,6 +55,21 @@
     <p class="confirm-body">
       {$_('confirm.body')}
     </p>
+
+    {#if riskAssessment}
+      <div class="world-model-warning" role="alert">
+        <strong>
+          World model interruption ·
+          {Math.round(Number(riskAssessment.world_model_score ?? 0) * 100)}% predicted risk
+        </strong>
+        <span>{reason}</span>
+        <small>
+          Prediction: {Array.isArray(riskAssessment.prediction_sources)
+            ? riskAssessment.prediction_sources.join(" + ")
+            : "world model"}
+        </small>
+      </div>
+    {/if}
 
     <ul class="confirm-list">
       {#each actions as action, i}
@@ -201,6 +226,28 @@
     color: var(--danger);
     font-size: 12px;
     line-height: 1.4;
+  }
+
+  .world-model-warning {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    color: var(--warning);
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .world-model-warning span {
+    color: var(--text-primary);
+  }
+
+  .world-model-warning small {
+    color: var(--text-muted);
   }
 
   .btn-deny {

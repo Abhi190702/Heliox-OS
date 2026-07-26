@@ -90,6 +90,8 @@ interface SessionState {
   confirmRequired: boolean;
   confirmPlanId: string;
   confirmActions: PlanAction[];
+  confirmReason: string;
+  confirmRiskAssessment: Record<string, unknown> | null;
   confirmSubmitting: boolean;
   confirmError: string;
   phase: string;
@@ -116,6 +118,8 @@ const initialState: SessionState = {
   confirmRequired: false,
   confirmPlanId: "",
   confirmActions: [],
+  confirmReason: "",
+  confirmRiskAssessment: null,
   confirmSubmitting: false,
   confirmError: "",
   phase: "",
@@ -288,6 +292,11 @@ function createSession() {
           confirmRequired: true,
           confirmPlanId: String(p.plan_id ?? ""),
           confirmActions: (p.actions ?? []) as PlanAction[],
+          confirmReason: String(p.reason ?? ""),
+          confirmRiskAssessment:
+            p.risk_assessment && typeof p.risk_assessment === "object"
+              ? (p.risk_assessment as Record<string, unknown>)
+              : null,
           confirmSubmitting: false,
           confirmError: "",
         }));
@@ -486,6 +495,9 @@ function createSession() {
       liveActions: [],
       confirmRequired: false,
       confirmPlanId: "",
+      confirmActions: [],
+      confirmReason: "",
+      confirmRiskAssessment: null,
       confirmSubmitting: false,
       confirmError: "",
       streamingText: "",
@@ -549,6 +561,10 @@ function createSession() {
           phase: "",
           currentPlan: null,
           confirmRequired: false,
+          confirmPlanId: "",
+          confirmActions: [],
+          confirmReason: "",
+          confirmRiskAssessment: null,
           confirmSubmitting: false,
           confirmError: "",
           streamingText: "",
@@ -592,6 +608,10 @@ function createSession() {
           phase: "",
           currentPlan: null,
           confirmRequired: false,
+          confirmPlanId: "",
+          confirmActions: [],
+          confirmReason: "",
+          confirmRiskAssessment: null,
           confirmSubmitting: false,
           confirmError: "",
           streamingText: "",
@@ -619,6 +639,8 @@ function createSession() {
         confirmRequired: false,
         confirmPlanId: "",
         confirmActions: [],
+        confirmReason: "",
+        confirmRiskAssessment: null,
         confirmSubmitting: false,
         confirmError: "",
         streamingText: "",
@@ -677,6 +699,8 @@ function createSession() {
           confirmRequired: false,
           confirmPlanId: "",
           confirmActions: [],
+          confirmReason: "",
+          confirmRiskAssessment: null,
           confirmSubmitting: false,
           confirmError: "",
           messages: [

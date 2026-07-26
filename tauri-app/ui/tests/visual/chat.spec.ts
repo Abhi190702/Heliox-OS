@@ -135,6 +135,48 @@ test.describe("Chat Interface", () => {
     await expect(page.locator(".scroll-fab")).toHaveClass(/visible/);
   });
 
+  test("world-model risk visibly interrupts execution before the action runs", async ({ page }) => {
+    await emitNotification(page, "confirm_required", {
+      plan_id: "world-plan",
+      reason:
+        "World model paused this plan at 80% predicted risk: predicted disk usage 96% exceeds the safe threshold",
+      risk_assessment: {
+        world_model_score: 0.8,
+        prediction_sources: ["learned", "rule"],
+        requires_confirmation: true,
+      },
+      actions: [
+        {
+          index: 0,
+          action_type: "file_write",
+          target: "C:\\Temp\\large-output.bin",
+          parameters: {},
+          destructive: false,
+          irreversible: false,
+          requires_root: false,
+        },
+      ],
+    });
+
+    const dialog = page.locator(".confirm-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("alert")).toContainText(
+      "World model interruption · 80% predicted risk"
+    );
+    await expect(dialog.getByRole("alert")).toContainText("learned + rule");
+    await expect(dialog.getByRole("alert")).toContainText(
+      "predicted disk usage 96% exceeds the safe threshold"
+    );
+
+    await dialog.getByRole("button", { name: "Deny" }).click();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__last_ws_send__))
+      .toMatchObject({
+        method: "confirm",
+        params: { plan_id: "world-plan", confirmed: false },
+      });
+  });
+
   test("full chat panel layout matches baseline", async ({ page }) => {
     // Full-panel screenshot to catch any layout shifts
     await expect(page.locator(".window")).toHaveScreenshot("chat-full-panel.png");

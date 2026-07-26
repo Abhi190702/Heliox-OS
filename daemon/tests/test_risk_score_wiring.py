@@ -6,7 +6,7 @@ Tier-3-only/irreversible-only plan is worth the LLM critic round-trip."""
 from unittest.mock import patch
 
 from pilot.actions import Action, ActionPlan, ActionType, EmptyParams
-from pilot.agents.destructive_critic import heuristic_risk, risk_score
+from pilot.agents.destructive_critic import assess_plan_risk, heuristic_risk, risk_score
 from pilot.config import PilotConfig
 
 
@@ -54,6 +54,13 @@ def test_gate_enabled_catches_protected_path_heuristic_alone_would_miss():
     combined = risk_score(plan, config)
     assert combined > 0.0
     assert combined > heuristic_risk(plan)
+
+    assessment = assess_plan_risk(plan, config)
+    assert assessment.world_model_score == 0.9
+    assert assessment.requires_confirmation is True
+    assert "touches a protected path/package: /etc" in assessment.reasons
+    assert assessment.prediction_sources
+    assert assessment.to_dict()["requires_confirmation"] is True
 
 
 def test_gate_never_lowers_risk_below_heuristic():

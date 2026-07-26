@@ -80,6 +80,22 @@ export async function mockTauriIpc(page: Page): Promise<void> {
         const request = JSON.parse(data);
         (window as any).__last_ws_send__ = request;
 
+        if (
+          request.method === "risk_gate_status" &&
+          (window as any).__mock_risk_gate_status_missing__
+        ) {
+          setTimeout(() => {
+            this.onmessage?.({
+              data: JSON.stringify({
+                jsonrpc: "2.0",
+                id: request.id,
+                error: { code: -32601, message: "Method not found: risk_gate_status" },
+              }),
+            });
+          }, 0);
+          return;
+        }
+
         if (request.method === "risk_gate_config_update") {
           (window as any).__risk_gate_enabled__ = request.params.enabled;
           (window as any).__risk_gate_update__ = request;
@@ -244,7 +260,15 @@ export async function emitNotification(
  * Navigate to the app root and wait for the main window to be visible.
  * Skips the SetupWizard by pre-seeding localStorage.
  */
-export async function gotoApp(page: Page): Promise<void> {
+export async function gotoApp(
+  page: Page,
+  options: { riskGateStatusMissing?: boolean } = {}
+): Promise<void> {
+  if (options.riskGateStatusMissing) {
+    await page.addInitScript(() => {
+      (window as any).__mock_risk_gate_status_missing__ = true;
+    });
+  }
   await mockTauriIpc(page);
 
   // Pre-seed localStorage so the SetupWizard is skipped

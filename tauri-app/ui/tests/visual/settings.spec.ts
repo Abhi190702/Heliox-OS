@@ -120,8 +120,12 @@ test.describe("Settings Panel", () => {
     await expect(section).toContainText("80% risk");
     await expect(section).toContainText("learned + rule");
 
+    const runtimeCard = section.locator(".status-card").filter({ hasText: "Runtime" });
+    await expect(runtimeCard).toContainText("Enabled");
     await section.getByRole("button", { name: "Toggle Learned Risk World Model" }).click();
+    await expect(runtimeCard).toContainText("Enabled");
     await section.getByRole("button", { name: "Save" }).click();
+    await expect(runtimeCard).toContainText("Disabled");
 
     await expect
       .poll(() =>
@@ -252,5 +256,26 @@ test.describe("Settings Panel", () => {
     await expect(page.locator(".window")).toHaveScreenshot(
       "settings-full-window.png"
     );
+  });
+});
+
+test.describe("Learned Risk World Model compatibility", () => {
+  test("an outdated daemon never looks like an empty fallback model", async ({ page }) => {
+    await gotoApp(page, { riskGateStatusMissing: true });
+    await clickTab(page, "Settings");
+
+    const section = page
+      .locator(".settings-group")
+      .filter({ hasText: "Learned Risk World Model" });
+    await section.scrollIntoViewIfNeeded();
+
+    await expect(section.getByRole("alert")).toContainText(
+      "This app is connected to an older Heliox daemon. Restart the daemon, then retry."
+    );
+    await expect(section).not.toContainText("Rule fallback only");
+    await expect(section).not.toContainText("0 real samples");
+    await expect(
+      section.getByRole("button", { name: "Toggle Learned Risk World Model" })
+    ).toBeDisabled();
   });
 });

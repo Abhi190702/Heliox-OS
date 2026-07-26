@@ -12,6 +12,7 @@
   }
 
   let enabled = $state(false);
+  let runtimeEnabled = $state(false);
   let weightsLoaded = $state(false);
   let modelVersion = $state("unknown");
   let trainingSamples = $state(0);
@@ -19,16 +20,47 @@
   let actionTypes = $state<string[]>([]);
   let lastEvaluation = $state<LastEvaluation | null>(null);
   let loading = $state(true);
+  let statusAvailable = $state(false);
   let saving = $state(false);
   let saved = $state(false);
   let error = $state("");
 
   onMount(loadStatus);
 
+  function applyStatus(result: {
+    enabled: boolean;
+    weights_loaded: boolean;
+    model_version: string;
+    training_samples: number;
+    embedding_size: number;
+    learnable_action_types: string[];
+    last_evaluation: LastEvaluation | null;
+  }) {
+    enabled = result.enabled ?? false;
+    runtimeEnabled = result.enabled ?? false;
+    weightsLoaded = result.weights_loaded ?? false;
+    modelVersion = result.model_version ?? "unknown";
+    trainingSamples = result.training_samples ?? 0;
+    embeddingSize = result.embedding_size ?? 0;
+    actionTypes = result.learnable_action_types ?? [];
+    lastEvaluation = result.last_evaluation ?? null;
+    statusAvailable = true;
+  }
+
+  function statusError(cause: unknown): string {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    if (/method not found.*risk_gate_status/i.test(message)) {
+      return "This app is connected to an older Heliox daemon. Restart the daemon, then retry.";
+    }
+    return `Could not load world-model status: ${message}`;
+  }
+
   async function loadStatus() {
+    loading = true;
     error = "";
     try {
       const result = (await call("risk_gate_status")) as {
+        status?: string;
         enabled: boolean;
         weights_loaded: boolean;
         model_version: string;
@@ -37,15 +69,13 @@
         learnable_action_types: string[];
         last_evaluation: LastEvaluation | null;
       };
-      enabled = result.enabled ?? false;
-      weightsLoaded = result.weights_loaded ?? false;
-      modelVersion = result.model_version ?? "unknown";
-      trainingSamples = result.training_samples ?? 0;
-      embeddingSize = result.embedding_size ?? 0;
-      actionTypes = result.learnable_action_types ?? [];
-      lastEvaluation = result.last_evaluation ?? null;
+      if (result.status && result.status !== "ok") {
+        throw new Error("The daemon rejected the world-model status request.");
+      }
+      applyStatus(result);
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : "Could not reach the daemon";
+      statusAvailable = false;
+      error = statusError(cause);
     } finally {
       loading = false;
     }
@@ -56,8 +86,20 @@
     saved = false;
     error = "";
     try {
-      await call("risk_gate_config_update", { enabled });
-      await loadStatus();
+      const result = (await call("risk_gate_config_update", { enabled })) as {
+        status?: string;
+        enabled: boolean;
+        weights_loaded: boolean;
+        model_version: string;
+        training_samples: number;
+        embedding_size: number;
+        learnable_action_types: string[];
+        last_evaluation: LastEvaluation | null;
+      };
+      if (result.status && result.status !== "ok") {
+        throw new Error("The daemon rejected the world-model setting.");
+      }
+      applyStatus(result);
       saved = true;
       setTimeout(() => (saved = false), 2500);
     } catch (cause) {
@@ -83,7 +125,9 @@
       class:active={enabled}
       onclick={() => (enabled = !enabled)}
       aria-label="Toggle Learned Risk World Model"
+      aria-pressed={enabled}
       title="Toggle Learned Risk World Model"
+      disabled={loading || !statusAvailable}
     >
       <span class="toggle-knob"></span>
     </button>
@@ -91,16 +135,23 @@
 
   <p class="safety-note">
     Learned predictions run beside deterministic safety rules. The riskier result wins, so the model can add caution
-    but cannot remove a rule-based warning. This is separate from the camera's 3D gesture smoothing filter.
+    but cannot remove a rule-based warning. It can run at the same time as the camera's 3D gesture model: the camera
+    model improves hand recognition, while this model pauses risky OS actions. Neither disables the other.
   </p>
 
   {#if loading}
     <div class="empty">Loading model status...</div>
+  {:else if !statusAvailable}
+    <div class="unavailable" role="alert">
+      <strong>World-model status unavailable</strong>
+      <span>{error}</span>
+      <button class="btn-secondary" onclick={loadStatus}>Retry</button>
+    </div>
   {:else}
     <div class="status-grid">
       <div class="status-card">
         <span class="status-label">Runtime</span>
-        <strong class:ready={enabled}>{enabled ? "Enabled" : "Disabled"}</strong>
+        <strong class:ready={runtimeEnabled}>{runtimeEnabled ? "Enabled" : "Disabled"}</strong>
       </div>
       <div class="status-card">
         <span class="status-label">Weights</span>
@@ -273,7 +324,8 @@
   }
 
   .empty,
-  .error {
+  .error,
+  .unavailable {
     padding: 18px;
     font-size: 12px;
     color: var(--text-muted);
@@ -289,6 +341,29 @@
   .error {
     padding: 8px 14px 0;
     color: var(--danger);
+  }
+
+  .unavailable {
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+    margin: 12px 14px;
+    padding: 12px;
+    color: var(--danger);
+    text-align: left;
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: var(--radius-sm);
+  }
+
+  .unavailable span {
+    color: var(--text-secondary);
+  }
+
+  .toggle:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 
   .actions {

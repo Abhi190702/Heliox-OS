@@ -221,6 +221,8 @@
           {#if $session.confirmRequired}
             <ConfirmDialog
               actions={$session.confirmActions}
+              reason={$session.confirmReason}
+              riskAssessment={$session.confirmRiskAssessment}
               submitting={$session.confirmSubmitting}
               error={$session.confirmError}
               onconfirm={(approvedIndices) => session.confirm(true, approvedIndices)}

@@ -97,6 +97,10 @@ async def test_safe_plan_approved():
 
     assert verdict.verdict == "APPROVE"
     assert verdict.is_blocked is False
+    _, kwargs = model_router.generate.await_args
+    assert kwargs["system"]
+    assert kwargs["json_mode"] is True
+    assert "system_prompt" not in kwargs
 
 
 @pytest.mark.asyncio

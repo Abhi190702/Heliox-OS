@@ -311,6 +311,36 @@ class TestActionPreviewWiring:
         assert results[0].success is True
 
     @pytest.mark.asyncio
+    async def test_world_model_interrupt_and_preview_both_run_when_enabled(self, tmp_path, monkeypatch):
+        """The plan-risk gate and per-action preview are separate safeguards.
+        Approving the first must not suppress the second, and each runs once."""
+        from pilot.system.action_preview import ActionPreview
+
+        fake_preview = ActionPreview(screenshot_base64="abc", bbox=None, target_label=None, caption="About to do x")
+        fake_generate = AsyncMock(return_value=fake_preview)
+        monkeypatch.setattr("pilot.system.action_preview.generate_action_preview", fake_generate)
+        gateway = _FakeGateway(
+            critic_verdict={
+                "verdict": "WARN",
+                "world_model": {
+                    "requires_confirmation": True,
+                    "world_model_score": 0.8,
+                    "reasons": ["predicted process spike"],
+                },
+            }
+        )
+        narrator = _FakeNarrator(plan_risk_proceed=True, action_preview_proceed=True)
+        ex = _executor(tmp_path, gateway=gateway, preview_enabled=True)
+        ex.set_narrator(narrator)
+
+        results = await ex.execute(_plan(), invocation_source=InvocationSource.AUTONOMOUS)
+
+        assert len(narrator.plan_risk_calls) == 1
+        assert len(narrator.action_preview_calls) == 1
+        fake_generate.assert_awaited_once()
+        assert results[0].success is True
+
+    @pytest.mark.asyncio
     async def test_denied_preview_skips_the_action(self, tmp_path, monkeypatch):
         from pilot.system.action_preview import ActionPreview
 

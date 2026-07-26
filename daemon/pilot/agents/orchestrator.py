@@ -16,6 +16,7 @@ import asyncio
 import logging
 import time
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
@@ -37,6 +38,7 @@ from pilot.models.budget_tracker import (
     TaskBudgetExceededError,
     current_task_id,
 )
+from pilot.security.gateway import mark_critic_already_reviewed
 
 
 class TaskPriority(IntEnum):
@@ -281,6 +283,7 @@ class AgentOrchestrator:
         cancel_event: asyncio.Event | None = None,
         plan_id: str | None = None,
         scope_override: TaskScopeOverride | None = None,
+        critic_already_reviewed: bool = False,
     ) -> list[ActionResult]:
         """Execute a plan by routing actions to specialist agents.
 
@@ -307,15 +310,17 @@ class AgentOrchestrator:
             self._budget_tracker.start_task(task_id)
 
         try:
-            return await self._execute_plan_inner(
-                user_input=user_input,
-                plan=plan,
-                task_id=task_id,
-                on_action_start=on_action_start,
-                on_action_complete=on_action_complete,
-                cancel_event=cancel_event,
-                scope_override=scope_override,
-            )
+            review_scope = mark_critic_already_reviewed() if critic_already_reviewed else nullcontext()
+            with review_scope:
+                return await self._execute_plan_inner(
+                    user_input=user_input,
+                    plan=plan,
+                    task_id=task_id,
+                    on_action_start=on_action_start,
+                    on_action_complete=on_action_complete,
+                    cancel_event=cancel_event,
+                    scope_override=scope_override,
+                )
         finally:
             if self._budget_tracker:
                 self._budget_tracker.end_task(task_id)

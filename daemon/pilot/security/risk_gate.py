@@ -45,6 +45,11 @@ class RiskGate:
         the honest rule-table default."""
         return self._transition.is_loaded
 
+    @property
+    def last_evaluation(self) -> dict[str, object] | None:
+        """Return a defensive copy of the latest plan assessment."""
+        return dict(self._last_evaluation) if self._last_evaluation is not None else None
+
     def status(self, enabled: bool) -> dict[str, object]:
         """Return user-safe runtime/model metadata for Settings."""
         return {

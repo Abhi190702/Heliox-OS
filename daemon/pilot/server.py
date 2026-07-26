@@ -1440,14 +1440,25 @@ class PilotServer:
             )
 
             from pilot.actions import PermissionTier
-            from pilot.agents.destructive_critic import HEURISTIC_RISK_THRESHOLD
-            from pilot.agents.destructive_critic import risk_score as compute_risk_score
+            from pilot.agents.destructive_critic import HEURISTIC_RISK_THRESHOLD, assess_plan_risk
 
             critic_verdict_payload: dict[str, Any] | None = None
             plan_has_tier4 = any(a.permission_tier == PermissionTier.ROOT_CRITICAL for a in plan.actions)
             plan_has_tier3 = any(a.permission_tier == PermissionTier.DESTRUCTIVE for a in plan.actions)
             plan_has_irreversible = any(getattr(a, "is_irreversible", False) for a in plan.actions)
-            risk_score = compute_risk_score(plan, self.config)
+            risk_assessment = assess_plan_risk(plan, self.config)
+            risk_score = risk_assessment.combined_score
+            world_model_interrupt = risk_assessment.requires_confirmation
+            if self.config.gateway.risk_gate_enabled:
+                await ws.send(
+                    _notification(
+                        "world_model_assessment",
+                        {
+                            "plan_id": plan_id,
+                            **risk_assessment.to_dict(),
+                        },
+                    )
+                )
             # Tier 4 always gets the LLM critic. Other plans pay for that
             # round-trip only when the heuristic or risk world model crosses
             # the review threshold; trivial single-file deletes still skip
@@ -1477,7 +1488,8 @@ class PilotServer:
 
                 verdict = await self._destructive_critic.review(user_input, plan)
                 critic_verdict_payload = verdict.to_dict()
-                await ws.send(_notification("critic_verdict", verdict.to_dict()))
+                critic_verdict_payload["world_model"] = risk_assessment.to_dict()
+                await ws.send(_notification("critic_verdict", critic_verdict_payload))
 
                 if verdict.is_blocked:
                     await self._record_permission_escalations(
@@ -1538,10 +1550,13 @@ class PilotServer:
                     "flagged_actions": [],
                     "recommendation": "Low-risk heuristic — LLM safety review was skipped.",
                     "critic_skipped": critic_skipped_reason,
+                    "world_model": risk_assessment.to_dict(),
                 }
                 await ws.send(_notification("critic_verdict", critic_verdict_payload))
 
-            needs_confirm = self._permission_checker.plan_requires_confirmation(plan) and not dry_run
+            needs_confirm = (
+                self._permission_checker.plan_requires_confirmation(plan) or world_model_interrupt
+            ) and not dry_run
             partially_approved = False
             if needs_confirm:
                 confirm_phase = ""
@@ -1549,11 +1564,29 @@ class PilotServer:
                     confirm_phase = await emit.phase_start("confirmation", CONFIRMATION_REQUIRED, {"plan_id": plan_id})
                     await emit.thought(
                         "confirmation",
-                        "Dangerous action detected — awaiting user approval...",
+                        (
+                            "World model predicted a risky outcome — execution is paused..."
+                            if world_model_interrupt
+                            else "Dangerous action detected — awaiting user approval..."
+                        ),
                         parent_id=confirm_phase,
                     )
 
-                confirmed, approved_indices, required_indices = await self._wait_for_confirmation(plan_id, plan, ws)
+                world_model_reason = ""
+                if world_model_interrupt:
+                    reason_text = "; ".join(risk_assessment.reasons) or "predicted outcome crossed the safety threshold"
+                    world_model_reason = (
+                        f"World model paused this plan at {risk_assessment.world_model_score:.0%} predicted risk: "
+                        f"{reason_text}"
+                    )
+                confirmed, approved_indices, required_indices = await self._wait_for_confirmation(
+                    plan_id,
+                    plan,
+                    ws,
+                    reason=world_model_reason,
+                    risk_assessment=risk_assessment.to_dict() if world_model_interrupt else None,
+                    force_all_actions=world_model_interrupt,
+                )
 
                 if emit:
                     if confirmed:
@@ -1682,6 +1715,7 @@ class PilotServer:
                         on_action_complete=_on_action_complete,
                         cancel_event=cancel_event,  # ── Cancel Token (Issue #92) ──
                         plan_id=plan_id,
+                        critic_already_reviewed=True,
                     )
                 else:
                     results = await self._execute_tracked(
@@ -2171,7 +2205,14 @@ class PilotServer:
         return json.dumps(action.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
 
     async def _wait_for_confirmation(
-        self, plan_id: str, plan: Any, ws: ServerConnection
+        self,
+        plan_id: str,
+        plan: Any,
+        ws: ServerConnection,
+        *,
+        reason: str = "",
+        risk_assessment: dict[str, Any] | None = None,
+        force_all_actions: bool = False,
     ) -> tuple[bool, set[int], set[int]]:
         """Send a confirmation request and block until the user responds or timeout.
 
@@ -2190,7 +2231,11 @@ class PilotServer:
         pending = PendingConfirmation(plan_id=plan_id, event=asyncio.Event())
         self._pending_confirms[plan_id] = pending
 
-        confirm_indices = [i for i, a in enumerate(plan.actions) if a.requires_confirmation or a.is_irreversible]
+        confirm_indices = (
+            list(range(len(plan.actions)))
+            if force_all_actions
+            else [i for i, a in enumerate(plan.actions) if a.requires_confirmation or a.is_irreversible]
+        )
 
         def _dump_confirm_action(idx: int, a: Any) -> dict[str, Any]:
             payload = a.model_dump()
@@ -2204,6 +2249,8 @@ class PilotServer:
                 {
                     "plan_id": plan_id,
                     "actions": [_dump_confirm_action(i, plan.actions[i]) for i in confirm_indices],
+                    "reason": reason,
+                    "risk_assessment": risk_assessment,
                 },
             )
         )
@@ -2217,7 +2264,11 @@ class PilotServer:
         finally:
             self._pending_confirms.pop(plan_id, None)
 
-        approved = pending.approved_indices if pending.approved_indices is not None else required
+        approved = (
+            (pending.approved_indices if pending.approved_indices is not None else required)
+            if pending.confirmed
+            else set()
+        )
         return pending.confirmed, (approved & required), required
 
     async def _handle_confirm(self, params: dict[str, Any], ws: ServerConnection) -> dict:

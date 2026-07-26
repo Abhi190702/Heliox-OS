@@ -119,6 +119,66 @@ class TestPlanRiskInterrupt:
         assert broadcast.calls == []
 
     @pytest.mark.asyncio
+    async def test_world_model_risk_interrupts_even_when_narration_is_disabled(self):
+        narrator, pending_confirms, broadcast = _narrator(confirm_timeout_seconds=5.0)
+        narrator._config.narration.enabled = False
+        plan = ActionPlan(actions=[], raw_input="test plan")
+        verdict = {
+            "verdict": "APPROVE",
+            "world_model": {
+                "requires_confirmation": True,
+                "world_model_score": 0.8,
+                "reasons": ["predicted disk usage 96% exceeds the safe threshold"],
+                "prediction_sources": ["learned", "rule"],
+            },
+        }
+
+        task = asyncio.create_task(narrator.on_plan_risk(plan, verdict))
+        await asyncio.sleep(0.05)
+        assert len(pending_confirms) == 1
+        method, payload = broadcast.calls[0]
+        assert method == "execution_interrupt"
+        assert payload["kind"] == "world_model_risk"
+        assert payload["world_model"]["world_model_score"] == 0.8
+        assert "80% predicted risk" in payload["reason"]
+
+        plan_id = next(iter(pending_confirms))
+        pending_confirms[plan_id].confirmed = False
+        pending_confirms[plan_id].event.set()
+        assert await task is False
+
+    @pytest.mark.asyncio
+    async def test_world_model_and_narration_enabled_share_one_interrupt_then_narration_continues(self):
+        narrator, pending_confirms, broadcast = _narrator(confirm_timeout_seconds=5.0)
+        plan = ActionPlan(actions=[], raw_input="test plan")
+        verdict = {
+            "verdict": "WARN",
+            "recommendation": "critic also considers this risky",
+            "world_model": {
+                "requires_confirmation": True,
+                "world_model_score": 0.8,
+                "reasons": ["predicted disk usage 96% exceeds the safe threshold"],
+                "prediction_sources": ["learned", "rule"],
+            },
+        }
+
+        task = asyncio.create_task(narrator.on_plan_risk(plan, verdict))
+        await asyncio.sleep(0.05)
+        interrupt_calls = [call for call in broadcast.calls if call[0] == "execution_interrupt"]
+        assert len(interrupt_calls) == 1
+        assert interrupt_calls[0][1]["kind"] == "world_model_risk"
+
+        plan_id = next(iter(pending_confirms))
+        pending_confirms[plan_id].confirmed = True
+        pending_confirms[plan_id].event.set()
+        assert await task is True
+
+        await narrator.on_action_start(_action())
+        narration_calls = [call for call in broadcast.calls if call[0] == "execution_narration"]
+        assert len(narration_calls) == 1
+        assert narration_calls[0][1]["phase"] == "start"
+
+    @pytest.mark.asyncio
     async def test_interrupt_on_risk_off_proceeds_even_on_warn(self):
         narrator, _, broadcast = _narrator(interrupt_on_risk=False)
         result = await narrator.on_plan_risk(ActionPlan(actions=[], raw_input="x"), {"verdict": "WARN"})

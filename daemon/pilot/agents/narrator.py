@@ -109,22 +109,37 @@ class ExecutionNarrator:
         surfaced here -- the exact signal `Executor.execute()` used to
         silently discard."""
         cfg = self._cfg()
-        if not cfg.enabled or not cfg.interrupt_on_risk or not critic_verdict:
+        if not critic_verdict:
             return True
-        if critic_verdict.get("verdict") != "WARN":
+        world_model = critic_verdict.get("world_model")
+        if not isinstance(world_model, dict):
+            world_model = {}
+        world_model_triggered = bool(world_model.get("requires_confirmation", False))
+        if not world_model_triggered and (not cfg.enabled or not cfg.interrupt_on_risk):
+            return True
+        if critic_verdict.get("verdict") != "WARN" and not world_model_triggered:
             return True
 
-        reason = (
-            critic_verdict.get("recommendation")
-            or "; ".join(critic_verdict.get("issues", []))
-            or "This plan was flagged as risky."
-        )
+        if world_model_triggered:
+            reasons = world_model.get("reasons", [])
+            reason_text = (
+                "; ".join(str(reason) for reason in reasons) or "predicted outcome crossed the safety threshold"
+            )
+            score = float(world_model.get("world_model_score", 0.0))
+            reason = f"World model paused this plan at {score:.0%} predicted risk: {reason_text}"
+        else:
+            reason = (
+                critic_verdict.get("recommendation")
+                or "; ".join(critic_verdict.get("issues", []))
+                or "This plan was flagged as risky."
+            )
         return await self._interrupt_and_wait(
             reason=reason,
             context={
-                "kind": "plan_risk",
+                "kind": "world_model_risk" if world_model_triggered else "plan_risk",
                 "plan_summary": plan.explanation or plan.raw_input,
                 "critic_verdict": critic_verdict,
+                "world_model": world_model or None,
             },
         )
 

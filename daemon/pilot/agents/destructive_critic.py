@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from pilot.actions import PermissionTier
@@ -32,6 +32,26 @@ logger = logging.getLogger("pilot.agents.destructive_critic")
 # dangerous arguments) skips the LLM critic round-trip entirely and goes
 # straight to the confirmation dialog — see heuristic_risk().
 HEURISTIC_RISK_THRESHOLD = 0.3
+
+
+@dataclass(frozen=True)
+class PlanRiskAssessment:
+    """Structured pre-execution assessment shared by UI and safety gates."""
+
+    heuristic_score: float
+    world_model_score: float
+    combined_score: float
+    reasons: list[str] = field(default_factory=list)
+    prediction_sources: list[str] = field(default_factory=list)
+    weights_loaded: bool = False
+    model_version: str = "disabled"
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return self.world_model_score >= HEURISTIC_RISK_THRESHOLD
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**asdict(self), "requires_confirmation": self.requires_confirmation}
 
 
 def heuristic_risk(plan: ActionPlan) -> float:
@@ -69,6 +89,41 @@ def heuristic_risk(plan: ActionPlan) -> float:
     return min(1.0, score)
 
 
+def assess_plan_risk(plan: ActionPlan, config: PilotConfig | None = None) -> PlanRiskAssessment:
+    """Evaluate heuristic and learned world-model signals without hiding either."""
+    base = heuristic_risk(plan)
+    if config is None or not config.gateway.risk_gate_enabled:
+        return PlanRiskAssessment(
+            heuristic_score=base,
+            world_model_score=0.0,
+            combined_score=base,
+        )
+
+    try:
+        from pilot.security.risk_gate import get_risk_gate
+
+        gate = get_risk_gate()
+        world_model_score, reasons = gate.evaluate_plan(plan, config)
+        latest = gate.last_evaluation or {}
+        return PlanRiskAssessment(
+            heuristic_score=base,
+            world_model_score=world_model_score,
+            combined_score=max(base, world_model_score),
+            reasons=list(reasons),
+            prediction_sources=[str(source) for source in latest.get("prediction_sources", [])],
+            weights_loaded=gate.available,
+            model_version=str(gate.status(enabled=True)["model_version"]),
+        )
+    except Exception:
+        logger.warning("Learned Risk Gate evaluation failed (non-fatal), using heuristic_risk() alone", exc_info=True)
+        return PlanRiskAssessment(
+            heuristic_score=base,
+            world_model_score=0.0,
+            combined_score=base,
+            model_version="evaluation-error",
+        )
+
+
 def risk_score(plan: ActionPlan, config: PilotConfig | None = None) -> float:
     """Decides whether any plan is worth the LLM critic round-trip.
 
@@ -93,20 +148,7 @@ def risk_score(plan: ActionPlan, config: PilotConfig | None = None) -> float:
     is disabled, or evaluation fails. Missing learned weights still retain
     RiskGate's deterministic transition checks.
     """
-    base = heuristic_risk(plan)
-    if config is None or not config.gateway.risk_gate_enabled:
-        return base
-
-    try:
-        from pilot.security.risk_gate import get_risk_gate
-
-        gate = get_risk_gate()
-        learned_risk, _reasons = gate.evaluate_plan(plan, config)
-    except Exception:
-        logger.warning("Learned Risk Gate evaluation failed (non-fatal), using heuristic_risk() alone", exc_info=True)
-        return base
-
-    return max(base, learned_risk)
+    return assess_plan_risk(plan, config).combined_score
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +299,8 @@ class DestructiveCriticAgent:
         try:
             raw = await self._model.generate(
                 user_message,
-                system_prompt=_CRITIC_SYSTEM_PROMPT,
+                system=_CRITIC_SYSTEM_PROMPT,
+                json_mode=True,
             )
             verdict = self._parse_verdict(raw)
             logger.info(

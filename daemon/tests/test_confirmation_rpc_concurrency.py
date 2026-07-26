@@ -8,6 +8,7 @@ import json
 import pytest
 import websockets
 
+from pilot.actions import Action, ActionPlan, ActionType, EmptyParams
 from pilot.config import PilotConfig
 from pilot.server import PendingConfirmation, PilotServer, _notification
 
@@ -96,3 +97,49 @@ async def test_confirm_is_dispatched_while_request_waits_on_same_socket():
         await socket.close()
         listener.close()
         await listener.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_world_model_confirmation_forces_all_actions_and_includes_reason():
+    server = PilotServer(PilotConfig())
+    sent = []
+
+    class _Socket:
+        async def send(self, payload):
+            sent.append(json.loads(payload))
+
+    plan = ActionPlan(
+        actions=[Action(action_type=ActionType.SYSTEM_INFO, target="system", parameters=EmptyParams())],
+        raw_input="show system info",
+    )
+    assessment = {
+        "world_model_score": 0.8,
+        "reasons": ["predicted disk usage 96% exceeds the safe threshold"],
+        "prediction_sources": ["learned", "rule"],
+        "requires_confirmation": True,
+    }
+    task = asyncio.create_task(
+        server._wait_for_confirmation(
+            "world-plan",
+            plan,
+            _Socket(),
+            reason="World model paused this plan at 80% predicted risk.",
+            risk_assessment=assessment,
+            force_all_actions=True,
+        )
+    )
+    await asyncio.sleep(0)
+
+    notification = sent[0]
+    assert notification["method"] == "confirm_required"
+    assert notification["params"]["reason"].startswith("World model paused")
+    assert notification["params"]["risk_assessment"] == assessment
+    assert notification["params"]["actions"][0]["index"] == 0
+
+    pending = server._pending_confirms["world-plan"]
+    pending.confirmed = False
+    pending.event.set()
+    confirmed, approved, required = await task
+    assert confirmed is False
+    assert approved == set()
+    assert required == {0}
