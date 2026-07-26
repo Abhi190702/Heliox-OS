@@ -585,9 +585,29 @@
   // not re-polled every frame.
   let gestureWorkflowBindings: Record<string, string> = {};
 
+  async function loadGestureWorkflowBindings() {
+    const { call } = await import("../api/daemon");
+    try {
+      const policy = (await call("gesture_workflow_bindings_get")) as {
+        enabled: boolean;
+        bindings: Array<{ gesture_name: string; goal_template: string; enabled: boolean }>;
+      };
+      gestureWorkflowBindings =
+        policy.enabled && policy.bindings
+          ? Object.fromEntries(policy.bindings.filter((b) => b.enabled && b.goal_template).map((b) => [b.gesture_name, b.goal_template]))
+          : {};
+    } catch {
+      gestureWorkflowBindings = {};
+    }
+  }
+
   async function subscribeToWorkflowState() {
     const { onNotification, call } = await import("../api/daemon");
     workflowNotificationHandler = (method, params) => {
+      if (method === "gesture_workflow_bindings_updated") {
+        void loadGestureWorkflowBindings();
+        return;
+      }
       if (method !== "voice_gesture_workflow_state") return;
       const wf = params as { workflow_id: string; invocation_source: string; state: string };
       if (wf.invocation_source !== "gesture") return;
@@ -612,18 +632,7 @@
       // notifications will still populate pendingWorkflowId.
     }
 
-    try {
-      const policy = (await call("gesture_workflow_bindings_get")) as {
-        enabled: boolean;
-        bindings: Array<{ gesture_name: string; goal_template: string; enabled: boolean }>;
-      };
-      gestureWorkflowBindings =
-        policy.enabled && policy.bindings
-          ? Object.fromEntries(policy.bindings.filter((b) => b.enabled && b.goal_template).map((b) => [b.gesture_name, b.goal_template]))
-          : {};
-    } catch {
-      gestureWorkflowBindings = {};
-    }
+    await loadGestureWorkflowBindings();
   }
 
   async function unsubscribeFromWorkflowState() {

@@ -78,6 +78,28 @@ class TestSubmit:
         assert result["status"] == "error"
 
     @pytest.mark.asyncio
+    async def test_voice_start_workflow_phrase_creates_durable_workflow(self, tmp_path):
+        server = _server(tmp_path)
+
+        consumed = await server._voice_workflow_control_dispatch(
+            "start workflow open github and review my notifications"
+        )
+
+        assert consumed is True
+        listed = await server._handle_voice_gesture_workflow_list(
+            {"include_terminal": True},
+            ws=None,
+        )
+        assert listed["workflows"][0]["goal"] == "open github and review my notifications"
+        assert listed["workflows"][0]["invocation_source"] == "voice"
+        await _wait_settled(server, listed["workflows"][0]["workflow_id"])
+
+    @pytest.mark.asyncio
+    async def test_normal_voice_command_falls_through(self, tmp_path):
+        server = _server(tmp_path)
+        assert await server._voice_workflow_control_dispatch("open github") is False
+
+    @pytest.mark.asyncio
     async def test_rejects_empty_goal(self, tmp_path):
         server = _server(tmp_path)
         result = await server._handle_voice_gesture_workflow_submit({"goal": "  "}, ws=None)

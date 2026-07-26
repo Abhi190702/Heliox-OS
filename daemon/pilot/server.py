@@ -384,6 +384,8 @@ class PilotServer:
         self._intent_predictor: Any = None
         self._voice_listener: Any = None
         self._autonomous: Any = None
+        self._self_healing: Any = None
+        self._self_healing_started_monitors: set[str] = set()
         self._proactive: Any = None
         self._budget_tracker: Any = None
         self._running = False
@@ -723,6 +725,7 @@ class PilotServer:
                 config=self.config,
                 pending_confirms=self._pending_confirms,
                 broadcast_fn=self._broadcast_notification,
+                attempts_file=DATA_DIR / "self_healing_attempts.json",
             )
             for task_id, handler in (
                 ("monitor_cpu", self._self_healing.on_cpu_alert),
@@ -732,6 +735,7 @@ class PilotServer:
                 task = self._background._tasks.get(task_id)
                 if task is not None:
                     task.on_trigger = handler
+            self._sync_self_healing_monitors()
             logger.info("AutonomousHealingEngine initialized")
         except Exception:
             logger.warning("AutonomousHealingEngine init failed (non-critical)", exc_info=True)
@@ -3214,12 +3218,42 @@ class PilotServer:
             (auto-executed, proposed/pending, confirmed, denied, timed out).
         """
         engine = getattr(self, "_self_healing", None)
+        monitor_tasks = {
+            task["task_id"].removeprefix("monitor_"): task
+            for task in (self._background.list_tasks() if self._background else [])
+            if task["task_id"] in {"monitor_cpu", "monitor_memory", "monitor_disk"}
+        }
         return {
             "enabled": self.config.self_healing.enabled,
             "auto_execute_max_tier": self.config.self_healing.auto_execute_max_tier,
             "watched_metrics": self.config.self_healing.watched_metrics,
+            "monitors": monitor_tasks,
             "attempts": engine.list_attempts() if engine else [],
         }
+
+    def _sync_self_healing_monitors(self) -> None:
+        """Start only configured health monitors and stop only loops we own.
+
+        A monitor can also be started through the generic background-task
+        RPC. Those user-owned loops must not be stopped when Autonomous
+        Healing is disabled, so ownership is tracked separately.
+        """
+        if not self._background:
+            return
+
+        configured = set(self.config.self_healing.watched_metrics)
+        desired = {f"monitor_{metric}" for metric in configured} if self.config.self_healing.enabled else set()
+
+        for task_id in self._self_healing_started_monitors - desired:
+            self._background.stop(task_id)
+        self._self_healing_started_monitors.intersection_update(desired)
+
+        for task_id in desired:
+            task = self._background._tasks.get(task_id)
+            if task is None or task.status.value == "running":
+                continue
+            if self._background.start(task_id):
+                self._self_healing_started_monitors.add(task_id)
 
     async def _handle_self_healing_config_update(self, params: dict, ws: ServerConnection) -> dict:
         """Update self-healing config (enabled, tiering, watched metrics).
@@ -3238,21 +3272,43 @@ class PilotServer:
             A dict with status and the updated config.
         """
         cfg = self.config.self_healing
-        if "enabled" in params:
-            cfg.enabled = bool(params["enabled"])
-        if "auto_execute_max_tier" in params:
-            cfg.auto_execute_max_tier = int(params["auto_execute_max_tier"])
-        if "cooldown_seconds" in params:
-            cfg.cooldown_seconds = float(params["cooldown_seconds"])
-        if "confirm_timeout_seconds" in params:
-            cfg.confirm_timeout_seconds = float(params["confirm_timeout_seconds"])
+        enabled = bool(params.get("enabled", cfg.enabled))
+        try:
+            max_tier = int(params.get("auto_execute_max_tier", cfg.auto_execute_max_tier))
+            cooldown = float(params.get("cooldown_seconds", cfg.cooldown_seconds))
+            confirm_timeout = float(params.get("confirm_timeout_seconds", cfg.confirm_timeout_seconds))
+        except (TypeError, ValueError):
+            return {"status": "error", "message": "tier and timeout values must be numeric"}
+        if not 0 <= max_tier <= 3:
+            return {"status": "error", "message": "auto_execute_max_tier must be between 0 and 3"}
+        if cooldown < 0:
+            return {"status": "error", "message": "cooldown_seconds must be non-negative"}
+        if confirm_timeout <= 0:
+            return {"status": "error", "message": "confirm_timeout_seconds must be positive"}
+
+        watched_metrics = list(cfg.watched_metrics)
         if "watched_metrics" in params:
             raw_metrics = params["watched_metrics"]
             if not isinstance(raw_metrics, list):
                 return {"status": "error", "message": "watched_metrics must be a list"}
-            cfg.watched_metrics = [str(m) for m in raw_metrics]
+            watched_metrics = list(dict.fromkeys(str(metric) for metric in raw_metrics))
+            unsupported = sorted(set(watched_metrics) - {"cpu", "memory", "disk"})
+            if unsupported:
+                return {
+                    "status": "error",
+                    "message": f"unsupported watched metrics: {', '.join(unsupported)}",
+                }
+        if enabled and not watched_metrics:
+            return {"status": "error", "message": "select at least one watched metric"}
+
+        cfg.enabled = enabled
+        cfg.auto_execute_max_tier = max_tier
+        cfg.cooldown_seconds = cooldown
+        cfg.confirm_timeout_seconds = confirm_timeout
+        cfg.watched_metrics = watched_metrics
 
         self.config.save()
+        self._sync_self_healing_monitors()
         return {
             "status": "ok",
             "enabled": cfg.enabled,
@@ -4701,7 +4757,17 @@ def handle_tool(tool_name, params):
         """
         if not self._voice_gesture_workflows:
             return False
-        return await self._voice_gesture_workflows.handle_control_phrase("voice", command_text)
+        if await self._voice_gesture_workflows.handle_control_phrase("voice", command_text):
+            return True
+
+        from pilot.agents.voice_gesture_workflow import extract_voice_workflow_goal
+        from pilot.security.gateway import InvocationSource
+
+        goal = extract_voice_workflow_goal(command_text)
+        if not goal:
+            return False
+        await self._voice_gesture_workflows.start(goal, InvocationSource.VOICE)
+        return True
 
     async def _speak_voice_response(self, text: str) -> bool:
         """Speaks a voice-pipeline response, interruptible via barge-in
@@ -5308,11 +5374,13 @@ def handle_tool(tool_name, params):
             self.config.gesture_workflows.bindings = parsed
 
         self.config.save()
-        return {
+        result = {
             "status": "ok",
             "enabled": self.config.gesture_workflows.enabled,
             "bindings": [asdict(b) for b in self.config.gesture_workflows.bindings],
         }
+        await self._broadcast_notification("gesture_workflow_bindings_updated", result)
+        return result
 
     # ── Proactive Suggestions Handlers ──
 

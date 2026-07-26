@@ -154,6 +154,7 @@ class BackgroundTaskManager:
                 "description": t.description,
                 "status": t.status.value,
                 "interval_seconds": t.interval_seconds,
+                "last_run": t.last_run,
                 "run_count": t.run_count,
                 "error_count": t.error_count,
                 "last_result": t.last_result,

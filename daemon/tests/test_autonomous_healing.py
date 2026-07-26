@@ -44,6 +44,17 @@ class FakeExecutor:
         return [ActionResult(action=a, success=True, output="ok") for a in plan.actions]
 
 
+class FailedExecutor(FakeExecutor):
+    async def execute(self, plan, invocation_source=None, plan_id=None) -> list[ActionResult]:
+        self.calls.append({"plan": plan, "invocation_source": invocation_source, "plan_id": plan_id})
+        return [ActionResult(action=a, success=False, error="action failed") for a in plan.actions]
+
+
+class RaisingExecutor(FakeExecutor):
+    async def execute(self, plan, invocation_source=None, plan_id=None) -> list[ActionResult]:
+        raise RuntimeError("executor unavailable")
+
+
 def _config(**overrides) -> PilotConfig:
     cfg = PilotConfig()
     cfg.self_healing.enabled = True
@@ -136,6 +147,20 @@ class TestAutoExecute:
         await engine.on_health_alert("cpu", {"message": "cpu high"})
         assert pending_confirms == {}
 
+    @pytest.mark.asyncio
+    async def test_failed_action_is_not_reported_as_auto_executed(self):
+        engine, _, _ = _engine(_plan(ActionType.PROCESS_LIST), executor=FailedExecutor())
+        attempt = await engine.on_health_alert("cpu", {"message": "cpu high"})
+        assert attempt.outcome == HealingOutcome.EXECUTION_FAILED.value
+        assert "action failed" in attempt.explanation
+
+    @pytest.mark.asyncio
+    async def test_executor_exception_is_captured_as_failed_attempt(self):
+        engine, _, _ = _engine(_plan(ActionType.PROCESS_LIST), executor=RaisingExecutor())
+        attempt = await engine.on_health_alert("cpu", {"message": "cpu high"})
+        assert attempt.outcome == HealingOutcome.EXECUTION_FAILED.value
+        assert "executor unavailable" in attempt.explanation
+
 
 class TestProposeAndWait:
     @pytest.mark.asyncio
@@ -226,3 +251,24 @@ class TestListAttempts:
         assert len(attempts) == 1
         assert attempts[0]["metric"] == "cpu"
         assert attempts[0]["outcome"] == HealingOutcome.AUTO_EXECUTED.value
+
+    @pytest.mark.asyncio
+    async def test_attempt_history_survives_engine_restart(self, tmp_path):
+        attempts_file = tmp_path / "attempts.json"
+        first = AutonomousHealingEngine(
+            planner=FakePlanner(_plan(ActionType.PROCESS_LIST)),
+            executor=FakeExecutor(),
+            config=_config(),
+            pending_confirms={},
+            attempts_file=attempts_file,
+        )
+        await first.on_health_alert("cpu", {"message": "cpu high"})
+
+        restored = AutonomousHealingEngine(
+            planner=FakePlanner(_plan()),
+            executor=FakeExecutor(),
+            config=_config(),
+            pending_confirms={},
+            attempts_file=attempts_file,
+        )
+        assert restored.list_attempts()[0]["outcome"] == HealingOutcome.AUTO_EXECUTED.value

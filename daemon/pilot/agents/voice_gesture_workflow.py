@@ -62,6 +62,27 @@ PAUSED_WINDOW_SECONDS = 1800.0
 # be swallowed as workflow control.
 CONTINUE_PHRASES = frozenset({"continue", "resume", "keep going"})
 CANCEL_PHRASES = frozenset({"cancel", "stop", "never mind", "nevermind"})
+START_WORKFLOW_PREFIXES = (
+    "start a workflow to ",
+    "start workflow to ",
+    "start a workflow ",
+    "start workflow ",
+    "begin a workflow to ",
+    "begin workflow to ",
+    "begin a workflow ",
+    "begin workflow ",
+)
+
+
+def extract_voice_workflow_goal(command_text: str) -> str | None:
+    """Return the explicit workflow goal from a recognized voice phrase."""
+    normalized = " ".join(command_text.strip().split())
+    lowered = normalized.lower()
+    for prefix in START_WORKFLOW_PREFIXES:
+        if lowered.startswith(prefix):
+            goal = normalized[len(prefix) :].strip()
+            return goal or None
+    return None
 
 
 class VoiceGestureWorkflowEngine:
@@ -98,6 +119,7 @@ class VoiceGestureWorkflowEngine:
         scope_override: TaskScopeOverride | None = None,
     ) -> VoiceGestureWorkflow:
         workflow = await self._workflow_store.create(goal, invocation_source.value, scope_override)
+        await self._notify(workflow.workflow_id)
         self._active_tasks[workflow.workflow_id] = asyncio.create_task(self._drive(workflow.workflow_id))
         return workflow
 
@@ -173,6 +195,7 @@ class VoiceGestureWorkflowEngine:
             except asyncio.CancelledError:
                 pass
         await self._workflow_store.set_state(workflow_id, WorkflowState.CANCELLED)
+        await self._notify(workflow_id)
         return True
 
     async def list_workflows(self, include_terminal: bool = False) -> list[dict[str, Any]]:
@@ -245,6 +268,22 @@ class VoiceGestureWorkflowEngine:
                 stop = await self._run_step(workflow, remaining[0])
                 if stop:
                     return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("Voice/gesture workflow %s failed", workflow_id)
+            workflow = await self._workflow_store.get(workflow_id)
+            if workflow is not None:
+                running = next((step for step in workflow.steps if step.status == "running"), None)
+                if running is not None:
+                    await self._workflow_store.update_step(
+                        workflow_id,
+                        running.index,
+                        status="failed",
+                        error=str(exc),
+                    )
+                await self._workflow_store.set_state(workflow_id, WorkflowState.FAILED)
+                await self._notify(workflow_id)
         finally:
             self._active_tasks.pop(workflow_id, None)
 

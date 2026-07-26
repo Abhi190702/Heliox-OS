@@ -133,6 +133,57 @@ test.describe("Settings Panel", () => {
       });
   });
 
+  test("voice workflow panel submits a durable workflow goal", async ({
+    page,
+  }) => {
+    const section = page
+      .locator(".settings-group")
+      .filter({ hasText: "Active Voice/Gesture Workflows" });
+    await section.scrollIntoViewIfNeeded();
+
+    await expect(section).toContainText("No active workflows right now.");
+    await section
+      .getByPlaceholder("Describe the multi-step goal")
+      .fill("open github and review notifications");
+    await section.getByRole("button", { name: "Start Workflow" }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__workflow_submit__))
+      .toMatchObject({
+        method: "voice_gesture_workflow_submit",
+        params: {
+          goal: "open github and review notifications",
+          invocation_source: "voice",
+        },
+      });
+  });
+
+  test("autonomous healing shows live monitors and saves selected metrics", async ({
+    page,
+  }) => {
+    const section = page
+      .locator(".settings-group")
+      .filter({ hasText: "Autonomous Healing" });
+    await section.scrollIntoViewIfNeeded();
+
+    await expect(section).toContainText("CPU > 80% · 24% · 12 checks");
+    await expect(section).toContainText("RAM > 85% · 58% · 8 checks");
+    await expect(section).toContainText("Disk > 90% · 71% · 2 checks");
+    await section.getByRole("button", { name: "Toggle disk monitoring" }).click();
+    await section.getByRole("button", { name: "Save" }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__self_healing_update__))
+      .toMatchObject({
+        method: "self_healing_config_update",
+        params: {
+          enabled: true,
+          auto_execute_max_tier: 1,
+          watched_metrics: ["cpu", "memory"],
+        },
+      });
+  });
+
   test("full window with settings tab active matches baseline", async ({
     page,
   }) => {

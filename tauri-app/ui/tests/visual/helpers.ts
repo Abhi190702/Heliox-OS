@@ -84,15 +84,28 @@ export async function mockTauriIpc(page: Page): Promise<void> {
           (window as any).__risk_gate_enabled__ = request.params.enabled;
           (window as any).__risk_gate_update__ = request;
         }
+        if (request.method === "self_healing_config_update") {
+          (window as any).__self_healing_update__ = request;
+        }
+        if (request.method === "voice_gesture_workflow_submit") {
+          (window as any).__workflow_submit__ = request;
+        }
         if (
           request.method === "auth" ||
           request.method === "risk_gate_status" ||
-          request.method === "risk_gate_config_update"
+          request.method === "risk_gate_config_update" ||
+          request.method === "self_healing_status" ||
+          request.method === "self_healing_config_update" ||
+          request.method === "voice_gesture_workflow_list" ||
+          request.method === "voice_gesture_workflow_submit" ||
+          request.method === "gesture_workflow_bindings_get" ||
+          request.method === "gesture_workflow_bindings_update"
         ) {
-          const result =
-            request.method === "auth"
-              ? { status: "ok" }
-              : {
+          let result: Record<string, unknown>;
+          if (request.method === "auth") {
+            result = { status: "ok" };
+          } else if (request.method.startsWith("risk_gate_")) {
+            result = {
                   status: "ok",
                   enabled: (window as any).__risk_gate_enabled__ ?? true,
                   weights_loaded: true,
@@ -114,6 +127,68 @@ export async function mockTauriIpc(page: Page): Promise<void> {
                     prediction_sources: ["learned", "rule"],
                   },
                 };
+          } else if (request.method.startsWith("self_healing_")) {
+            result = {
+              status: "ok",
+              enabled: request.params?.enabled ?? true,
+              auto_execute_max_tier: request.params?.auto_execute_max_tier ?? 1,
+              watched_metrics: request.params?.watched_metrics ?? ["cpu", "memory", "disk"],
+              monitors: {
+                cpu: {
+                  task_id: "monitor_cpu",
+                  status: "running",
+                  condition: "CPU > 80%",
+                  interval_seconds: 10,
+                  last_run: 1716768000,
+                  run_count: 12,
+                  error_count: 0,
+                  last_result: { cpu_percent: 24 },
+                },
+                memory: {
+                  task_id: "monitor_memory",
+                  status: "running",
+                  condition: "RAM > 85%",
+                  interval_seconds: 15,
+                  last_run: 1716768000,
+                  run_count: 8,
+                  error_count: 0,
+                  last_result: { memory_percent: 58 },
+                },
+                disk: {
+                  task_id: "monitor_disk",
+                  status: "running",
+                  condition: "Disk > 90%",
+                  interval_seconds: 60,
+                  last_run: 1716768000,
+                  run_count: 2,
+                  error_count: 0,
+                  last_result: { disk_percent: 71 },
+                },
+              },
+              attempts: [],
+            };
+          } else if (request.method === "voice_gesture_workflow_list") {
+            result = { workflows: [] };
+          } else if (request.method === "voice_gesture_workflow_submit") {
+            result = {
+              status: "submitted",
+              workflow: {
+                workflow_id: "wf_test",
+                goal: request.params.goal,
+                invocation_source: request.params.invocation_source,
+                steps: [],
+                current_step: 0,
+                state: "pending",
+                updated_at: "2026-07-26T10:00:00Z",
+              },
+            };
+          } else {
+            result = {
+              status: "ok",
+              enabled: false,
+              bindings: [],
+            };
+          }
           setTimeout(() => {
             this.onmessage?.({
               data: JSON.stringify({ jsonrpc: "2.0", id: request.id, result }),

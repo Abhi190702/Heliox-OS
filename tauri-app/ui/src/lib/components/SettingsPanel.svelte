@@ -1541,15 +1541,15 @@
     <RiskWorldModelPanel />
   </section>
 
-  <section class="settings-group audit-log-section">
+  <section class="settings-group feature-panel-section">
     <GestureWorkflowBindings />
   </section>
 
-  <section class="settings-group audit-log-section">
+  <section class="settings-group feature-panel-section">
     <VoiceGestureWorkflowStatus />
   </section>
 
-  <section class="settings-group audit-log-section">
+  <section class="settings-group feature-panel-section">
     <SelfHealingPanel />
   </section>
 

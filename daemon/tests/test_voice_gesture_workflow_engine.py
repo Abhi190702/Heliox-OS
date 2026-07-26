@@ -7,7 +7,7 @@ import pytest
 
 from pilot.actions import Action, ActionPlan, ActionResult, ActionType, EmptyParams
 from pilot.agents.decomposer import Subtask, TaskDecomposition
-from pilot.agents.voice_gesture_workflow import VoiceGestureWorkflowEngine
+from pilot.agents.voice_gesture_workflow import VoiceGestureWorkflowEngine, extract_voice_workflow_goal
 from pilot.security.gateway import InvocationSource, TaskScopeOverride
 from pilot.workflows.checkpoints import WorkflowCheckpointStore
 from pilot.workflows.voice_gesture_workflows import VoiceGestureWorkflowStore, WorkflowState
@@ -64,6 +64,11 @@ class _StubDecomposer:
 
     def get_execution_order(self, decomposition):
         return [[s] for s in decomposition.subtasks]
+
+
+class _RaisingDecomposer(_StubDecomposer):
+    async def decompose(self, goal):
+        raise RuntimeError("decomposer unavailable")
 
 
 def _engine(tmp_path, planner=None, executor=None, decomposer=None):
@@ -126,6 +131,47 @@ class TestSingleStepAutoChain:
         assert final.state == WorkflowState.SUCCESS.value
         assert len(final.steps) == 1
         assert final.steps[0].status == "success"
+
+    @pytest.mark.asyncio
+    async def test_start_broadcasts_initial_and_terminal_state(self, tmp_path):
+        events = []
+
+        async def broadcast(method, params):
+            events.append((method, params["state"]))
+
+        engine = _engine(tmp_path)
+        engine.set_broadcast(broadcast)
+        workflow = await engine.start("do one thing", InvocationSource.VOICE)
+        await _wait_until_terminal(engine, workflow.workflow_id)
+
+        assert events[0] == ("voice_gesture_workflow_state", WorkflowState.PENDING.value)
+        assert events[-1] == ("voice_gesture_workflow_state", WorkflowState.SUCCESS.value)
+
+
+class TestFailureRecovery:
+    @pytest.mark.asyncio
+    async def test_unexpected_decomposition_error_marks_workflow_failed(self, tmp_path):
+        engine = _engine(tmp_path, decomposer=_RaisingDecomposer())
+        workflow = await engine.start("do one thing", InvocationSource.VOICE)
+        final = await _wait_until_terminal(engine, workflow.workflow_id)
+
+        assert final.state == WorkflowState.FAILED.value
+
+
+class TestVoiceStartPhrase:
+    @pytest.mark.parametrize(
+        ("command", "goal"),
+        [
+            ("start workflow back up my files", "back up my files"),
+            ("Start a workflow to summarize today", "summarize today"),
+            ("begin workflow to open github and inspect issues", "open github and inspect issues"),
+        ],
+    )
+    def test_extracts_explicit_workflow_goal(self, command, goal):
+        assert extract_voice_workflow_goal(command) == goal
+
+    def test_normal_voice_command_is_not_claimed(self):
+        assert extract_voice_workflow_goal("open github") is None
 
 
 class TestMultiStepAutoChain:

@@ -27,11 +27,13 @@ instead of a voice/text goal or a forensics report.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from pilot.actions import ActionPlan
@@ -67,6 +69,8 @@ DEFAULT_GOAL_TEMPLATES: dict[str, str] = {
 
 
 class HealingOutcome(StrEnum):
+    PLANNING = "planning"
+    EXECUTING = "executing"
     AUTO_EXECUTED = "auto_executed"
     PROPOSED = "proposed"
     CONFIRMED = "confirmed"
@@ -74,6 +78,7 @@ class HealingOutcome(StrEnum):
     TIMED_OUT = "timed_out"
     NO_ACTION = "no_action"
     PLAN_ERROR = "plan_error"
+    EXECUTION_FAILED = "execution_failed"
 
 
 @dataclass
@@ -85,7 +90,7 @@ class HealingAttempt:
     trigger: dict[str, Any]
     goal: str
     plan_id: str = ""
-    outcome: str = HealingOutcome.NO_ACTION.value
+    outcome: str = HealingOutcome.PLANNING.value
     max_tier: int = 0
     irreversible: bool = False
     explanation: str = ""
@@ -107,6 +112,23 @@ class HealingAttempt:
             "resolved_at": self.resolved_at,
         }
 
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> HealingAttempt:
+        """Restore a previously persisted attempt, ignoring unknown fields."""
+        return cls(
+            attempt_id=str(value["attempt_id"]),
+            metric=str(value["metric"]),
+            trigger=value.get("trigger") if isinstance(value.get("trigger"), dict) else {},
+            goal=str(value.get("goal", "")),
+            plan_id=str(value.get("plan_id", "")),
+            outcome=str(value.get("outcome", HealingOutcome.PLANNING.value)),
+            max_tier=int(value.get("max_tier", 0)),
+            irreversible=bool(value.get("irreversible", False)),
+            explanation=str(value.get("explanation", "")),
+            created_at=float(value.get("created_at", time.time())),
+            resolved_at=float(value["resolved_at"]) if value.get("resolved_at") is not None else None,
+        )
+
 
 class AutonomousHealingEngine:
     """Turns BackgroundTaskManager health alerts into tiered remediation."""
@@ -118,6 +140,7 @@ class AutonomousHealingEngine:
         config: PilotConfig,
         pending_confirms: dict[str, Any],
         broadcast_fn: Callable[[str, Any], Coroutine[Any, Any, None]] | None = None,
+        attempts_file: str | Path | None = None,
     ) -> None:
         self._planner = planner
         self._executor = executor
@@ -125,7 +148,9 @@ class AutonomousHealingEngine:
         self._pending_confirms = pending_confirms
         self._broadcast_fn = broadcast_fn
         self._last_attempt_at: dict[str, float] = {}
-        self._attempts: dict[str, HealingAttempt] = {}
+        self._attempts_file = Path(attempts_file) if attempts_file else None
+        self._attempts: dict[str, HealingAttempt] = self._load_attempts()
+        self._persist_attempts()
 
     def _cfg(self) -> SelfHealingConfig:
         return self._config.self_healing
@@ -173,6 +198,7 @@ class AutonomousHealingEngine:
 
         attempt = HealingAttempt(attempt_id=f"heal_{uuid.uuid4().hex[:8]}", metric=metric, trigger=result, goal=goal)
         self._attempts[attempt.attempt_id] = attempt
+        self._persist_attempts()
         logger.info("Self-healing: %s alert -> goal: %s", metric, goal[:120])
 
         try:
@@ -182,12 +208,14 @@ class AutonomousHealingEngine:
             attempt.outcome = HealingOutcome.PLAN_ERROR.value
             attempt.explanation = str(exc)
             attempt.resolved_at = time.time()
+            await self._publish_attempt("self_healing_failed", attempt)
             return attempt
 
         if plan.error or not plan.actions:
             attempt.outcome = HealingOutcome.NO_ACTION.value
             attempt.explanation = plan.error or "Planner produced no actions"
             attempt.resolved_at = time.time()
+            await self._publish_attempt("self_healing_complete", attempt)
             return attempt
 
         attempt.max_tier = int(plan.max_tier)
@@ -204,16 +232,25 @@ class AutonomousHealingEngine:
 
     async def _auto_execute(self, attempt: HealingAttempt, plan: ActionPlan) -> None:
         attempt.plan_id = attempt.attempt_id
-        if self._broadcast_fn:
-            await self._broadcast_fn("self_healing_auto_executing", attempt.to_dict())
-        results = await self._executor.execute(
-            plan, invocation_source=InvocationSource.SELF_HEALING, plan_id=attempt.plan_id
-        )
-        attempt.outcome = HealingOutcome.AUTO_EXECUTED.value
-        attempt.explanation = "; ".join((r.output or r.error or "") for r in results)[:500]
+        attempt.outcome = HealingOutcome.EXECUTING.value
+        await self._publish_attempt("self_healing_auto_executing", attempt)
+        try:
+            results = await self._executor.execute(
+                plan, invocation_source=InvocationSource.SELF_HEALING, plan_id=attempt.plan_id
+            )
+        except Exception as exc:
+            logger.warning("Self-healing: execution failed for %s alert: %s", attempt.metric, exc)
+            attempt.outcome = HealingOutcome.EXECUTION_FAILED.value
+            attempt.explanation = str(exc)
+            attempt.resolved_at = time.time()
+            await self._publish_attempt("self_healing_failed", attempt)
+            return
+
+        success = bool(results) and all(result.success for result in results)
+        attempt.outcome = HealingOutcome.AUTO_EXECUTED.value if success else HealingOutcome.EXECUTION_FAILED.value
+        attempt.explanation = self._summarize_results(results)
         attempt.resolved_at = time.time()
-        if self._broadcast_fn:
-            await self._broadcast_fn("self_healing_complete", attempt.to_dict())
+        await self._publish_attempt("self_healing_complete" if success else "self_healing_failed", attempt)
 
     async def _propose_and_wait(self, attempt: HealingAttempt, plan: ActionPlan) -> None:
         # Local import: PendingConfirmation lives in server.py, which imports
@@ -225,6 +262,7 @@ class AutonomousHealingEngine:
         plan_id = attempt.attempt_id
         attempt.plan_id = plan_id
         attempt.outcome = HealingOutcome.PROPOSED.value
+        self._persist_attempts()
 
         pending = PendingConfirmation(plan_id=plan_id, event=asyncio.Event(), plan=plan)
         self._pending_confirms[plan_id] = pending
@@ -246,8 +284,7 @@ class AutonomousHealingEngine:
             logger.warning("Self-healing: confirmation timed out for %s (plan_id=%s)", attempt.metric, plan_id)
             attempt.outcome = HealingOutcome.TIMED_OUT.value
             attempt.resolved_at = time.time()
-            if self._broadcast_fn:
-                await self._broadcast_fn("self_healing_timeout", attempt.to_dict())
+            await self._publish_attempt("self_healing_timeout", attempt)
             return
         finally:
             self._pending_confirms.pop(plan_id, None)
@@ -255,16 +292,81 @@ class AutonomousHealingEngine:
         if not pending.confirmed:
             attempt.outcome = HealingOutcome.DENIED.value
             attempt.resolved_at = time.time()
-            if self._broadcast_fn:
-                await self._broadcast_fn("self_healing_denied", attempt.to_dict())
+            await self._publish_attempt("self_healing_denied", attempt)
             return
 
-        results = await self._executor.execute(plan, invocation_source=InvocationSource.SELF_HEALING, plan_id=plan_id)
-        attempt.outcome = HealingOutcome.CONFIRMED.value
-        attempt.explanation = "; ".join((r.output or r.error or "") for r in results)[:500]
+        try:
+            results = await self._executor.execute(
+                plan, invocation_source=InvocationSource.SELF_HEALING, plan_id=plan_id
+            )
+        except Exception as exc:
+            logger.warning("Self-healing: confirmed execution failed for %s alert: %s", attempt.metric, exc)
+            attempt.outcome = HealingOutcome.EXECUTION_FAILED.value
+            attempt.explanation = str(exc)
+            attempt.resolved_at = time.time()
+            await self._publish_attempt("self_healing_failed", attempt)
+            return
+
+        success = bool(results) and all(result.success for result in results)
+        attempt.outcome = HealingOutcome.CONFIRMED.value if success else HealingOutcome.EXECUTION_FAILED.value
+        attempt.explanation = self._summarize_results(results)
         attempt.resolved_at = time.time()
-        if self._broadcast_fn:
-            await self._broadcast_fn("self_healing_complete", attempt.to_dict())
+        await self._publish_attempt("self_healing_complete" if success else "self_healing_failed", attempt)
+
+    @staticmethod
+    def _summarize_results(results: list[Any]) -> str:
+        if not results:
+            return "Executor returned no action results"
+        return "; ".join((result.output or result.error or "") for result in results)[:500]
+
+    async def _publish_attempt(self, event: str, attempt: HealingAttempt) -> None:
+        """Persist first, then publish both a generic and specific update."""
+        self._persist_attempts()
+        if not self._broadcast_fn:
+            return
+        payload = attempt.to_dict()
+        await self._broadcast_fn("self_healing_attempt_updated", payload)
+        if event != "self_healing_attempt_updated":
+            await self._broadcast_fn(event, payload)
+
+    def _load_attempts(self) -> dict[str, HealingAttempt]:
+        if self._attempts_file is None or not self._attempts_file.exists():
+            return {}
+        try:
+            raw = json.loads(self._attempts_file.read_text(encoding="utf-8"))
+            values = raw if isinstance(raw, list) else []
+            attempts = [HealingAttempt.from_dict(value) for value in values if isinstance(value, dict)]
+            for attempt in attempts:
+                if attempt.outcome == HealingOutcome.PROPOSED.value:
+                    attempt.outcome = HealingOutcome.TIMED_OUT.value
+                    attempt.explanation = "Daemon restarted before confirmation was received"
+                    attempt.resolved_at = time.time()
+                elif attempt.outcome in {
+                    HealingOutcome.PLANNING.value,
+                    HealingOutcome.EXECUTING.value,
+                }:
+                    attempt.outcome = HealingOutcome.EXECUTION_FAILED.value
+                    attempt.explanation = "Daemon restarted before the remediation attempt completed"
+                    attempt.resolved_at = time.time()
+            return {attempt.attempt_id: attempt for attempt in attempts[-50:]}
+        except Exception:
+            logger.warning("Could not load self-healing attempt history", exc_info=True)
+            return {}
+
+    def _persist_attempts(self) -> None:
+        if self._attempts_file is None:
+            return
+        try:
+            self._attempts_file.parent.mkdir(parents=True, exist_ok=True)
+            attempts = sorted(self._attempts.values(), key=lambda attempt: attempt.created_at)[-50:]
+            temp_file = self._attempts_file.with_suffix(f"{self._attempts_file.suffix}.tmp")
+            temp_file.write_text(
+                json.dumps([attempt.to_dict() for attempt in attempts], ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temp_file.replace(self._attempts_file)
+        except Exception:
+            logger.warning("Could not persist self-healing attempt history", exc_info=True)
 
     # ── Read-only accessors for RPCs ──
 

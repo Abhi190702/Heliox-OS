@@ -24,6 +24,11 @@
 
   let workflows = $state<Workflow[]>([]);
   let loading = $state(true);
+  let goal = $state("");
+  let source = $state<"voice" | "gesture">("voice");
+  let includeTerminal = $state(false);
+  let submitting = $state(false);
+  let error = $state("");
   let notificationHandler: ((method: string, params: unknown) => void) | null = null;
 
   onMount(() => {
@@ -39,14 +44,36 @@
 
   async function loadWorkflows() {
     try {
-      const result = (await call("voice_gesture_workflow_list", { include_terminal: false })) as {
+      const result = (await call("voice_gesture_workflow_list", { include_terminal: includeTerminal })) as {
         workflows: Workflow[];
       };
       workflows = result.workflows ?? [];
-    } catch {
+      error = "";
+    } catch (cause) {
       workflows = [];
+      error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       loading = false;
+    }
+  }
+
+  async function submitWorkflow() {
+    const trimmedGoal = goal.trim();
+    if (!trimmedGoal || submitting) return;
+    submitting = true;
+    error = "";
+    try {
+      const result = (await call("voice_gesture_workflow_submit", {
+        goal: trimmedGoal,
+        invocation_source: source,
+      })) as { status: string; message?: string };
+      if (result.status !== "submitted") throw new Error(result.message || "Workflow was not submitted");
+      goal = "";
+      await loadWorkflows();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      submitting = false;
     }
   }
 
@@ -78,6 +105,33 @@
     <span class="count">{workflows.length}</span>
   </div>
 
+  <p class="workflow-note">{$_('settings.voice_gesture_workflows_desc')}</p>
+
+  <form class="workflow-create" onsubmit={(event) => { event.preventDefault(); void submitWorkflow(); }}>
+    <input
+      class="workflow-input"
+      bind:value={goal}
+      placeholder={$_('settings.voice_gesture_workflows_placeholder')}
+      aria-label={$_('settings.voice_gesture_workflows_placeholder')}
+    />
+    <select class="source-select" bind:value={source} aria-label="Workflow source">
+      <option value="voice">Voice</option>
+      <option value="gesture">Gesture</option>
+    </select>
+    <button class="btn-save" type="submit" disabled={!goal.trim() || submitting}>
+      {submitting ? $_('settings.saving') : $_('settings.voice_gesture_workflows_start')}
+    </button>
+  </form>
+
+  <label class="history-toggle">
+    <input type="checkbox" bind:checked={includeTerminal} onchange={loadWorkflows} />
+    <span>{$_('settings.voice_gesture_workflows_history')}</span>
+  </label>
+
+  {#if error}
+    <div class="panel-error" role="alert">{error}</div>
+  {/if}
+
   {#if loading}
     <div class="empty">Loading...</div>
   {:else if workflows.length === 0}
@@ -94,6 +148,9 @@
           <div class="workflow-progress">
             {wf.steps.filter((s) => s.status === 'success').length} / {wf.steps.length} {$_('settings.voice_gesture_workflows_steps')}
           </div>
+          {#if wf.steps[wf.current_step]}
+            <div class="current-step">{wf.steps[wf.current_step].title}: {wf.steps[wf.current_step].status}</div>
+          {/if}
           <div class="workflow-actions">
             {#if wf.state === "running" || wf.state === "pending" || wf.state === "decomposing"}
               <button class="btn-save" onclick={() => pause(wf.workflow_id)}>{$_('settings.pause')}</button>
@@ -123,6 +180,7 @@
   }
 
   h3 {
+    margin: 0;
     font-size: 14px;
     font-weight: 600;
   }
@@ -133,10 +191,72 @@
   }
 
   .empty {
-    padding: 20px;
+    padding: 12px;
     text-align: center;
     color: var(--text-muted);
     font-size: 13px;
+  }
+
+  .workflow-note {
+    margin: 0;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+  }
+
+  .workflow-create {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto auto;
+    gap: 8px;
+  }
+
+  .workflow-input,
+  .source-select {
+    min-width: 0;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 12px;
+  }
+
+  .history-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .panel-error {
+    padding: 8px 10px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: 6px;
+    background: rgba(248, 113, 113, 0.08);
+    color: var(--danger);
+    font-size: 11px;
+  }
+
+  .btn-save {
+    padding: 6px 14px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--accent);
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .btn-save:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
   }
 
   .workflow-list {
@@ -190,6 +310,12 @@
     margin-bottom: 6px;
   }
 
+  .current-step {
+    margin-bottom: 6px;
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+
   .workflow-actions {
     display: flex;
     gap: 6px;
@@ -203,5 +329,11 @@
     background: var(--bg-secondary);
     color: var(--danger);
     cursor: pointer;
+  }
+
+  @media (max-width: 720px) {
+    .workflow-create {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

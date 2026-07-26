@@ -125,6 +125,7 @@
   }
 
   h3 {
+    margin: 0;
     font-size: 14px;
     font-weight: 600;
   }
@@ -162,8 +163,49 @@
     flex: 1;
   }
 
+  .toggle {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+    cursor: pointer;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+  }
+
+  .toggle.active {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+
+  .toggle.active .toggle-knob {
+    transform: translateX(18px);
+  }
+
   .toggle-sm {
     transform: scale(0.8);
+  }
+
+  .input-sm,
+  .input-md {
+    padding: 6px 8px;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
   }
 
   .btn-remove {
@@ -190,5 +232,21 @@
     background: var(--bg-secondary);
     color: var(--text-primary);
     cursor: pointer;
+  }
+
+  .btn-save {
+    padding: 6px 14px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--accent);
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .btn-save:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
   }
 </style>
