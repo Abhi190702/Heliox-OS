@@ -94,6 +94,16 @@ test.describe("Chat Interface", () => {
 
     await page.waitForTimeout(200);
 
+    // The duration is intentionally live in the product, but a wall-clock
+    // value makes the same screenshot alternate between 0.7s and 0.8s on
+    // slower CI runners. Pin only the displayed test value so the visual
+    // assertion still covers the badge without comparing scheduler timing.
+    const durationBadge = page.locator(".duration-badge");
+    await expect(durationBadge).toBeVisible();
+    await durationBadge.evaluate((element) => {
+      element.textContent = "0.8s";
+    });
+
     const chatPanel = page.locator(".chat-panel");
     await expect(chatPanel).toHaveScreenshot("chat-error-message.png");
   });
