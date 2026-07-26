@@ -1548,11 +1548,11 @@
     <SelfHealingPanel />
   </section>
 
-  <section class="settings-group audit-log-section">
+  <section class="settings-group feature-panel-section">
     <NarrationPanel />
   </section>
 
-  <section class="settings-group audit-log-section">
+  <section class="settings-group feature-panel-section">
     <SupervisionPanel />
   </section>
 

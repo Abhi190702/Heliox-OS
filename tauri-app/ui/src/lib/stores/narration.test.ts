@@ -33,6 +33,15 @@ describe("narration store", () => {
     expect(state.preview).toBeNull();
   });
 
+  it("speaks ambient execution narration", async () => {
+    const { narration: _narration } = await import("./narration");
+    const { speakText } = await import("../utils/tts");
+
+    capturedHandler!("execution_narration", { text: "Starting: notify (Narrator Test)" });
+
+    expect(speakText).toHaveBeenCalledWith("Starting: notify (Narrator Test)");
+  });
+
   it("parses a plain risk interrupt with no preview payload", async () => {
     const { narration } = await import("./narration");
     expect(capturedHandler).not.toBeNull();
@@ -108,5 +117,22 @@ describe("narration store", () => {
     narration.subscribe((s) => (state = s))();
     expect(state.active).toBe(false);
     expect(state.preview).toBeNull();
+  });
+
+  it("sends the interrupt decision through the shared confirm RPC", async () => {
+    const { narration } = await import("./narration");
+    const { call } = await import("../api/daemon");
+    capturedHandler!("execution_interrupt", {
+      plan_id: "interrupt_123",
+      reason: "Target is missing",
+      kind: "target_assessment",
+    });
+
+    await narration.respond(false);
+
+    expect(call).toHaveBeenCalledWith("confirm", {
+      plan_id: "interrupt_123",
+      confirmed: false,
+    });
   });
 });

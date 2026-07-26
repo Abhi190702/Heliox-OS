@@ -588,7 +588,7 @@ class Executor:
                 await self._audit.log_action_start(action, plan_id)
                 if on_action_start:
                     await on_action_start(action)
-                elif self._narrator is not None:
+                if self._narrator is not None:
                     await self._narrator.on_action_start(action)
                 action = self._inject_previous_output(action)
 
@@ -616,7 +616,7 @@ class Executor:
                                 await self._audit.log_action_result(result, plan_id)
                                 if on_action_complete:
                                     await on_action_complete(result)
-                                else:
+                                if self._narrator is not None:
                                     await self._narrator.on_action_complete(result)
                                 return idx, result
 
@@ -641,7 +641,7 @@ class Executor:
                             await self._audit.log_action_result(result, plan_id)
                             if on_action_complete:
                                 await on_action_complete(result)
-                            else:
+                            if self._narrator is not None:
                                 await self._narrator.on_action_complete(result)
                             return idx, result
 
@@ -655,7 +655,7 @@ class Executor:
                             await self._audit.log_action_result(result, plan_id)
                             if on_action_complete:
                                 await on_action_complete(result)
-                            else:
+                            if self._narrator is not None:
                                 await self._narrator.on_action_complete(result)
                             return idx, result
 
@@ -663,7 +663,7 @@ class Executor:
                 await self._audit.log_action_result(result, plan_id)
                 if on_action_complete:
                     await on_action_complete(result)
-                elif self._narrator is not None:
+                if self._narrator is not None:
                     await self._narrator.on_action_complete(result)
                 return idx, result
 

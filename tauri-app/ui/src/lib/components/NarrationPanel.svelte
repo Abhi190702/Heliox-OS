@@ -127,22 +127,25 @@
   .narration-panel {
     display: flex;
     flex-direction: column;
-    gap: 10px;
   }
 
   .narration-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
   }
 
   h3 {
     font-size: 14px;
     font-weight: 600;
+    margin: 0;
   }
 
   .narration-note {
-    margin: 0;
+    margin: 10px 14px 0;
     padding: 10px 12px;
     font-size: 11px;
     line-height: 1.4;
@@ -158,12 +161,104 @@
     font-size: 13px;
   }
 
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .setting-info {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .setting-label {
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .setting-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .toggle {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+    cursor: pointer;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    transition: all 0.2s;
+  }
+
+  .toggle.active {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+
+  .toggle.active .toggle-knob {
+    transform: translateX(18px);
+  }
+
   .toggle-sm {
     transform: scale(0.8);
+  }
+
+  .input-sm {
+    width: 80px;
+    padding: 5px 8px;
+    font-size: 13px;
+    color: var(--text-primary);
+    text-align: right;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
   }
 
   .narration-actions {
     display: flex;
     justify-content: flex-end;
+    padding: 10px 14px 12px;
+  }
+
+  .btn-save {
+    padding: 5px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: white;
+    white-space: nowrap;
+    background: var(--accent);
+    border-radius: var(--radius-sm);
+    transition: all 0.15s;
+  }
+
+  .btn-save:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+
+  .btn-save:disabled {
+    cursor: not-allowed;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
   }
 </style>

@@ -155,7 +155,9 @@ class TestActionNarrationWiring:
         assert len(narrator.action_complete_calls) == 1
 
     @pytest.mark.asyncio
-    async def test_explicit_caller_callbacks_are_not_overridden_by_narrator(self, tmp_path):
+    async def test_explicit_caller_callbacks_and_narrator_both_fire(self, tmp_path):
+        """Interactive execution supplies progress callbacks for the graph UI.
+        Those callbacks must not suppress the independently enabled narrator."""
         narrator = _FakeNarrator()
         caller_start_calls = []
         caller_complete_calls = []
@@ -178,8 +180,8 @@ class TestActionNarrationWiring:
 
         assert len(caller_start_calls) == 1
         assert len(caller_complete_calls) == 1
-        assert narrator.action_start_calls == []
-        assert narrator.action_complete_calls == []
+        assert len(narrator.action_start_calls) == 1
+        assert len(narrator.action_complete_calls) == 1
 
 
 class TestBrowserTargetAssessmentWiring:
