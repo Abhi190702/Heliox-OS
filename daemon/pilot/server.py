@@ -5333,9 +5333,12 @@ def handle_tool(tool_name, params):
         """
         from dataclasses import asdict
 
+        from pilot.config import SUPPORTED_GESTURE_WORKFLOW_GESTURES
+
         return {
             "enabled": self.config.gesture_workflows.enabled,
             "bindings": [asdict(b) for b in self.config.gesture_workflows.bindings],
+            "supported_gestures": list(SUPPORTED_GESTURE_WORKFLOW_GESTURES),
         }
 
     async def _handle_gesture_workflow_bindings_update(self, params: dict, ws: ServerConnection) -> dict:
@@ -5351,33 +5354,57 @@ def handle_tool(tool_name, params):
         """
         from dataclasses import asdict
 
-        from pilot.config import GestureWorkflowBinding
+        from pilot.config import SUPPORTED_GESTURE_WORKFLOW_GESTURES, GestureWorkflowBinding
 
-        if "enabled" in params:
-            self.config.gesture_workflows.enabled = bool(params["enabled"])
-
+        enabled = bool(params.get("enabled", self.config.gesture_workflows.enabled))
+        parsed = list(self.config.gesture_workflows.bindings)
         if "bindings" in params:
             raw_bindings = params["bindings"]
             if not isinstance(raw_bindings, list):
                 return {"status": "error", "message": "bindings must be a list"}
+            if len(raw_bindings) > len(SUPPORTED_GESTURE_WORKFLOW_GESTURES):
+                return {"status": "error", "message": "too many gesture workflow bindings"}
+
             parsed = []
-            for item in raw_bindings:
+            seen_gestures: set[str] = set()
+            for index, item in enumerate(raw_bindings):
                 if not isinstance(item, dict):
-                    continue
+                    return {"status": "error", "message": f"binding {index + 1} must be an object"}
+                gesture_name = str(item.get("gesture_name", "")).strip().lower()
+                goal_template = str(item.get("goal_template", "")).strip()
+                if gesture_name not in SUPPORTED_GESTURE_WORKFLOW_GESTURES:
+                    return {
+                        "status": "error",
+                        "message": f"unsupported gesture in binding {index + 1}: {gesture_name or '(empty)'}",
+                    }
+                if gesture_name in seen_gestures:
+                    return {"status": "error", "message": f"duplicate gesture binding: {gesture_name}"}
+                if not goal_template:
+                    return {"status": "error", "message": f"binding {index + 1} requires a workflow goal"}
+                if len(goal_template) > 2000:
+                    return {"status": "error", "message": f"binding {index + 1} goal is too long"}
+                seen_gestures.add(gesture_name)
                 parsed.append(
                     GestureWorkflowBinding(
-                        gesture_name=str(item.get("gesture_name", "")),
-                        goal_template=str(item.get("goal_template", "")),
+                        gesture_name=gesture_name,
+                        goal_template=goal_template,
                         enabled=bool(item.get("enabled", True)),
                     )
                 )
-            self.config.gesture_workflows.bindings = parsed
+        if enabled and not any(binding.enabled for binding in parsed):
+            return {
+                "status": "error",
+                "message": "enable at least one complete binding before enabling gesture workflows",
+            }
 
+        self.config.gesture_workflows.enabled = enabled
+        self.config.gesture_workflows.bindings = parsed
         self.config.save()
         result = {
             "status": "ok",
             "enabled": self.config.gesture_workflows.enabled,
             "bindings": [asdict(b) for b in self.config.gesture_workflows.bindings],
+            "supported_gestures": list(SUPPORTED_GESTURE_WORKFLOW_GESTURES),
         }
         await self._broadcast_notification("gesture_workflow_bindings_updated", result)
         return result

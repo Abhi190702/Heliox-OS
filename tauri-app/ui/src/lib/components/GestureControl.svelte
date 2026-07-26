@@ -83,6 +83,11 @@
     type GestureEvent,
   } from "../gesture/calibration";
   import { classifyControlGesture } from "../gesture/workflowControl";
+  import {
+    activeGestureWorkflowBindings,
+    controlGestureWorkflow,
+    submitGestureWorkflow,
+  } from "../gesture/workflowBindingRuntime";
   import { LatestAsyncDispatcher } from "../gesture/latestAsyncDispatcher";
 
   // ── Props ──
@@ -99,6 +104,8 @@
   let currentGesture = $state("");
   let confidence = $state(0);
   let cameraError = $state("");
+  let workflowStatus = $state("");
+  let workflowError = $state("");
   let showCamera = $state(false);
   let isStarting = $state(false);
   let gestureHistory: string[] = $state([]);
@@ -584,6 +591,18 @@
   // GestureWorkflowConfig in config.py) -- refreshed once per engine start,
   // not re-polled every frame.
   let gestureWorkflowBindings: Record<string, string> = {};
+  let workflowFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function showWorkflowFeedback(message: string, isError = false) {
+    if (workflowFeedbackTimer) clearTimeout(workflowFeedbackTimer);
+    workflowStatus = isError ? "" : message;
+    workflowError = isError ? message : "";
+    workflowFeedbackTimer = setTimeout(() => {
+      workflowStatus = "";
+      workflowError = "";
+      workflowFeedbackTimer = null;
+    }, 5000);
+  }
 
   async function loadGestureWorkflowBindings() {
     const { call } = await import("../api/daemon");
@@ -592,10 +611,7 @@
         enabled: boolean;
         bindings: Array<{ gesture_name: string; goal_template: string; enabled: boolean }>;
       };
-      gestureWorkflowBindings =
-        policy.enabled && policy.bindings
-          ? Object.fromEntries(policy.bindings.filter((b) => b.enabled && b.goal_template).map((b) => [b.gesture_name, b.goal_template]))
-          : {};
+      gestureWorkflowBindings = activeGestureWorkflowBindings(policy);
     } catch {
       gestureWorkflowBindings = {};
     }
@@ -643,26 +659,46 @@
     }
     pendingWorkflowId = null;
     gestureWorkflowBindings = {};
+    if (workflowFeedbackTimer) {
+      clearTimeout(workflowFeedbackTimer);
+      workflowFeedbackTimer = null;
+    }
+    workflowStatus = "";
+    workflowError = "";
   }
 
   async function dispatchWorkflowControl(intent: "continue" | "cancel", workflowId: string) {
     const { call } = await import("../api/daemon");
-    const method = intent === "continue" ? "voice_gesture_workflow_resume" : "voice_gesture_workflow_cancel";
     try {
-      await call(method, { workflow_id: workflowId });
-    } catch {
-      // best-effort -- if the RPC fails the workflow simply stays paused,
-      // no worse than before the gesture fired
+      const message = await controlGestureWorkflow(
+        (method, params) => call(method, params),
+        intent,
+        workflowId,
+      );
+      if (pendingWorkflowId === workflowId) pendingWorkflowId = null;
+      showWorkflowFeedback(message);
+    } catch (cause) {
+      showWorkflowFeedback(
+        cause instanceof Error ? cause.message : "Gesture workflow control failed",
+        true,
+      );
     }
   }
 
-  async function startBoundWorkflow(goalTemplate: string) {
+  async function startBoundWorkflow(goalTemplate: string, gestureName: string) {
     const { call } = await import("../api/daemon");
     try {
-      await call("voice_gesture_workflow_submit", { goal: goalTemplate, invocation_source: "gesture" });
-    } catch {
-      // best-effort -- if submission fails, nothing was started; the user
-      // can retry the gesture
+      const message = await submitGestureWorkflow(
+        (method, params) => call(method, params),
+        gestureName,
+        goalTemplate,
+      );
+      showWorkflowFeedback(message);
+    } catch (cause) {
+      showWorkflowFeedback(
+        cause instanceof Error ? cause.message : "Gesture workflow could not be started",
+        true,
+      );
     }
   }
 
@@ -1048,12 +1084,11 @@
             const boundGoal = !pendingWorkflowId ? gestureWorkflowBindings[gesture.name] : undefined;
             if (controlIntent !== "unknown" && pendingWorkflowId) {
               void dispatchWorkflowControl(controlIntent, pendingWorkflowId);
-              pendingWorkflowId = null;
             } else if (boundGoal) {
               // A user-bound gesture starts a workflow instead of its
               // normal default action — see GestureWorkflowConfig in
               // config.py and the Settings gesture-workflow bindings editor.
-              void startBoundWorkflow(boundGoal);
+              void startBoundWorkflow(boundGoal, gesture.name);
               gestureHistory = [...gestureHistory.slice(-4), gesture.name];
             } else {
               executeGestureAction(gesture.name);
@@ -1775,6 +1810,12 @@
   {#if cameraError}
     <div class="gesture-error">{cameraError}</div>
   {/if}
+  {#if workflowStatus}
+    <div class="gesture-workflow-feedback" role="status">{workflowStatus}</div>
+  {/if}
+  {#if workflowError}
+    <div class="gesture-error" role="alert">{workflowError}</div>
+  {/if}
   {#if $gazeRuntime.phase === "error" && $gazeRuntime.message}
     <div class="gesture-error gaze-error-detail">{$gazeRuntime.message}</div>
   {/if}
@@ -2048,6 +2089,13 @@
 
   .gesture-error {
     font-size: 10px; color: rgba(255, 80, 80, 0.8); max-width: 160px;
+  }
+
+  .gesture-workflow-feedback {
+    max-width: 190px;
+    color: var(--success);
+    font-size: 10px;
+    line-height: 1.3;
   }
 
   .gaze-error-detail {

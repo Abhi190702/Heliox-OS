@@ -16,7 +16,7 @@ def test_gesture_workflows_section_merges_to_config() -> None:
             "enabled": True,
             "bindings": [
                 {"gesture_name": "swipe_up", "goal_template": "run my daily briefing", "enabled": True},
-                {"gesture_name": "rock_sign", "goal_template": "back up today's screenshots"},
+                {"gesture_name": "rock", "goal_template": "back up today's screenshots"},
             ],
             "pending_trigger_window_seconds": 45.0,
             "paused_window_seconds": 600.0,
@@ -44,6 +44,26 @@ def test_gesture_workflows_ignores_non_dict_binding_entries() -> None:
 
     assert len(merged.gesture_workflows.bindings) == 1
     assert merged.gesture_workflows.bindings[0].gesture_name == "palm"
+
+
+def test_gesture_workflows_filters_unknown_empty_and_duplicate_bindings() -> None:
+    config = PilotConfig()
+    raw = {
+        "gesture_workflows": {
+            "bindings": [
+                {"gesture_name": "palm", "goal_template": "first"},
+                {"gesture_name": "palm", "goal_template": "duplicate"},
+                {"gesture_name": "unknown", "goal_template": "unsupported"},
+                {"gesture_name": "swipe_up", "goal_template": "   "},
+            ]
+        }
+    }
+
+    merged = _merge_config(config, raw)
+
+    assert merged.gesture_workflows.bindings == [
+        GestureWorkflowBinding(gesture_name="palm", goal_template="first", enabled=True)
+    ]
 
 
 def test_gesture_workflows_missing_section_leaves_defaults() -> None:

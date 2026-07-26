@@ -133,6 +133,68 @@ test.describe("Settings Panel", () => {
       });
   });
 
+  test("gesture workflow bindings validate, save, and reload", async ({
+    page,
+  }) => {
+    let section = page
+      .locator(".settings-group")
+      .filter({ hasText: "Gesture Workflow Bindings" });
+    await section.scrollIntoViewIfNeeded();
+
+    await expect(section).toContainText(
+      "Saved changes apply immediately, including while the camera is already running."
+    );
+    await section.getByRole("button", { name: "Add Binding" }).click();
+    await expect(section).toContainText("Every binding needs a workflow goal.");
+    await expect(section.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await section
+      .getByRole("combobox", { name: "Gesture for binding 1" })
+      .selectOption("swipe_up");
+    await section
+      .getByRole("textbox", { name: "Workflow goal for binding 1" })
+      .fill("run my daily briefing");
+    await section
+      .getByRole("button", { name: "Toggle gesture workflow bindings" })
+      .click();
+    await section.getByRole("button", { name: "Save" }).click();
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as any).__gesture_workflow_update__)
+      )
+      .toMatchObject({
+        method: "gesture_workflow_bindings_update",
+        params: {
+          enabled: true,
+          bindings: [
+            {
+              gesture_name: "swipe_up",
+              goal_template: "run my daily briefing",
+              enabled: true,
+            },
+          ],
+        },
+      });
+
+    await clickTab(page, "Activity");
+    await clickTab(page, "Settings");
+    section = page
+      .locator(".settings-group")
+      .filter({ hasText: "Gesture Workflow Bindings" });
+    await section.scrollIntoViewIfNeeded();
+
+    await expect(
+      section.getByRole("button", { name: "Toggle gesture workflow bindings" })
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      section.getByRole("combobox", { name: "Gesture for binding 1" })
+    ).toHaveValue("swipe_up");
+    await expect(
+      section.getByRole("textbox", { name: "Workflow goal for binding 1" })
+    ).toHaveValue("run my daily briefing");
+  });
+
   test("voice workflow panel submits a durable workflow goal", async ({
     page,
   }) => {

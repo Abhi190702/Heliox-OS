@@ -90,6 +90,10 @@ export async function mockTauriIpc(page: Page): Promise<void> {
         if (request.method === "voice_gesture_workflow_submit") {
           (window as any).__workflow_submit__ = request;
         }
+        if (request.method === "gesture_workflow_bindings_update") {
+          (window as any).__gesture_workflow_update__ = request;
+          (window as any).__gesture_workflow_policy__ = request.params;
+        }
         if (
           request.method === "auth" ||
           request.method === "risk_gate_status" ||
@@ -181,6 +185,17 @@ export async function mockTauriIpc(page: Page): Promise<void> {
                 state: "pending",
                 updated_at: "2026-07-26T10:00:00Z",
               },
+            };
+          } else if (request.method.startsWith("gesture_workflow_bindings_")) {
+            const policy = (window as any).__gesture_workflow_policy__ ?? {
+              enabled: false,
+              bindings: [],
+            };
+            result = {
+              status: "ok",
+              enabled: policy.enabled,
+              bindings: policy.bindings,
+              supported_gestures: ["palm", "swipe_up", "thumbs_up"],
             };
           } else {
             result = {

@@ -254,6 +254,41 @@ class GestureWorkflowBinding:
     enabled: bool = True
 
 
+SUPPORTED_GESTURE_WORKFLOW_GESTURES: tuple[str, ...] = (
+    "palm",
+    "thumbs_up",
+    "thumbs_down",
+    "peace",
+    "fist",
+    "point_up",
+    "rock",
+    "ok",
+    "call_me",
+    "finger_gun",
+    "pinch",
+    "middle_finger",
+    "pinky_up",
+    "vulcan",
+    "crossed_fingers",
+    "snap_ready",
+    "devil_horns",
+    "palm_down",
+    "palm_up",
+    "three_up",
+    "four_up",
+    "swipe_left",
+    "swipe_right",
+    "swipe_up",
+    "swipe_down",
+    "circular_cw",
+    "circular_ccw",
+    "palm_push",
+    "palm_pull",
+    "two_finger_swipe_left",
+    "two_finger_swipe_right",
+)
+
+
 @dataclass
 class GestureWorkflowConfig:
     """Binds specific gestures to multi-step workflow goals. Off by default:
@@ -819,13 +854,23 @@ def _merge_config(config: PilotConfig, raw: dict[str, Any]) -> PilotConfig:
         bindings_raw = gw_raw.get("bindings", [])
         if isinstance(bindings_raw, list):
             parsed_bindings: list[GestureWorkflowBinding] = []
+            seen_gestures: set[str] = set()
             for item in bindings_raw:
                 if not isinstance(item, dict):
                     continue
+                gesture_name = str(item.get("gesture_name", "")).strip().lower()
+                goal_template = str(item.get("goal_template", "")).strip()
+                if (
+                    gesture_name not in SUPPORTED_GESTURE_WORKFLOW_GESTURES
+                    or not goal_template
+                    or gesture_name in seen_gestures
+                ):
+                    continue
+                seen_gestures.add(gesture_name)
                 parsed_bindings.append(
                     GestureWorkflowBinding(
-                        gesture_name=str(item.get("gesture_name", "")),
-                        goal_template=str(item.get("goal_template", "")),
+                        gesture_name=gesture_name,
+                        goal_template=goal_template,
                         enabled=bool(item.get("enabled", True)),
                     )
                 )

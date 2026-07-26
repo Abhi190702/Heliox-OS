@@ -208,11 +208,18 @@ class TestGestureWorkflowBindings:
         result = await server._handle_gesture_workflow_bindings_get({}, ws=None)
         assert result["enabled"] is False
         assert result["bindings"] == []
+        assert "swipe_up" in result["supported_gestures"]
 
     @pytest.mark.asyncio
     async def test_update_sets_enabled_and_bindings(self, monkeypatch):
         server = PilotServer(PilotConfig())
         monkeypatch.setattr(server.config, "save", lambda: None)
+        notifications = []
+
+        async def capture_notification(method, params):
+            notifications.append((method, params))
+
+        monkeypatch.setattr(server, "_broadcast_notification", capture_notification)
 
         result = await server._handle_gesture_workflow_bindings_update(
             {
@@ -226,14 +233,64 @@ class TestGestureWorkflowBindings:
         assert len(result["bindings"]) == 1
         assert result["bindings"][0]["gesture_name"] == "swipe_up"
         assert result["bindings"][0]["enabled"] is True  # defaults to True when omitted
+        assert notifications == [("gesture_workflow_bindings_updated", result)]
 
     @pytest.mark.asyncio
-    async def test_update_ignores_non_dict_binding_entries(self, monkeypatch):
+    async def test_update_rejects_non_dict_binding_entries_atomically(self, monkeypatch):
         server = PilotServer(PilotConfig())
         monkeypatch.setattr(server.config, "save", lambda: None)
 
         result = await server._handle_gesture_workflow_bindings_update(
-            {"bindings": [{"gesture_name": "palm", "goal_template": "x"}, "not-a-dict"]}, ws=None
+            {
+                "enabled": True,
+                "bindings": [{"gesture_name": "palm", "goal_template": "x"}, "not-a-dict"],
+            },
+            ws=None,
         )
-        assert result["status"] == "ok"
-        assert len(result["bindings"]) == 1
+        assert result["status"] == "error"
+        assert server.config.gesture_workflows.enabled is False
+        assert server.config.gesture_workflows.bindings == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("bindings", "message"),
+        [
+            ([{"gesture_name": "unknown", "goal_template": "x"}], "unsupported gesture"),
+            ([{"gesture_name": "palm", "goal_template": ""}], "requires a workflow goal"),
+            (
+                [
+                    {"gesture_name": "palm", "goal_template": "first"},
+                    {"gesture_name": "palm", "goal_template": "second"},
+                ],
+                "duplicate gesture binding",
+            ),
+        ],
+    )
+    async def test_update_rejects_invalid_bindings(self, monkeypatch, bindings, message):
+        server = PilotServer(PilotConfig())
+        monkeypatch.setattr(server.config, "save", lambda: None)
+
+        result = await server._handle_gesture_workflow_bindings_update(
+            {"enabled": True, "bindings": bindings},
+            ws=None,
+        )
+
+        assert result["status"] == "error"
+        assert message in result["message"]
+        assert server.config.gesture_workflows.enabled is False
+
+    @pytest.mark.asyncio
+    async def test_cannot_enable_without_an_enabled_binding(self, monkeypatch):
+        server = PilotServer(PilotConfig())
+        monkeypatch.setattr(server.config, "save", lambda: None)
+
+        result = await server._handle_gesture_workflow_bindings_update(
+            {
+                "enabled": True,
+                "bindings": [{"gesture_name": "palm", "goal_template": "x", "enabled": False}],
+            },
+            ws=None,
+        )
+
+        assert result["status"] == "error"
+        assert "enable at least one" in result["message"]
