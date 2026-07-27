@@ -10,7 +10,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use sysinfo::Disks;
 use sysinfo::Networks;
 use sysinfo::System;
@@ -59,18 +59,22 @@ fn try_spawn_with(python: &std::path::Path) -> Option<Child> {
     }
 }
 
-/// Wait until the daemon accepts TCP connections on the configured host/port.
-fn wait_for_daemon(host: &str, port: u16, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-
-    while Instant::now() < deadline {
-        if TcpStream::connect((host, port)).is_ok() {
-            return true;
+/// Allow the child to fail fast, but do not wait for model initialization.
+/// The Svelte client already exposes a reconnecting "Connecting" state, and
+/// first startup can legitimately take well over eight seconds.
+fn daemon_child_started(child: &mut Child, source: &str) -> bool {
+    std::thread::sleep(Duration::from_millis(500));
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            eprintln!("[Heliox OS] Daemon exited during {source} startup with status: {status}");
+            false
         }
-        std::thread::sleep(Duration::from_millis(250));
+        Ok(None) => true,
+        Err(error) => {
+            eprintln!("[Heliox OS] Failed to inspect daemon after {source} startup: {error}");
+            false
+        }
     }
-
-    false
 }
 
 /// Run the first-time venv + pip install in a background thread (non-blocking).
@@ -416,6 +420,14 @@ fn get_temperature_stats() -> serde_json::Value {
     })
 }
 fn spawn_daemon() -> Option<Child> {
+    if TcpStream::connect((DAEMON_HOST, DAEMON_PORT)).is_ok() {
+        println!(
+            "[Heliox OS] Reusing daemon already listening on ws://{}:{}",
+            DAEMON_HOST, DAEMON_PORT
+        );
+        return None;
+    }
+
     let data_dir = get_app_data_dir();
     let _ = std::fs::create_dir_all(&data_dir);
 
@@ -426,34 +438,10 @@ fn spawn_daemon() -> Option<Child> {
         if let Some(mut child) = try_spawn_with(&venv_python) {
             println!("[Heliox OS] AI daemon spawned from venv");
 
-            if wait_for_daemon(DAEMON_HOST, DAEMON_PORT, Duration::from_secs(8)) {
-                println!(
-                    "[Heliox OS] AI daemon is ready on ws://{}:{}",
-                    DAEMON_HOST, DAEMON_PORT
-                );
+            if daemon_child_started(&mut child, "venv") {
+                println!("[Heliox OS] Daemon is initializing; the UI will reconnect when ready");
                 return Some(child);
             }
-
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    eprintln!(
-                        "[Heliox OS] Daemon exited early after venv spawn with status: {}",
-                        status
-                    );
-                }
-                Ok(None) => {
-                    eprintln!(
-                        "[Heliox OS] Daemon spawned from venv but did not become ready in time"
-                    );
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[Heliox OS] Failed to inspect daemon process after venv spawn: {}",
-                        e
-                    );
-                }
-            }
-
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -468,34 +456,10 @@ fn spawn_daemon() -> Option<Child> {
     if let Some(mut child) = try_spawn_with(&sys_python) {
         println!("[Heliox OS] AI daemon spawned from system Python");
 
-        if wait_for_daemon(DAEMON_HOST, DAEMON_PORT, Duration::from_secs(8)) {
-            println!(
-                "[Heliox OS] AI daemon is ready on ws://{}:{}",
-                DAEMON_HOST, DAEMON_PORT
-            );
+        if daemon_child_started(&mut child, "system Python") {
+            println!("[Heliox OS] Daemon is initializing; the UI will reconnect when ready");
             return Some(child);
         }
-
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                eprintln!(
-                    "[Heliox OS] Daemon exited early after system Python spawn with status: {}",
-                    status
-                );
-            }
-            Ok(None) => {
-                eprintln!(
-                    "[Heliox OS] Daemon spawned from system Python but did not become ready in time"
-                );
-            }
-            Err(e) => {
-                eprintln!(
-                    "[Heliox OS] Failed to inspect daemon process after system Python spawn: {}",
-                    e
-                );
-            }
-        }
-
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -595,4 +559,60 @@ fn main() {
                 stop_daemon(&state);
             }
         });
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    #[cfg(target_os = "windows")]
+    fn spawn_short_lived_child() -> Child {
+        Command::new("cmd")
+            .args(["/C", "exit", "7"])
+            .spawn()
+            .expect("spawn short-lived child")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn spawn_short_lived_child() -> Child {
+        Command::new("sh")
+            .args(["-c", "exit 7"])
+            .spawn()
+            .expect("spawn short-lived child")
+    }
+
+    #[cfg(target_os = "windows")]
+    fn spawn_long_lived_child() -> Child {
+        Command::new("cmd")
+            .args(["/C", "ping -n 4 127.0.0.1 >NUL"])
+            .spawn()
+            .expect("spawn long-lived child")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn spawn_long_lived_child() -> Child {
+        Command::new("sh")
+            .args(["-c", "sleep 2"])
+            .spawn()
+            .expect("spawn long-lived child")
+    }
+
+    #[test]
+    fn startup_accepts_a_child_that_is_still_initializing() {
+        let mut child = spawn_long_lived_child();
+
+        assert!(daemon_child_started(&mut child, "test"));
+
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn startup_rejects_a_child_that_exits_immediately() {
+        let mut child = spawn_short_lived_child();
+
+        assert!(!daemon_child_started(&mut child, "test"));
+
+        let _ = child.wait();
+    }
 }
