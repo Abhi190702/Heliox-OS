@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "../api/invoke";
+  import { isConnected } from "../api/daemon";
   import { onMount } from "svelte";
   type DashboardStatus = {
     connected: boolean;
@@ -21,7 +22,7 @@
     try {
       const res = await invoke("get_dashboard_status");
       if (res && typeof res === "object") {
-        status = res;
+        status = { ...res, connected: isConnected() };
       }
     } catch (err) {
       console.error("Dashboard status failed", err);
