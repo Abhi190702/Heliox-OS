@@ -7,9 +7,14 @@ import pytest
 from pilot.agents.planner import Planner
 
 
-class _ModelThatMustNotRun:
+class _ConversationalModel:
+    def __init__(self):
+        self.calls = []
+
     async def generate(self, *args, **kwargs):
-        raise AssertionError("simple conversation must not call the planning model")
+        self.calls.append((args, kwargs))
+        user_text = args[0][-1]["content"]
+        return f"Model-generated reply for: {user_text}"
 
 
 class _MemoryThatMustNotRun:
@@ -18,17 +23,21 @@ class _MemoryThatMustNotRun:
 
 
 @pytest.mark.asyncio
-async def test_greeting_returns_helpful_zero_action_response_without_model_call():
-    planner = Planner(_ModelThatMustNotRun(), _MemoryThatMustNotRun())
+async def test_greeting_uses_model_for_wording_but_returns_zero_actions():
+    model = _ConversationalModel()
+    planner = Planner(model, _MemoryThatMustNotRun())
 
     plan = await planner.plan("Hello Heliox")
 
     assert plan.error is None
     assert plan.actions == []
-    assert "inspect your system" in plan.explanation
+    assert plan.explanation == "Model-generated reply for: Hello Heliox"
+    assert len(model.calls) == 1
+    assert model.calls[0][1]["json_mode"] is False
 
 
 def test_compound_greeting_with_action_is_not_treated_as_conversation_only():
+    assert Planner._is_conversation_only("Hello Heliox, open GitHub") is False
     assert Planner._try_fast_path("Hello Heliox, open GitHub") is None
 
 

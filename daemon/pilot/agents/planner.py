@@ -378,20 +378,12 @@ class Planner:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _try_fast_path(user_input: str) -> ActionPlan | None:
-        """Match simple commands locally and return an instant ActionPlan.
-
-        Returns None if the command is too complex for fast-path.
-        """
+    def _is_conversation_only(user_input: str) -> bool:
+        """Return True only for short utterances that cannot imply an OS action."""
         import re
 
-        text = user_input.strip().lower()
-
-        # --- Conversation that does not require system execution ---
-        # Keep this intentionally exact: "hello heliox, open github" is an
-        # actionable request and must continue through normal planning.
-        normalized = re.sub(r"[!?.,]+$", "", text).strip()
-        greeting_phrases = {
+        normalized = re.sub(r"[!?.,]+$", "", user_input.strip().lower()).strip()
+        return normalized in {
             "hello",
             "hello heliox",
             "hi",
@@ -401,40 +393,27 @@ class Planner:
             "good morning",
             "good afternoon",
             "good evening",
+            "thanks",
+            "thank you",
+            "thanks heliox",
+            "thank you heliox",
+            "how are you",
+            "how are you heliox",
+            "what can you do",
+            "what can you do heliox",
+            "help",
+            "help me",
         }
-        if normalized in greeting_phrases:
-            return ActionPlan(
-                actions=[],
-                explanation=(
-                    "Hello! I’m ready. Ask me to inspect your system, manage files or apps, "
-                    "browse the web, or run a multi-step workflow."
-                ),
-                raw_input=user_input,
-            )
 
-        if normalized in {"thanks", "thank you", "thanks heliox", "thank you heliox"}:
-            return ActionPlan(
-                actions=[],
-                explanation="You’re welcome. What would you like to do next?",
-                raw_input=user_input,
-            )
+    @staticmethod
+    def _try_fast_path(user_input: str) -> ActionPlan | None:
+        """Match simple commands locally and return an instant ActionPlan.
 
-        if normalized in {"how are you", "how are you heliox"}:
-            return ActionPlan(
-                actions=[],
-                explanation="I’m online and ready to help. What would you like me to do?",
-                raw_input=user_input,
-            )
+        Returns None if the command is too complex for fast-path.
+        """
+        import re
 
-        if normalized in {"what can you do", "what can you do heliox", "help", "help me"}:
-            return ActionPlan(
-                actions=[],
-                explanation=(
-                    "I can inspect system state, manage files and apps, browse and automate web tasks, "
-                    "and run multi-step workflows. Actions that change your system may require confirmation."
-                ),
-                raw_input=user_input,
-            )
+        text = user_input.strip().lower()
 
         # --- "open <url>" ---
         url_match = re.match(
@@ -628,6 +607,35 @@ class Planner:
         If stream_callback is provided, LLM tokens will be streamed via callback.
         """
         try:
+            # Conversation uses the configured model for the actual wording,
+            # while this narrow classifier guarantees that a greeting or thanks
+            # cannot be converted into an executable system action.
+            if not error_context and self._is_conversation_only(user_input):
+                response = await self._model.generate(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are Heliox OS. Reply naturally, directly, and briefly to the user. "
+                                "This is conversation only: do not propose, simulate, or claim to execute "
+                                "any computer action. Do not output JSON. When asked about capabilities, "
+                                "accurately mention system inspection, file and app management, browser "
+                                "automation, and multi-step workflows, with confirmation for risky changes."
+                            ),
+                        },
+                        {"role": "user", "content": user_input},
+                    ],
+                    json_mode=False,
+                    temperature=0.4,
+                    stream_callback=stream_callback,
+                )
+                response = response.strip()
+                if not response:
+                    return ActionPlan(
+                        error="The conversational model returned an empty response.", raw_input=user_input
+                    )
+                return ActionPlan(actions=[], explanation=response, raw_input=user_input)
+
             # Fast-path: skip LLM for simple, pattern-matchable commands
             if not error_context:
                 fast = self._try_fast_path(user_input)
