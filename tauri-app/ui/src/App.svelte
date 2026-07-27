@@ -335,11 +335,14 @@
               onActiveChange={(active) => (cameraControlsActive = active)}
             />
           </div>
-          <button class="tab" type="button" onclick={() => session.exportChat("json")}>{$_("app.export_json")}</button>
-          <button class="tab" type="button" onclick={() => session.exportChat("csv")}>{$_("app.export_csv")}</button>
-          <button class="tab" type="button" onclick={exportReActTrace} title="Export ReAct reasoning trace to JSON"
-            >Export Trace</button
-          >
+          <div class="export-controls">
+            <button class="tab" type="button" onclick={() => session.exportChat("json")}>{$_("app.export_json")}</button
+            >
+            <button class="tab" type="button" onclick={() => session.exportChat("csv")}>{$_("app.export_csv")}</button>
+            <button class="tab" type="button" onclick={exportReActTrace} title="Export ReAct reasoning trace to JSON"
+              >Export Trace</button
+            >
+          </div>
         </div>
       </div>
       {#if activeTab === "log"}
@@ -610,12 +613,20 @@
 
   .input-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
     border-top: 1px solid var(--border);
     background: var(--bg-secondary);
     position: relative;
+  }
+
+  .export-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
   }
 
   .tab {
