@@ -32,7 +32,7 @@
 
   function stopAudio() {
     if (streamRef) {
-      streamRef.getTracks().forEach(t => t.stop());
+      streamRef.getTracks().forEach((t) => t.stop());
       streamRef = null;
     }
     if (audioCtx) {
@@ -120,7 +120,8 @@
     if (!ctx) return;
     const w = canvasEl.width;
     const h = canvasEl.height;
-    const cx = w / 2, cy = h / 2;
+    const cx = w / 2,
+      cy = h / 2;
 
     ctx.clearRect(0, 0, w, h);
     ctx.strokeStyle = "rgba(0, 200, 255, 0.15)";

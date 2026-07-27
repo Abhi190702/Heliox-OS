@@ -8,35 +8,39 @@
   let animId = 0;
 
   interface Particle {
-    x: number; y: number;
-    vx: number; vy: number;
-    life: number; maxLife: number;
-    size: number; hue: number; sat: number;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+    maxLife: number;
+    size: number;
+    hue: number;
+    sat: number;
     type: "spark" | "ring" | "trail";
   }
 
   let particles: Particle[] = [];
 
-  export function burst(x: number, y: number, config: {
-    count?: number;
-    hue?: number;
-    spread?: number;
-    size?: number;
-    type?: "spark" | "ring" | "trail";
-  } = {}) {
-    const {
-      count = 20,
-      hue = 190,
-      spread = 4,
-      size = 2,
-      type = "spark"
-    } = config;
+  export function burst(
+    x: number,
+    y: number,
+    config: {
+      count?: number;
+      hue?: number;
+      spread?: number;
+      size?: number;
+      type?: "spark" | "ring" | "trail";
+    } = {},
+  ) {
+    const { count = 20, hue = 190, spread = 4, size = 2, type = "spark" } = config;
 
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.5;
       const speed = spread * (0.3 + Math.random() * 0.7);
       particles.push({
-        x, y,
+        x,
+        y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed - 1, // Slight upward bias
         life: 0,
@@ -69,18 +73,18 @@
     const cx = canvasEl.width / 2;
     const cy = canvasEl.height / 2;
     const hueMap: Record<string, number> = {
-      palm: 50,        // Gold
-      thumbs_up: 140,  // Green
-      peace: 270,      // Purple
-      fist: 20,        // Orange
-      point_up: 190,   // Cyan
-      rock: 300,       // Pink
-      ok: 160,         // Teal
-      finger_gun: 30,  // Orange-gold
-      thumbs_down: 0,  // Red
+      palm: 50, // Gold
+      thumbs_up: 140, // Green
+      peace: 270, // Purple
+      fist: 20, // Orange
+      point_up: 190, // Cyan
+      rock: 300, // Pink
+      ok: 160, // Teal
+      finger_gun: 30, // Orange-gold
+      thumbs_down: 0, // Red
       swipe_left: 210, // Blue
       swipe_right: 210, // Blue
-      call_me: 280,    // Violet
+      call_me: 280, // Violet
     };
     burst(cx, cy, { count: 25, hue: hueMap[gesture] ?? 190, spread: 5, size: 2.5 });
   }
@@ -94,7 +98,7 @@
     const h = canvasEl.height;
     ctx.clearRect(0, 0, w, h);
 
-    particles = particles.filter(p => {
+    particles = particles.filter((p) => {
       p.x += p.vx;
       p.y += p.vy;
       p.vy += 0.05; // Gravity

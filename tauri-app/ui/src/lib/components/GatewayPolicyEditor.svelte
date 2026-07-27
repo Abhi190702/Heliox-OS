@@ -92,8 +92,8 @@
 
   <p class="policy-note">
     Each source (interactive, autonomous background jobs, the web agent, voice, gesture) has an enforced ceiling per
-    action family. A per-task override supplied by a caller (e.g. an autonomous job) can only narrow this floor
-    further — it can never widen it, no matter what it requests.
+    action family. A per-task override supplied by a caller (e.g. an autonomous job) can only narrow this floor further
+    — it can never widen it, no matter what it requests.
   </p>
 
   {#if loading}

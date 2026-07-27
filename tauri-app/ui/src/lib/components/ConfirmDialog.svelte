@@ -38,9 +38,7 @@
 
   function handleConfirm() {
     if (submitting) return;
-    const approvedIndices = actions
-      .map((a, i) => (approved[i] ? (a.index ?? i) : -1))
-      .filter((i) => i !== -1);
+    const approvedIndices = actions.map((a, i) => (approved[i] ? (a.index ?? i) : -1)).filter((i) => i !== -1);
     onconfirm(approvedIndices);
   }
 </script>
@@ -49,11 +47,11 @@
   <div class="confirm-dialog">
     <div class="confirm-header">
       <span class="warn-icon">&#9888;</span>
-      <span>{$_('confirm.title')}</span>
+      <span>{$_("confirm.title")}</span>
     </div>
 
     <p class="confirm-body">
-      {$_('confirm.body')}
+      {$_("confirm.body")}
     </p>
 
     {#if riskAssessment}
@@ -80,13 +78,13 @@
           <strong>{action.action_type}</strong> on
           <code>{action.target}</code>
           {#if action.requires_root}
-            <span class="root-tag">{$_('tier.root')}</span>
+            <span class="root-tag">{$_("tier.root")}</span>
           {/if}
           {#if action.destructive}
-            <span class="destructive-tag">{$_('tier.destructive')}</span>
+            <span class="destructive-tag">{$_("tier.destructive")}</span>
           {/if}
           {#if action.irreversible}
-            <span class="irreversible-tag">{$_('tier.irreversible')}</span>
+            <span class="irreversible-tag">{$_("tier.irreversible")}</span>
           {/if}
         </li>
       {/each}
@@ -97,9 +95,16 @@
     {/if}
 
     <div class="confirm-actions">
-      <button class="btn-deny" title={$_('confirm.deny')} disabled={submitting} onclick={ondeny}>{$_('confirm.deny')}</button>
-      <button class="btn-confirm" title={$_('confirm.approve')} disabled={!anyApproved || submitting} onclick={handleConfirm}>
-        {submitting ? $_('confirm.submitting') : $_('confirm.approve')}
+      <button class="btn-deny" title={$_("confirm.deny")} disabled={submitting} onclick={ondeny}
+        >{$_("confirm.deny")}</button
+      >
+      <button
+        class="btn-confirm"
+        title={$_("confirm.approve")}
+        disabled={!anyApproved || submitting}
+        onclick={handleConfirm}
+      >
+        {submitting ? $_("confirm.submitting") : $_("confirm.approve")}
       </button>
     </div>
   </div>

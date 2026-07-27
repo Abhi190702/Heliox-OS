@@ -22,14 +22,14 @@
       <div class="supervision-header">
         <span class="warn-icon">&#9888;</span>
         <span id="supervision-dialog-title">
-          {$supervision.kind === "risk" ? $_('supervision_alert.risk_title') : $_('supervision_alert.coaching_title')}
+          {$supervision.kind === "risk" ? $_("supervision_alert.risk_title") : $_("supervision_alert.coaching_title")}
         </span>
       </div>
 
-      <p class="supervision-body">{$supervision.message || $_('supervision_alert.body')}</p>
+      <p class="supervision-body">{$supervision.message || $_("supervision_alert.body")}</p>
 
       <div class="supervision-actions">
-        <button class="btn-dismiss" onclick={() => supervision.dismiss()}>{$_('supervision_alert.dismiss')}</button>
+        <button class="btn-dismiss" onclick={() => supervision.dismiss()}>{$_("supervision_alert.dismiss")}</button>
       </div>
     </div>
   </div>

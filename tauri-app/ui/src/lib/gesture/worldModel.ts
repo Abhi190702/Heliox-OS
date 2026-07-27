@@ -130,7 +130,7 @@ class OneEuroVector3Filter {
   constructor(
     private mincutoff = 1.0,
     private beta = 0.3,
-    private dcutoff = 1.0
+    private dcutoff = 1.0,
   ) {}
 
   filter(p: Landmark, dt: number): Landmark {
@@ -197,14 +197,12 @@ export class WorldModelFilterBank {
   constructor(
     private mincutoff = 1.0,
     private beta = 0.3,
-    private dcutoff = 1.0
+    private dcutoff = 1.0,
   ) {}
 
   filter(worldLandmarks: Landmark[], tNowMs: number): Landmark[] {
     if (!this.filters) {
-      this.filters = worldLandmarks.map(
-        () => new OneEuroVector3Filter(this.mincutoff, this.beta, this.dcutoff)
-      );
+      this.filters = worldLandmarks.map(() => new OneEuroVector3Filter(this.mincutoff, this.beta, this.dcutoff));
     }
 
     const dt = this.lastT === null ? 1 / 30 : Math.max((tNowMs - this.lastT) / 1000, 1 / 120);

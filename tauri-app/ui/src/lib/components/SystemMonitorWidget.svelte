@@ -2,57 +2,35 @@
   import { onMount } from "svelte";
   import { invoke } from "../api/invoke";
   import { pinnedWidgets } from "../stores/pinnedWidgets";
-  import {
-    Chart as ChartJS,
-    CategoryScale,
-    LinearScale,
-    PointElement,
-    LineElement,
-    Tooltip,
-    Filler
-  } from "chart.js";
+  import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler } from "chart.js";
   import { Line } from "svelte-chartjs";
-  ChartJS.register(
-    CategoryScale,
-    LinearScale,
-    PointElement,
-    LineElement,
-    Tooltip,
-    Filler
-  );
+  ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
   let pinned = false;
   function togglePin() {
-  pinnedWidgets.update((items) => {
-    const exists = items.some(
-      (item) => item.title === "System Monitor"
-    );
-    if (exists) {
-      return items.filter(
-        (item) => item.title !== "System Monitor"
-      );
-    }
-    return [
-      ...items,
-      {
-        title: "System Monitor",
-        color: "#00ffae"
+    pinnedWidgets.update((items) => {
+      const exists = items.some((item) => item.title === "System Monitor");
+      if (exists) {
+        return items.filter((item) => item.title !== "System Monitor");
       }
-    ];
-  });
-}
-$: pinned =
-  $pinnedWidgets.some(
-    (item) => item.title === "System Monitor"
-  );
+      return [
+        ...items,
+        {
+          title: "System Monitor",
+          color: "#00ffae",
+        },
+      ];
+    });
+  }
+  $: pinned = $pinnedWidgets.some((item) => item.title === "System Monitor");
   type Stats = {
     cpu: number;
-   ram: number;
-   disk: number;
-   network_up: number;
-   network_down: number;
-   cpu_name: string;
-   total_ram: number;
-   disk_size: number;
+    ram: number;
+    disk: number;
+    network_up: number;
+    network_down: number;
+    cpu_name: string;
+    total_ram: number;
+    disk_size: number;
   };
   let cpu = 0;
   let ram = 0;
@@ -72,84 +50,60 @@ $: pinned =
       if (!stats || typeof stats !== "object" || typeof stats?.cpu !== "number") return;
       console.log(stats);
       cpu = Number(stats.cpu.toFixed(1));
-    ram = Number(stats.ram.toFixed(1));
-    disk = Number(stats.disk.toFixed(1));
-    networkUp = Number(
-      stats.network_up.toFixed(0)
-    );
-    networkDown = Number(
-      stats.network_down.toFixed(0)
-    );
-    cpuName = stats.cpu_name;
-   totalRam = stats.total_ram;
-   diskSize = stats.disk_size;
-    cpuHistory = [
-      ...cpuHistory.slice(1),
-      cpu
-    ];
-    ramHistory = [
-      ...ramHistory.slice(1),
-      ram
-    ];
-    diskHistory = [
-      ...diskHistory.slice(1),
-      disk
-    ];
-    const networkValue =
-  Math.min(
-    (networkUp + networkDown) / 2000,
-    100
-  );
-    networkHistory = [
-      ...networkHistory.slice(1),
-      networkValue,
-      
-    ];
-  } catch (error) {
-    console.error(
-      "Failed to fetch system stats:",
-      error
-    );
+      ram = Number(stats.ram.toFixed(1));
+      disk = Number(stats.disk.toFixed(1));
+      networkUp = Number(stats.network_up.toFixed(0));
+      networkDown = Number(stats.network_down.toFixed(0));
+      cpuName = stats.cpu_name;
+      totalRam = stats.total_ram;
+      diskSize = stats.disk_size;
+      cpuHistory = [...cpuHistory.slice(1), cpu];
+      ramHistory = [...ramHistory.slice(1), ram];
+      diskHistory = [...diskHistory.slice(1), disk];
+      const networkValue = Math.min((networkUp + networkDown) / 2000, 100);
+      networkHistory = [...networkHistory.slice(1), networkValue];
+    } catch (error) {
+      console.error("Failed to fetch system stats:", error);
+    }
   }
-}
   onMount(() => {
-  loadStats();
-  const interval = setInterval(() => {
     loadStats();
-  }, 1500);
-  return () => {
-    clearInterval(interval);
-  };
-});
+    const interval = setInterval(() => {
+      loadStats();
+    }, 1500);
+    return () => {
+      clearInterval(interval);
+    };
+  });
   const options = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
       legend: {
-        display: false
+        display: false,
       },
       tooltip: {
-        enabled: false
-      }
+        enabled: false,
+      },
     },
     scales: {
       x: {
-        display: false
+        display: false,
       },
       y: {
         display: false,
         min: 0,
-        max: 100
-      }
+        max: 100,
+      },
     },
     elements: {
       point: {
-        radius: 0
+        radius: 0,
       },
       line: {
-        tension: 0.4
-      }
-    }
+        tension: 0.4,
+      },
+    },
   };
   function createChart(data: number[], color: string) {
     return {
@@ -159,18 +113,19 @@ $: pinned =
           data,
           borderColor: color,
           borderWidth: 2,
-          fill: false
-        }
-      ]
+          fill: false,
+        },
+      ],
     };
   }
 </script>
+
 <div class="monitor-card">
   <!-- Header -->
   <div class="header">
     <h3>🟢 SYSTEM MONITOR</h3>
     <div class="actions">
-      <button class="pin-btn" class:pinned={pinned} on:click={togglePin}>📌</button>
+      <button class="pin-btn" class:pinned on:click={togglePin}>📌</button>
     </div>
   </div>
   <!-- Grid -->
@@ -180,10 +135,7 @@ $: pinned =
       <span>CPU</span>
       <h2 class="green">{cpu}%</h2>
       <div class="chart">
-        <Line
-          data={createChart(cpuHistory, "#00ff88")}
-          options={options}
-        />
+        <Line data={createChart(cpuHistory, "#00ff88")} {options} />
       </div>
     </div>
     <!-- RAM -->
@@ -191,10 +143,7 @@ $: pinned =
       <span>RAM</span>
       <h2 class="purple">{ram}%</h2>
       <div class="chart">
-        <Line
-          data={createChart(ramHistory, "#a855f7")}
-          options={options}
-        />
+        <Line data={createChart(ramHistory, "#a855f7")} {options} />
       </div>
     </div>
     <!-- DISK -->
@@ -202,10 +151,7 @@ $: pinned =
       <span>DISK</span>
       <h2 class="blue">{disk}%</h2>
       <div class="chart">
-        <Line
-          data={createChart(diskHistory, "#3b82f6")}
-          options={options}
-        />
+        <Line data={createChart(diskHistory, "#3b82f6")} {options} />
       </div>
     </div>
     <!-- NETWORK -->
@@ -216,10 +162,7 @@ $: pinned =
         <p>↓ {networkDown} KB/s</p>
       </div>
       <div class="chart">
-        <Line
-          data={createChart(networkHistory, "#06b6d4")}
-          options={options}
-        />
+        <Line data={createChart(networkHistory, "#06b6d4")} {options} />
       </div>
     </div>
   </div>
@@ -228,12 +171,13 @@ $: pinned =
     {cpuName} • {totalRam}GB RAM • {diskSize}GB SSD
   </div>
 </div>
+
 <style>
   .monitor-card {
     width: 100%;
     max-width: 680px;
     background: #0b1020;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 22px;
     padding: 20px;
     color: white;
@@ -246,20 +190,20 @@ $: pinned =
     margin-bottom: 20px;
   }
   .pin-btn {
-  width: 34px;
-  height: 34px;
-  border: none;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.05);
-  color: white;
-  cursor: pointer;
-}
-.pin-btn.pinned {
-  background: rgba(255,0,0,0.15);
-  color: #ff4d4d;
-  border: 1px solid #ff4d4d;
-  box-shadow: 0 0 12px rgba(255,0,0,0.4);
-}
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    cursor: pointer;
+  }
+  .pin-btn.pinned {
+    background: rgba(255, 0, 0, 0.15);
+    color: #ff4d4d;
+    border: 1px solid #ff4d4d;
+    box-shadow: 0 0 12px rgba(255, 0, 0, 0.4);
+  }
   h3 {
     margin: 0;
     color: #00ff88;
@@ -275,7 +219,7 @@ $: pinned =
     height: 32px;
     border: none;
     border-radius: 10px;
-    background: rgba(255,255,255,0.05);
+    background: rgba(255, 255, 255, 0.05);
     color: white;
     cursor: pointer;
   }
@@ -286,8 +230,8 @@ $: pinned =
     width: 100%;
   }
   .box {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.05);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 18px;
     padding: 16px;
     min-height: 160px;

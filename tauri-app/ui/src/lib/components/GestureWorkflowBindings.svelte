@@ -12,11 +12,37 @@
   // Mirrors GestureControl.svelte's GESTURE_EMOJIS key set -- any named
   // gesture can be bound to a workflow goal.
   const FALLBACK_GESTURES = [
-    "palm", "thumbs_up", "thumbs_down", "peace", "fist", "point_up", "rock", "ok",
-    "call_me", "finger_gun", "pinch", "middle_finger", "pinky_up", "vulcan",
-    "crossed_fingers", "snap_ready", "devil_horns", "palm_down", "palm_up", "three_up", "four_up",
-    "swipe_left", "swipe_right", "swipe_up", "swipe_down", "circular_cw", "circular_ccw",
-    "palm_push", "palm_pull", "two_finger_swipe_left", "two_finger_swipe_right",
+    "palm",
+    "thumbs_up",
+    "thumbs_down",
+    "peace",
+    "fist",
+    "point_up",
+    "rock",
+    "ok",
+    "call_me",
+    "finger_gun",
+    "pinch",
+    "middle_finger",
+    "pinky_up",
+    "vulcan",
+    "crossed_fingers",
+    "snap_ready",
+    "devil_horns",
+    "palm_down",
+    "palm_up",
+    "three_up",
+    "four_up",
+    "swipe_left",
+    "swipe_right",
+    "swipe_up",
+    "swipe_down",
+    "circular_cw",
+    "circular_ccw",
+    "palm_push",
+    "palm_pull",
+    "two_finger_swipe_left",
+    "two_finger_swipe_right",
   ];
 
   let enabled = $state(false);
@@ -55,7 +81,7 @@
     const used = new Set(bindings.map((binding) => binding.gesture_name));
     const available = supportedGestures.find((gesture) => !used.has(gesture));
     if (!available) {
-      error = $_('settings.gesture_workflows_no_gestures');
+      error = $_("settings.gesture_workflows_no_gestures");
       return;
     }
     error = "";
@@ -69,12 +95,12 @@
 
   function validateBindings(): string {
     if (enabled && !bindings.some((binding) => binding.enabled)) {
-      return $_('settings.gesture_workflows_enabled_required');
+      return $_("settings.gesture_workflows_enabled_required");
     }
     const seen = new Set<string>();
     for (const binding of bindings) {
-      if (!binding.goal_template.trim()) return $_('settings.gesture_workflows_goal_required');
-      if (seen.has(binding.gesture_name)) return $_('settings.gesture_workflows_duplicate');
+      if (!binding.goal_template.trim()) return $_("settings.gesture_workflows_goal_required");
+      if (seen.has(binding.gesture_name)) return $_("settings.gesture_workflows_duplicate");
       seen.add(binding.gesture_name);
     }
     return "";
@@ -118,7 +144,7 @@
 
 <div class="bindings-editor">
   <div class="bindings-header">
-    <h3>{$_('settings.gesture_workflows')}</h3>
+    <h3>{$_("settings.gesture_workflows")}</h3>
     <button
       class="toggle"
       class:active={enabled}
@@ -130,8 +156,8 @@
     </button>
   </div>
 
-  <p class="bindings-note">{$_('settings.gesture_workflows_desc')}</p>
-  <p class="runtime-note">{$_('settings.gesture_workflows_live_desc')}</p>
+  <p class="bindings-note">{$_("settings.gesture_workflows_desc")}</p>
+  <p class="runtime-note">{$_("settings.gesture_workflows_live_desc")}</p>
 
   {#if error || validationMessage}
     <div class="panel-error" role="alert">{error || validationMessage}</div>
@@ -143,11 +169,7 @@
     <div class="binding-list">
       {#each bindings as binding, i}
         <div class="binding-row">
-          <select
-            class="input-sm"
-            bind:value={binding.gesture_name}
-            aria-label={`Gesture for binding ${i + 1}`}
-          >
+          <select class="input-sm" bind:value={binding.gesture_name} aria-label={`Gesture for binding ${i + 1}`}>
             {#each supportedGestures as g}
               <option value={g}>{g}</option>
             {/each}
@@ -155,7 +177,7 @@
           <input
             type="text"
             class="input-md"
-            placeholder={$_('settings.gesture_workflows_goal_placeholder')}
+            placeholder={$_("settings.gesture_workflows_goal_placeholder")}
             bind:value={binding.goal_template}
             aria-label={`Workflow goal for binding ${i + 1}`}
           />
@@ -168,19 +190,15 @@
           >
             <span class="toggle-knob"></span>
           </button>
-          <button
-            class="btn-remove"
-            onclick={() => removeBinding(i)}
-            aria-label={`Remove binding ${i + 1}`}
-          >✕</button>
+          <button class="btn-remove" onclick={() => removeBinding(i)} aria-label={`Remove binding ${i + 1}`}>✕</button>
         </div>
       {/each}
     </div>
 
     <div class="bindings-actions">
-      <button class="btn-add" onclick={addBinding}>{$_('settings.gesture_workflows_add')}</button>
+      <button class="btn-add" onclick={addBinding}>{$_("settings.gesture_workflows_add")}</button>
       <button class="btn-save" onclick={save} disabled={saving || !!validationMessage}>
-        {saving ? "Saving..." : saved ? "✓ Saved" : $_('settings.save')}
+        {saving ? "Saving..." : saved ? "✓ Saved" : $_("settings.save")}
       </button>
     </div>
   {/if}

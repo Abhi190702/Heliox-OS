@@ -17,34 +17,30 @@
 
     <div class="nodes-container">
       {#each $session.liveActions as liveAction, idx (`${liveAction.index}-${idx}`)}
-        <div 
-          class="node-wrapper"
-          animate:flip
-          in:fade={{ duration: 400 }}
-        >
+        <div class="node-wrapper" animate:flip in:fade={{ duration: 400 }}>
           <!-- The Line connecting nodes -->
           {#if liveAction.index > 0}
-            <div class="connection-line" class:active={liveAction.status !== 'pending'}></div>
+            <div class="connection-line" class:active={liveAction.status !== "pending"}></div>
           {/if}
 
           <!-- The Node -->
           <div class="node {liveAction.status}">
             <div class="node-icon">
-              {#if liveAction.status === 'pending'}
+              {#if liveAction.status === "pending"}
                 <Clock size={16} />
-              {:else if liveAction.status === 'running'}
+              {:else if liveAction.status === "running"}
                 <Play size={16} class="spinning" />
-              {:else if liveAction.status === 'success'}
+              {:else if liveAction.status === "success"}
                 <CheckCircle2 size={16} />
-              {:else if liveAction.status === 'error'}
+              {:else if liveAction.status === "error"}
                 <XCircle size={16} />
               {/if}
             </div>
 
             <div class="node-content">
-              <div class="node-title">{liveAction.action.action_type.replace(/_/g, ' ')}</div>
+              <div class="node-title">{liveAction.action.action_type.replace(/_/g, " ")}</div>
               <div class="node-target">{liveAction.action.target || "System"}</div>
-              
+
               {#if liveAction.action.requires_root || liveAction.action.destructive}
                 <div class="node-badges">
                   {#if liveAction.action.requires_root}
@@ -57,13 +53,13 @@
               {/if}
 
               <!-- Expanded output if running or complete -->
-              {#if liveAction.status === 'success' && liveAction.output}
+              {#if liveAction.status === "success" && liveAction.output}
                 <div class="terminal-output success" transition:slide>
                   <Terminal size={12} />
-                  <span>{liveAction.output.substring(0, 100)}{liveAction.output.length > 100 ? '...' : ''}</span>
+                  <span>{liveAction.output.substring(0, 100)}{liveAction.output.length > 100 ? "..." : ""}</span>
                 </div>
               {/if}
-              {#if liveAction.status === 'error' && liveAction.error}
+              {#if liveAction.status === "error" && liveAction.error}
                 <div class="terminal-output error" transition:slide>
                   <Terminal size={12} />
                   <span>{liveAction.error}</span>
@@ -85,7 +81,7 @@
     padding: 1.25rem;
     margin: 1rem 0;
     backdrop-filter: blur(10px);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: "JetBrains Mono", monospace;
   }
 
   .header {
@@ -183,10 +179,18 @@
     flex-shrink: 0;
   }
 
-  .node.pending .node-icon { color: rgba(255, 255, 255, 0.5); }
-  .node.running .node-icon { color: #00f0ff; }
-  .node.success .node-icon { color: #00ffaa; }
-  .node.error .node-icon { color: #ff3333; }
+  .node.pending .node-icon {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .node.running .node-icon {
+    color: #00f0ff;
+  }
+  .node.success .node-icon {
+    color: #00ffaa;
+  }
+  .node.error .node-icon {
+    color: #ff3333;
+  }
 
   .spinning {
     animation: spin 2s linear infinite;
@@ -258,16 +262,32 @@
     border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  .terminal-output.success { border-left: 2px solid #00ffaa; }
-  .terminal-output.error { border-left: 2px solid #ff3333; color: #ff7777; }
+  .terminal-output.success {
+    border-left: 2px solid #00ffaa;
+  }
+  .terminal-output.error {
+    border-left: 2px solid #ff3333;
+    color: #ff7777;
+  }
 
   @keyframes pulse {
-    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.7); }
-    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(0, 240, 255, 0); }
-    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 240, 255, 0); }
+    0% {
+      transform: scale(0.95);
+      box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.7);
+    }
+    70% {
+      transform: scale(1);
+      box-shadow: 0 0 0 6px rgba(0, 240, 255, 0);
+    }
+    100% {
+      transform: scale(0.95);
+      box-shadow: 0 0 0 0 rgba(0, 240, 255, 0);
+    }
   }
 
   @keyframes spin {
-    100% { transform: rotate(360deg); }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 </style>

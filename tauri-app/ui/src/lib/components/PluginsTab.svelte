@@ -37,9 +37,7 @@
   let uninstalling = $state<string | null>(null);
   let marketplaceSource = $state<"github" | "bundled" | "">("");
   let marketplaceWarning = $state("");
-  let submissionUrl = $state(
-    "https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/PLUGIN_MARKETPLACE.md",
-  );
+  let submissionUrl = $state("https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/PLUGIN_MARKETPLACE.md");
   let showPublishingGuide = $state(false);
 
   // Tool execution
@@ -150,9 +148,7 @@
       {
         name: createToolName.trim().replace(/\s+/g, "_").toLowerCase(),
         description: createToolDesc.trim() || createToolName.trim(),
-        inputs: createToolInputs.trim()
-          ? createToolInputs.split(",").map((s) => s.trim())
-          : [],
+        inputs: createToolInputs.trim() ? createToolInputs.split(",").map((s) => s.trim()) : [],
       },
     ];
     createToolName = "";
@@ -234,13 +230,13 @@
   </div>
 
   {#if error}
-    <div class="error-message">{error} <button class="dismiss-btn" onclick={() => error = ""}>✕</button></div>
+    <div class="error-message">{error} <button class="dismiss-btn" onclick={() => (error = "")}>✕</button></div>
   {/if}
 
   {#if notice}
     <div class="notice-message">
       {notice}
-      <button class="dismiss-btn notice-dismiss" onclick={() => notice = ""}>✕</button>
+      <button class="dismiss-btn notice-dismiss" onclick={() => (notice = "")}>✕</button>
     </div>
   {/if}
 
@@ -255,8 +251,8 @@
       <div>
         <h3>Publish a plugin for everyone</h3>
         <p>
-          Local plugins stay on this device. Public marketplace plugins are reviewed through the
-          Heliox GitHub repository.
+          Local plugins stay on this device. Public marketplace plugins are reviewed through the Heliox GitHub
+          repository.
         </p>
       </div>
       <ol>
@@ -267,9 +263,7 @@
         <li>Open a pull request. CI validates paths, hashes, manifests, and code policy.</li>
         <li>After review and merge to <code>main</code>, users see it when they press Refresh.</li>
       </ol>
-      <p class="release-note">
-        A desktop app release is not required for each approved plugin.
-      </p>
+      <p class="release-note">A desktop app release is not required for each approved plugin.</p>
       <a href={submissionUrl} target="_blank" rel="noopener" class="guide-link">
         Open the full submission guide on GitHub →
       </a>
@@ -281,8 +275,7 @@
     <div class="create-panel">
       <h3>Create Local Plugin</h3>
       <p class="local-explainer">
-        This installs only on this device. Use “How to Publish” when you want to submit it to the
-        public marketplace.
+        This installs only on this device. Use “How to Publish” when you want to submit it to the public marketplace.
       </p>
       <div class="form-grid">
         <div class="form-group">
@@ -321,7 +314,10 @@
 
       <div class="form-group">
         <label for="cp-code">Plugin Code (Python)</label>
-        <textarea id="cp-code" bind:value={createCode} rows="8"
+        <textarea
+          id="cp-code"
+          bind:value={createCode}
+          rows="8"
           placeholder={'def handle_tool(tool_name, params):\n    return {"status": "success", "result": "Hello!"}'}
         ></textarea>
       </div>
@@ -369,7 +365,9 @@
                 <button
                   class="tool-tag"
                   class:clickable={plugin.installed}
-                  onclick={() => { if (plugin.installed) toggleExpand(`${plugin.name}:${tool.name}`); }}
+                  onclick={() => {
+                    if (plugin.installed) toggleExpand(`${plugin.name}:${tool.name}`);
+                  }}
                   title={plugin.installed ? `Run ${tool.name}` : tool.description}
                 >
                   {tool.name}
@@ -398,7 +396,8 @@
                           id="ti-{tool.name}-{input}"
                           type="text"
                           placeholder={`Enter ${input}`}
-                          oninput={(e: Event) => setToolArg(`${plugin.name}:${tool.name}`, input, (e.target as HTMLInputElement).value)}
+                          oninput={(e: Event) =>
+                            setToolArg(`${plugin.name}:${tool.name}`, input, (e.target as HTMLInputElement).value)}
                         />
                       </div>
                     {/each}
@@ -430,11 +429,7 @@
                 {uninstalling === plugin.name ? "Removing..." : "Uninstall"}
               </button>
             {:else}
-              <button
-                class="btn-install"
-                onclick={() => installPlugin(plugin)}
-                disabled={installing === plugin.name}
-              >
+              <button class="btn-install" onclick={() => installPlugin(plugin)} disabled={installing === plugin.name}>
                 {installing === plugin.name ? "Installing..." : "Install"}
               </button>
             {/if}
@@ -473,7 +468,8 @@
     gap: 10px;
   }
 
-  .catalog-source, .local-badge {
+  .catalog-source,
+  .local-badge {
     width: fit-content;
     padding: 3px 8px;
     border: 1px solid rgba(74, 222, 128, 0.35);
@@ -495,7 +491,9 @@
     font-weight: 600;
   }
 
-  .refresh-btn, .btn-create, .btn-guide {
+  .refresh-btn,
+  .btn-create,
+  .btn-guide {
     padding: 5px 14px;
     font-size: 12px;
     font-weight: 600;
@@ -509,13 +507,15 @@
     background: var(--accent);
   }
 
-  .btn-create, .btn-guide {
+  .btn-create,
+  .btn-guide {
     color: var(--accent);
     background: var(--accent-muted, rgba(99, 102, 241, 0.12));
     border: 1px solid var(--accent);
   }
 
-  .btn-create:hover, .btn-guide:hover {
+  .btn-create:hover,
+  .btn-guide:hover {
     background: var(--accent);
     color: white;
   }
@@ -550,7 +550,8 @@
     padding: 0 4px;
   }
 
-  .notice-message, .catalog-warning {
+  .notice-message,
+  .catalog-warning {
     padding: 10px 14px;
     border-radius: var(--radius-md);
     margin-bottom: 12px;
@@ -622,7 +623,8 @@
     font-weight: 600;
   }
 
-  .loading-state, .empty-state {
+  .loading-state,
+  .empty-state {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -642,7 +644,9 @@
   }
 
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   /* ── Create Plugin Panel ── */
@@ -656,8 +660,14 @@
   }
 
   @keyframes slideDown {
-    from { opacity: 0; transform: translateY(-8px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .create-panel h3 {
@@ -702,7 +712,8 @@
     letter-spacing: 0.4px;
   }
 
-  .form-group input, .form-group textarea {
+  .form-group input,
+  .form-group textarea {
     padding: 7px 10px;
     font-size: 12px;
     font-family: var(--font-mono, monospace);
@@ -714,7 +725,8 @@
     transition: border-color 0.15s;
   }
 
-  .form-group input:focus, .form-group textarea:focus {
+  .form-group input:focus,
+  .form-group textarea:focus {
     border-color: var(--accent);
   }
 
@@ -1067,7 +1079,8 @@
     align-items: center;
   }
 
-  .btn-install, .btn-uninstall {
+  .btn-install,
+  .btn-uninstall {
     padding: 6px 16px;
     font-size: 12px;
     font-weight: 600;
@@ -1097,7 +1110,8 @@
     border-color: var(--danger, #ef4444);
   }
 
-  .btn-install:disabled, .btn-uninstall:disabled {
+  .btn-install:disabled,
+  .btn-uninstall:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }

@@ -7,14 +7,7 @@ export function getCopyText(msg: Message): string {
       parts.push(msg.plan.explanation);
     }
     if (msg.plan?.actions?.length) {
-      parts.push(
-        msg.plan.actions
-          .map(
-            (a: any) =>
-              `• ${a.action_type}: ${a.target || ""}`
-          )
-          .join("\n")
-      );
+      parts.push(msg.plan.actions.map((a: any) => `• ${a.action_type}: ${a.target || ""}`).join("\n"));
     }
     return parts.join("\n\n");
   }
@@ -26,30 +19,19 @@ export function getCopyText(msg: Message): string {
     if (msg.actionResults?.length) {
       parts.push(
         msg.actionResults
-          .map(
-            (r: any) =>
-              r.output || r.error || ""
-          )
+          .map((r: any) => r.output || r.error || "")
           .filter(Boolean)
-          .join("\n")
+          .join("\n"),
       );
     }
     if (msg.verification) {
-      parts.push(
-        `Verification: ${
-          msg.verification.passed
-            ? "passed"
-            : "failed"
-        }`
-      );
+      parts.push(`Verification: ${msg.verification.passed ? "passed" : "failed"}`);
     }
     return parts.join("\n\n");
   }
   return msg.text || "";
 }
-export async function copyMessage(
-  msg: Message
-): Promise<boolean> {
+export async function copyMessage(msg: Message): Promise<boolean> {
   const text = getCopyText(msg).trim();
   if (!text) return false;
   try {

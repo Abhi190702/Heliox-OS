@@ -16,22 +16,29 @@
   let targetGlow = 0.4;
 
   interface Particle {
-    x: number; y: number;
-    vx: number; vy: number;
-    life: number; maxLife: number;
-    size: number; hue: number;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+    maxLife: number;
+    size: number;
+    hue: number;
   }
 
   function spawnParticles(count: number = 12) {
-    const cx = 20, cy = 20;
+    const cx = 20,
+      cy = 20;
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
       const speed = 1 + Math.random() * 2;
       particlesArr.push({
-        x: cx, y: cy,
+        x: cx,
+        y: cy,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        life: 1, maxLife: 30 + Math.random() * 20,
+        life: 1,
+        maxLife: 30 + Math.random() * 20,
         size: 1 + Math.random() * 2,
         hue: 190 + Math.random() * 30,
       });
@@ -45,7 +52,8 @@
 
     const w = canvasEl.width;
     const h = canvasEl.height;
-    const cx = w / 2, cy = h / 2;
+    const cx = w / 2,
+      cy = h / 2;
 
     ctx.clearRect(0, 0, w, h);
 
@@ -111,7 +119,7 @@
     ctx.fill();
 
     // ── Particles ──
-    particlesArr = particlesArr.filter(p => {
+    particlesArr = particlesArr.filter((p) => {
       p.x += p.vx;
       p.y += p.vy;
       p.vx *= 0.97;
@@ -144,7 +152,9 @@
       if (last.type === "result") {
         spawnParticles(16);
         targetGlow = 1.0;
-        setTimeout(() => { targetGlow = 0.4; }, 800);
+        setTimeout(() => {
+          targetGlow = 0.4;
+        }, 800);
       }
     }
     prevMsgCount = msgs.length;
@@ -154,7 +164,9 @@
     if (canvasEl) {
       draw();
     }
-    return () => { cancelAnimationFrame(animId); };
+    return () => {
+      cancelAnimationFrame(animId);
+    };
   });
 </script>
 

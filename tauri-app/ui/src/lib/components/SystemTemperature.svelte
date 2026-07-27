@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "../api/invoke";
-import { pinnedWidgets } from "../stores/pinnedWidgets";
+  import { pinnedWidgets } from "../stores/pinnedWidgets";
   type Temps = {
     cpu: number;
     gpu: number;
@@ -30,30 +30,22 @@ import { pinnedWidgets } from "../stores/pinnedWidgets";
     power_draw: 0,
     thermal_status: "Optimal",
   };
-function togglePin() {
-  pinnedWidgets.update((items) => {
-    const exists = items.some(
-      (item) => item.title === "System Temperatures"
-    );
-    if (exists) {
-      return items.filter(
-        (item) => item.title !== "System Temperatures"
-      );
-    }
-    return [
-      ...items,
-      {
-        title: "System Temperatures",
-        color: "#ff4d8d"
+  function togglePin() {
+    pinnedWidgets.update((items) => {
+      const exists = items.some((item) => item.title === "System Temperatures");
+      if (exists) {
+        return items.filter((item) => item.title !== "System Temperatures");
       }
-    ];
-  });
-}
-$: pinned =
-  $pinnedWidgets.some(
-    (item) =>
-      item.title === "System Temperatures"
-  );
+      return [
+        ...items,
+        {
+          title: "System Temperatures",
+          color: "#ff4d8d",
+        },
+      ];
+    });
+  }
+  $: pinned = $pinnedWidgets.some((item) => item.title === "System Temperatures");
   function clamp(value: number) {
     return Math.max(0, Math.min(value, 100));
   }
@@ -88,26 +80,20 @@ $: pinned =
     return () => clearInterval(interval);
   });
 </script>
+
 <div class="card">
   <!-- HEADER -->
   <div class="header">
     <h3>🌡 SYSTEM TEMPERATURES</h3>
     <div class="actions">
-      <button class="pin-btn" class:pinned={pinned} on:click={togglePin}>📌</button>
+      <button class="pin-btn" class:pinned on:click={togglePin}>📌</button>
     </div>
   </div>
   <!-- BODY -->
   <div class="body">
     <!-- LEFT -->
     <div class="left">
-      {#each [
-        ["CPU", temps.cpu],
-        ["GPU", temps.gpu],
-        ["Motherboard", temps.motherboard],
-        ["SSD", temps.ssd],
-        ["VRM", temps.vrm],
-        ["Battery Temp", temps.battery]
-      ] as [label, value]}
+      {#each [["CPU", temps.cpu], ["GPU", temps.gpu], ["Motherboard", temps.motherboard], ["SSD", temps.ssd], ["VRM", temps.vrm], ["Battery Temp", temps.battery]] as [label, value]}
         <div class="temp-item">
           <div class="top">
             <span>{label}</span>
@@ -120,13 +106,13 @@ $: pinned =
               class="fill"
               style={`
                 width:${clamp(Number(value || 0))}%;
-                background:${function getColor(temp: number) {
-                              if (temp >= 85) return "#ff1f7a";
-                              if (temp >= 70) return "#ff4da6";
-                             return "#ff66c4";
-                            }(Number(value || 0))};
-              `}>
-            </div>
+                background:${(function getColor(temp: number) {
+                  if (temp >= 85) return "#ff1f7a";
+                  if (temp >= 70) return "#ff4da6";
+                  return "#ff66c4";
+                })(Number(value || 0))};
+              `}
+            ></div>
           </div>
         </div>
       {/each}
@@ -154,25 +140,27 @@ $: pinned =
     </div>
     <!-- RIGHT -->
     <div class="right">
-     <div class="circle"
-     style={`
+      <div
+        class="circle"
+        style={`
       --temp:${clamp(Number(temps.cpu || 0))}%;
       --circleColor:${getColor(Number(temps.cpu || 0))};
     `}
-    >
-      <div class="inner">
-         <h1>{Number(temps.cpu || 0).toFixed(0)}°</h1>
-         <span>C</span>
+      >
+        <div class="inner">
+          <h1>{Number(temps.cpu || 0).toFixed(0)}°</h1>
+          <span>C</span>
+        </div>
       </div>
-   </div>
       <p class="label">CPU Temperature</p>
     </div>
- </div>
+  </div>
 </div>
+
 <style>
   .card {
     background: #0b1020;
-    border: 1px solid rgba(255,255,255,0.06);
+    border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 22px;
     padding: 20px;
     color: white;
@@ -192,21 +180,21 @@ $: pinned =
     color: #ff5c8a;
   }
   .pin-btn {
-  width: 42px;
-  height: 42px;
-  border: none;
-  border-radius: 14px;
-  background: rgba(255,255,255,0.05);
-  color: white;
-  cursor: pointer;
-  transition: 0.2s ease;
-}
-.pin-btn.pinned {
- background: rgba(255,0,0,0.15);
-  color: #ff4d4d;
-  border: 1px solid #ff4d4d;
-  box-shadow: 0 0 12px rgba(255,0,0,0.4);
-}
+    width: 42px;
+    height: 42px;
+    border: none;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.05);
+    color: white;
+    cursor: pointer;
+    transition: 0.2s ease;
+  }
+  .pin-btn.pinned {
+    background: rgba(255, 0, 0, 0.15);
+    color: #ff4d4d;
+    border: 1px solid #ff4d4d;
+    box-shadow: 0 0 12px rgba(255, 0, 0, 0.4);
+  }
   .actions {
     display: flex;
     gap: 8px;
@@ -216,13 +204,13 @@ $: pinned =
     height: 32px;
     border: none;
     border-radius: 10px;
-    background: rgba(255,255,255,0.05);
+    background: rgba(255, 255, 255, 0.05);
     color: white;
     cursor: pointer;
     transition: 0.3s;
   }
   button:hover {
-    background: rgba(255,255,255,0.12);
+    background: rgba(255, 255, 255, 0.12);
   }
   .body {
     display: grid;
@@ -256,7 +244,7 @@ $: pinned =
   .bar {
     width: 100%;
     height: 8px;
-    background: rgba(255,255,255,0.08);
+    background: rgba(255, 255, 255, 0.08);
     border-radius: 999px;
     overflow: hidden;
   }
@@ -264,7 +252,7 @@ $: pinned =
     height: 100%;
     border-radius: 999px;
     transition: all 0.5s ease;
-    box-shadow: 0 0 14px rgba(255,255,255,0.2);
+    box-shadow: 0 0 14px rgba(255, 255, 255, 0.2);
   }
   .extra {
     display: grid;
@@ -273,7 +261,7 @@ $: pinned =
     margin-top: 10px;
   }
   .stat-box {
-    background: rgba(255,255,255,0.04);
+    background: rgba(255, 255, 255, 0.04);
     border-radius: 14px;
     padding: 14px;
     display: flex;
@@ -289,10 +277,10 @@ $: pinned =
   }
   .right {
     display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
   }
   .circle {
     width: 180px;
@@ -301,23 +289,16 @@ $: pinned =
     display: flex;
     align-items: center;
     justify-content: center;
-    position:relative;
+    position: relative;
     margin-left: -35px;
     background:
-      radial-gradient(
-        circle at center,
-        #0b1020 58%,
-        transparent 59%
-      ),
-      conic-gradient(
-        var(--circleColor) 0% var(--temp),
-        rgba(255,255,255,0.08) var(--temp) 100%
-      );
+      radial-gradient(circle at center, #0b1020 58%, transparent 59%),
+      conic-gradient(var(--circleColor) 0% var(--temp), rgba(255, 255, 255, 0.08) var(--temp) 100%);
     box-shadow:
-       0 0 45px rgba(255, 77, 166, 0.35),
-    inset 0 0 20px rgba(255,255,255,0.03);
+      0 0 45px rgba(255, 77, 166, 0.35),
+      inset 0 0 20px rgba(255, 255, 255, 0.03);
     padding: 0%;
-  flex-shrink: 0;
+    flex-shrink: 0;
     transition: all 0.5s ease;
   }
   .inner {

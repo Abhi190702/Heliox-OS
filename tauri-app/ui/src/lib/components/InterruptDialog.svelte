@@ -47,11 +47,11 @@
       <div class="interrupt-header">
         <span class="warn-icon">&#9888;</span>
         <span id="interrupt-dialog-title">
-          {$narration.kind === "action_preview" ? $_('interrupt.preview_title') : $_('interrupt.title')}
+          {$narration.kind === "action_preview" ? $_("interrupt.preview_title") : $_("interrupt.title")}
         </span>
       </div>
 
-      <p class="interrupt-body">{$narration.reason || $_('interrupt.body')}</p>
+      <p class="interrupt-body">{$narration.reason || $_("interrupt.body")}</p>
 
       {#if $narration.kind === "action_preview" && $narration.preview}
         {@const preview = $narration.preview}
@@ -60,7 +60,7 @@
             <img
               class="preview-screenshot"
               src={`data:image/png;base64,${preview.screenshot_base64}`}
-              alt={preview.target_label || 'Preview of screen before action'}
+              alt={preview.target_label || "Preview of screen before action"}
               onload={onScreenshotLoad}
             />
             {#if bboxStyle}
@@ -69,13 +69,13 @@
           </div>
         {/if}
         {#if preview.dom_diff?.summary}
-          <p class="preview-dom-diff">{$_('interrupt.dom_diff_prefix')}: {preview.dom_diff.summary}</p>
+          <p class="preview-dom-diff">{$_("interrupt.dom_diff_prefix")}: {preview.dom_diff.summary}</p>
         {/if}
       {/if}
 
       <div class="interrupt-actions">
-        <button class="btn-deny" onclick={() => narration.respond(false)}>{$_('interrupt.stop')}</button>
-        <button class="btn-confirm" onclick={() => narration.respond(true)}>{$_('interrupt.continue')}</button>
+        <button class="btn-deny" onclick={() => narration.respond(false)}>{$_("interrupt.stop")}</button>
+        <button class="btn-confirm" onclick={() => narration.respond(true)}>{$_("interrupt.continue")}</button>
       </div>
     </div>
   </div>

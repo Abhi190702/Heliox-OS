@@ -134,9 +134,9 @@
   </div>
 
   <p class="safety-note">
-    Learned predictions run beside deterministic safety rules. The riskier result wins, so the model can add caution
-    but cannot remove a rule-based warning. It can run at the same time as the camera's 3D gesture model: the camera
-    model improves hand recognition, while this model pauses risky OS actions. Neither disables the other.
+    Learned predictions run beside deterministic safety rules. The riskier result wins, so the model can add caution but
+    cannot remove a rule-based warning. It can run at the same time as the camera's 3D gesture model: the camera model
+    improves hand recognition, while this model pauses risky OS actions. Neither disables the other.
   </p>
 
   {#if loading}

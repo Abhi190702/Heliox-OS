@@ -111,9 +111,7 @@
   </div>
 
   {#if !$settings.model.budget_enabled}
-    <div class="disabled-note">
-      Budget enforcement is disabled in settings.
-    </div>
+    <div class="disabled-note">Budget enforcement is disabled in settings.</div>
   {/if}
 </div>
 
@@ -130,7 +128,9 @@
     font-family: "Inter", sans-serif;
     min-width: 240px;
     max-width: 320px;
-    transition: border-color 0.3s ease, background 0.3s ease;
+    transition:
+      border-color 0.3s ease,
+      background 0.3s ease;
   }
 
   .budget-meter.alerting {

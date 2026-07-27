@@ -75,35 +75,31 @@
   /** Pre-calculated cumulative heights for O(1) lookups. */
   let cumulativeHeights = $derived.by(() => {
     let sum = 0;
-    return heights.map(h => {
+    return heights.map((h) => {
       sum += h;
       return sum;
     });
   });
 
   /** Total virtual height of all items (px). */
-  let totalHeight = $derived(
-    cumulativeHeights.length > 0 ? cumulativeHeights[cumulativeHeights.length - 1] : 0
-  );
+  let totalHeight = $derived(cumulativeHeights.length > 0 ? cumulativeHeights[cumulativeHeights.length - 1] : 0);
 
   /** Pixels of invisible content above the rendered window. */
-  let paddingTop = $derived(
-    visStart > 0 && cumulativeHeights.length > 0 ? cumulativeHeights[visStart - 1] : 0
-  );
+  let paddingTop = $derived(visStart > 0 && cumulativeHeights.length > 0 ? cumulativeHeights[visStart - 1] : 0);
 
   /** Pixels of invisible content below the rendered window. */
   let paddingBottom = $derived(
-    visEnd >= 0 && visEnd < cumulativeHeights.length - 1
-      ? totalHeight - cumulativeHeights[visEnd]
-      : 0
+    visEnd >= 0 && visEnd < cumulativeHeights.length - 1 ? totalHeight - cumulativeHeights[visEnd] : 0,
   );
 
   /** Slice of items currently in the DOM. */
   let visibleItems = $derived(
-    visEnd >= visStart ? items.slice(visStart, visEnd + 1).map((value, i) => ({
-      value,
-      index: visStart + i,
-    })) : []
+    visEnd >= visStart
+      ? items.slice(visStart, visEnd + 1).map((value, i) => ({
+          value,
+          index: visStart + i,
+        }))
+      : [],
   );
 
   // ── Height initialisation ──────────────────────────────────────────────────
@@ -124,7 +120,7 @@
       // Items removed — truncate
       heights = heights.slice(0, len);
     }
-    
+
     // Recalculate window so new items can be rendered
     tick().then(recalcWindow);
   });

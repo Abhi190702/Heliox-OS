@@ -53,7 +53,7 @@ describe("handSize3D / pinchDistance3D", () => {
     const wristRelative = toWristRelative3D(worldLandmarksHandCentered());
     const raw = worldLandmarksHandCentered();
     const expected = Math.sqrt(
-      (raw[4].x - raw[8].x) ** 2 + (raw[4].y - raw[8].y) ** 2 + ((raw[4].z ?? 0) - (raw[8].z ?? 0)) ** 2
+      (raw[4].x - raw[8].x) ** 2 + (raw[4].y - raw[8].y) ** 2 + ((raw[4].z ?? 0) - (raw[8].z ?? 0)) ** 2,
     );
     expect(pinchDistance3D(wristRelative)).toBeCloseTo(expected, 12);
   });
@@ -164,8 +164,7 @@ describe("WorldModelFilterBank", () => {
       expect(delta.z).toBeGreaterThan(0);
 
       const mag = Math.sqrt(delta.x ** 2 + delta.y ** 2 + delta.z ** 2);
-      const cosineSimilarity =
-        (delta.x * dir + delta.y * dir + delta.z * dir) / (mag * Math.sqrt(3 * dir * dir));
+      const cosineSimilarity = (delta.x * dir + delta.y * dir + delta.z * dir) / (mag * Math.sqrt(3 * dir * dir));
       expect(cosineSimilarity).toBeCloseTo(1, 6);
     });
 

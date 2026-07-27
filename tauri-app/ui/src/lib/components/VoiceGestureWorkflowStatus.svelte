@@ -101,31 +101,37 @@
 
 <div class="workflow-status">
   <div class="status-header">
-    <h3>{$_('settings.voice_gesture_workflows')}</h3>
+    <h3>{$_("settings.voice_gesture_workflows")}</h3>
     <span class="count">{workflows.length}</span>
   </div>
 
-  <p class="workflow-note">{$_('settings.voice_gesture_workflows_desc')}</p>
+  <p class="workflow-note">{$_("settings.voice_gesture_workflows_desc")}</p>
 
-  <form class="workflow-create" onsubmit={(event) => { event.preventDefault(); void submitWorkflow(); }}>
+  <form
+    class="workflow-create"
+    onsubmit={(event) => {
+      event.preventDefault();
+      void submitWorkflow();
+    }}
+  >
     <input
       class="workflow-input"
       bind:value={goal}
-      placeholder={$_('settings.voice_gesture_workflows_placeholder')}
-      aria-label={$_('settings.voice_gesture_workflows_placeholder')}
+      placeholder={$_("settings.voice_gesture_workflows_placeholder")}
+      aria-label={$_("settings.voice_gesture_workflows_placeholder")}
     />
     <select class="source-select" bind:value={source} aria-label="Workflow source">
       <option value="voice">Voice</option>
       <option value="gesture">Gesture</option>
     </select>
     <button class="btn-save" type="submit" disabled={!goal.trim() || submitting}>
-      {submitting ? $_('settings.saving') : $_('settings.voice_gesture_workflows_start')}
+      {submitting ? $_("settings.saving") : $_("settings.voice_gesture_workflows_start")}
     </button>
   </form>
 
   <label class="history-toggle">
     <input type="checkbox" bind:checked={includeTerminal} onchange={loadWorkflows} />
-    <span>{$_('settings.voice_gesture_workflows_history')}</span>
+    <span>{$_("settings.voice_gesture_workflows_history")}</span>
   </label>
 
   {#if error}
@@ -135,7 +141,7 @@
   {#if loading}
     <div class="empty">Loading...</div>
   {:else if workflows.length === 0}
-    <div class="empty">{$_('settings.voice_gesture_workflows_empty')}</div>
+    <div class="empty">{$_("settings.voice_gesture_workflows_empty")}</div>
   {:else}
     <div class="workflow-list">
       {#each workflows as wf}
@@ -146,19 +152,20 @@
           </div>
           <div class="workflow-goal">{wf.goal}</div>
           <div class="workflow-progress">
-            {wf.steps.filter((s) => s.status === 'success').length} / {wf.steps.length} {$_('settings.voice_gesture_workflows_steps')}
+            {wf.steps.filter((s) => s.status === "success").length} / {wf.steps.length}
+            {$_("settings.voice_gesture_workflows_steps")}
           </div>
           {#if wf.steps[wf.current_step]}
             <div class="current-step">{wf.steps[wf.current_step].title}: {wf.steps[wf.current_step].status}</div>
           {/if}
           <div class="workflow-actions">
             {#if wf.state === "running" || wf.state === "pending" || wf.state === "decomposing"}
-              <button class="btn-save" onclick={() => pause(wf.workflow_id)}>{$_('settings.pause')}</button>
+              <button class="btn-save" onclick={() => pause(wf.workflow_id)}>{$_("settings.pause")}</button>
             {/if}
             {#if wf.state === "paused" || wf.state === "waiting_for_trigger"}
-              <button class="btn-save" onclick={() => resume(wf.workflow_id)}>{$_('settings.resume')}</button>
+              <button class="btn-save" onclick={() => resume(wf.workflow_id)}>{$_("settings.resume")}</button>
             {/if}
-            <button class="btn-remove" onclick={() => cancel(wf.workflow_id)}>{$_('settings.cancel')}</button>
+            <button class="btn-remove" onclick={() => cancel(wf.workflow_id)}>{$_("settings.cancel")}</button>
           </div>
         </div>
       {/each}

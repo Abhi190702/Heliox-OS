@@ -1,7 +1,7 @@
 <script lang="ts">
   import { session } from "../stores/session";
-  import { _ } from 'svelte-i18n';
-  import { Wifi, Loader2 } from 'lucide-svelte';
+  import { _ } from "svelte-i18n";
+  import { Wifi, Loader2 } from "lucide-svelte";
 
   let wasConnected = $state(false);
 
@@ -11,25 +11,19 @@
     }
   });
 
-  let stateClass = $derived(
-    $session.daemonConnected
-      ? "online"
-      : wasConnected
-      ? "reconnecting"
-      : "connecting"
-  );
+  let stateClass = $derived($session.daemonConnected ? "online" : wasConnected ? "reconnecting" : "connecting");
 </script>
 
 <div class="connection-hub {stateClass}">
   {#if $session.daemonConnected}
     <Wifi size={14} />
-    <span class="label">{$_('app.online', { default: 'Online' })}</span>
+    <span class="label">{$_("app.online", { default: "Online" })}</span>
   {:else if wasConnected}
     <Loader2 size={14} class="spin" />
     <span class="label">Reconnecting...</span>
   {:else}
     <Loader2 size={14} class="spin" />
-    <span class="label">{$_('app.connecting', { default: 'Connecting...' })}</span>
+    <span class="label">{$_("app.connecting", { default: "Connecting..." })}</span>
   {/if}
 </div>
 
@@ -57,22 +51,29 @@
     background: rgba(16, 185, 129, 0.15); /* Emerald 500 with low opacity */
     color: #34d399; /* Emerald 400 */
     border-color: rgba(52, 211, 153, 0.3);
-    box-shadow: 0 0 15px rgba(16, 185, 129, 0.2), inset 0 0 8px rgba(52, 211, 153, 0.1);
+    box-shadow:
+      0 0 15px rgba(16, 185, 129, 0.2),
+      inset 0 0 8px rgba(52, 211, 153, 0.1);
   }
 
   .connection-hub.online:hover {
     background: rgba(16, 185, 129, 0.25);
-    box-shadow: 0 0 20px rgba(16, 185, 129, 0.3), inset 0 0 10px rgba(52, 211, 153, 0.2);
+    box-shadow:
+      0 0 20px rgba(16, 185, 129, 0.3),
+      inset 0 0 10px rgba(52, 211, 153, 0.2);
   }
 
   /* Connecting State - Shimmering, fluid glowing gradient */
-  .connection-hub.connecting, .connection-hub.reconnecting {
+  .connection-hub.connecting,
+  .connection-hub.reconnecting {
     background: linear-gradient(90deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15));
     background-size: 200% 100%;
     color: #60a5fa; /* Blue 400 */
     border-color: rgba(96, 165, 250, 0.3);
     box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
-    animation: gradient-pan 2s linear infinite, pulse-glow 2s ease-in-out infinite;
+    animation:
+      gradient-pan 2s linear infinite,
+      pulse-glow 2s ease-in-out infinite;
   }
 
   .connection-hub.reconnecting {
@@ -84,13 +85,22 @@
   }
 
   @keyframes gradient-pan {
-    0% { background-position: 100% 0; }
-    100% { background-position: -100% 0; }
+    0% {
+      background-position: 100% 0;
+    }
+    100% {
+      background-position: -100% 0;
+    }
   }
 
   @keyframes pulse-glow {
-    0%, 100% { opacity: 0.8; }
-    50% { opacity: 1; }
+    0%,
+    100% {
+      opacity: 0.8;
+    }
+    50% {
+      opacity: 1;
+    }
   }
 
   :global(.spin) {
@@ -98,7 +108,9 @@
   }
 
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .label {

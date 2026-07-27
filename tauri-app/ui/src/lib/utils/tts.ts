@@ -18,11 +18,7 @@ export interface SpeakOptions {
 const PREFERRED_VOICE_NAMES = ["Microsoft Mark", "Google UK English Male", "Daniel", "Alex"];
 let speechGeneration = 0;
 
-function speakWithBrowser(
-  text: string,
-  options: SpeakOptions,
-  generation: number,
-): void {
+function speakWithBrowser(text: string, options: SpeakOptions, generation: number): void {
   if (!window.speechSynthesis) {
     if (generation === speechGeneration) options.onError?.();
     return;

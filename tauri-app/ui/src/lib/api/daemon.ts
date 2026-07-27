@@ -1,5 +1,5 @@
-import { listen } from '@tauri-apps/api/event';
-import { invoke } from './invoke';
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "./invoke";
 
 /**
  * WebSocket client for communicating with the Heliox OS Python daemon.
@@ -209,23 +209,23 @@ function scheduleReconnect() {
  */
 export async function sendPromptToStream(method: string, params: any) {
   // Directly invoke the updated Rust backend pipeline
-  return await invoke('send_to_daemon', { method, params });
+  return await invoke("send_to_daemon", { method, params });
 }
 
 /**
  * Listens to Tauri background stream channels
  */
 export async function listenToLLMStream(onChunk: (data: any) => void, onComplete: () => void) {
-    // Listen for real-time tokens
-    const unlistenChunk = await listen('llm-chunk', (event) => {
-        onChunk(event.payload);
-    });
+  // Listen for real-time tokens
+  const unlistenChunk = await listen("llm-chunk", (event) => {
+    onChunk(event.payload);
+  });
 
-    // Listen for stream end
-    const unlistenComplete = await listen('llm-complete', () => {
-        onComplete();
-        // Memory cleanup
-        unlistenChunk();
-        unlistenComplete();
-    });
+  // Listen for stream end
+  const unlistenComplete = await listen("llm-complete", () => {
+    onComplete();
+    // Memory cleanup
+    unlistenChunk();
+    unlistenComplete();
+  });
 }

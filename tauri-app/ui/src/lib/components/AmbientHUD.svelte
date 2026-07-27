@@ -51,11 +51,11 @@
         if (info) {
           cpuPercent = Math.round(Number(info.cpu_percent ?? 0));
           ramPercent = Math.round(Number(info.memory_percent ?? 0));
-          ramUsedGB = (Number(info.memory_used ?? 0) / (1024 ** 3)).toFixed(1);
-          ramTotalGB = (Number(info.memory_total ?? 0) / (1024 ** 3)).toFixed(1);
+          ramUsedGB = (Number(info.memory_used ?? 0) / 1024 ** 3).toFixed(1);
+          ramTotalGB = (Number(info.memory_total ?? 0) / 1024 ** 3).toFixed(1);
           diskPercent = Math.round(Number(info.disk_percent ?? 0));
-          diskUsedGB = (Number(info.disk_used ?? 0) / (1024 ** 3)).toFixed(0);
-          diskTotalGB = (Number(info.disk_total ?? 0) / (1024 ** 3)).toFixed(0);
+          diskUsedGB = (Number(info.disk_used ?? 0) / 1024 ** 3).toFixed(0);
+          diskTotalGB = (Number(info.disk_total ?? 0) / 1024 ** 3).toFixed(0);
           hostname = String(info.hostname ?? "HELIOX").toUpperCase();
           if (info.uptime_seconds) {
             const upSec = Number(info.uptime_seconds);
@@ -76,13 +76,13 @@
       if (info) {
         cpuPercent = Math.round(Number(info.cpu_percent ?? 0));
         ramPercent = Math.round(Number(info.memory_percent ?? 0));
-        ramUsedGB = (Number(info.memory_used ?? 0) / (1024 ** 3)).toFixed(1);
-        ramTotalGB = (Number(info.memory_total ?? 0) / (1024 ** 3)).toFixed(1);
+        ramUsedGB = (Number(info.memory_used ?? 0) / 1024 ** 3).toFixed(1);
+        ramTotalGB = (Number(info.memory_total ?? 0) / 1024 ** 3).toFixed(1);
         diskPercent = Math.round(Number(info.disk_percent ?? 0));
-        diskUsedGB = (Number(info.disk_used ?? 0) / (1024 ** 3)).toFixed(0);
-        diskTotalGB = (Number(info.disk_total ?? 0) / (1024 ** 3)).toFixed(0);
+        diskUsedGB = (Number(info.disk_used ?? 0) / 1024 ** 3).toFixed(0);
+        diskTotalGB = (Number(info.disk_total ?? 0) / 1024 ** 3).toFixed(0);
         hostname = String(info.hostname ?? "HELIOX").toUpperCase();
-        
+
         if (info.uptime_seconds) {
           const upSec = Number(info.uptime_seconds);
           const days = Math.floor(upSec / 86400);
@@ -100,11 +100,11 @@
         if (info) {
           cpuPercent = Math.round(Number(info.cpu_percent ?? 0));
           ramPercent = Math.round(Number(info.memory_percent ?? 0));
-          ramUsedGB = (Number(info.memory_used ?? 0) / (1024 ** 3)).toFixed(1);
-          ramTotalGB = (Number(info.memory_total ?? 0) / (1024 ** 3)).toFixed(1);
+          ramUsedGB = (Number(info.memory_used ?? 0) / 1024 ** 3).toFixed(1);
+          ramTotalGB = (Number(info.memory_total ?? 0) / 1024 ** 3).toFixed(1);
           diskPercent = Math.round(Number(info.disk_percent ?? 0));
-          diskUsedGB = (Number(info.disk_used ?? 0) / (1024 ** 3)).toFixed(0);
-          diskTotalGB = (Number(info.disk_total ?? 0) / (1024 ** 3)).toFixed(0);
+          diskUsedGB = (Number(info.disk_used ?? 0) / 1024 ** 3).toFixed(0);
+          diskTotalGB = (Number(info.disk_total ?? 0) / 1024 ** 3).toFixed(0);
           hostname = String(info.hostname ?? "HELIOX").toUpperCase();
           if (info.uptime_seconds) {
             const upSec = Number(info.uptime_seconds);
@@ -313,8 +313,14 @@
   }
 
   @keyframes hudSlideIn {
-    from { opacity: 0; transform: translateY(-8px) scale(0.97); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 
   .hud-header {
@@ -343,8 +349,13 @@
   }
 
   @keyframes dot-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
   }
 
   .hud-time {
@@ -412,7 +423,9 @@
   .progress-fill {
     height: 100%;
     border-radius: 7px;
-    transition: width 0.8s ease, background 0.5s ease;
+    transition:
+      width 0.8s ease,
+      background 0.5s ease;
     box-shadow: 0 0 8px currentColor;
     opacity: 0.65;
   }

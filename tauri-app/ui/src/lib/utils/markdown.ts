@@ -31,9 +31,7 @@ marked.setOptions({
   gfm: true,
   breaks: true,
 });
-export function renderMarkdown(
-  text: string
-): string {
+export function renderMarkdown(text: string): string {
   if (!text) return "";
   const raw = marked.parse(text);
   return DOMPurify.sanitize(raw as string);

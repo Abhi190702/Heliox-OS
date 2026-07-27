@@ -36,9 +36,7 @@ describe("supervision store", () => {
       kind: "risk",
       pattern: "destructive_sql",
     });
-    expect(speakText).toHaveBeenCalledWith(
-      "Heads up — this looks like it might be: destructive sql.",
-    );
+    expect(speakText).toHaveBeenCalledWith("Heads up — this looks like it might be: destructive sql.");
   });
 
   it("shows cognitive coaching and dismisses it locally", async () => {

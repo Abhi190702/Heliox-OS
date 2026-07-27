@@ -13,17 +13,17 @@
   <div class="confirm-dialog">
     <div class="confirm-header">
       <span class="warn-icon">&#9888;</span>
-      <span>{$_('rollback.title')}</span>
+      <span>{$_("rollback.title")}</span>
     </div>
 
     <p class="confirm-body">
-      {$_('rollback.body')}
+      {$_("rollback.body")}
     </p>
 
     <div class="confirm-actions">
-      <button class="btn-deny" title={$_('rollback.cancel')} onclick={oncancel}>{$_('rollback.cancel')}</button>
-      <button class="btn-confirm btn-danger" title={$_('rollback.confirm')} onclick={onconfirm}>
-        {$_('rollback.confirm')}
+      <button class="btn-deny" title={$_("rollback.cancel")} onclick={oncancel}>{$_("rollback.cancel")}</button>
+      <button class="btn-confirm btn-danger" title={$_("rollback.confirm")} onclick={onconfirm}>
+        {$_("rollback.confirm")}
       </button>
     </div>
   </div>

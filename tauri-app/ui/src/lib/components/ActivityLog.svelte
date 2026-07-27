@@ -3,9 +3,9 @@
   import { call } from "../api/daemon";
   import { invoke } from "../api/invoke";
 
-async function openLogsFolder() {
-  await invoke("open_logs_folder");
-}
+  async function openLogsFolder() {
+    await invoke("open_logs_folder");
+  }
 
   interface HistoryEntry {
     id: number;
@@ -32,10 +32,10 @@ async function openLogsFolder() {
               timestamp: new Date(m.timestamp || Date.now()).toISOString(),
               user_input: m.text,
               success: true,
-              explanation: "Locally executed neural command"
+              explanation: "Locally executed neural command",
             }))
             .reverse();
-        } catch(e) {}
+        } catch (e) {}
       }
       entries = loaded;
     } catch {
@@ -49,10 +49,10 @@ async function openLogsFolder() {
               timestamp: new Date(m.timestamp || Date.now()).toISOString(),
               user_input: m.text,
               success: true,
-              explanation: "Locally executed neural command"
+              explanation: "Locally executed neural command",
             }))
             .reverse();
-        } catch(err) {
+        } catch (err) {
           entries = [];
         }
       } else {
@@ -72,17 +72,15 @@ async function openLogsFolder() {
     }
   }
 </script>
-<div class="activity-log">
-<div class="log-header">
-  <h2>Activity Log</h2>
-  <div class="header-right">
-    <span class="count">{entries.length} entries</span>
-    <button class="open-logs-btn" onclick={openLogsFolder} title="Open Logs Folder">
-      📂 Open Logs
-    </button>
-  </div>
-  </div>
 
+<div class="activity-log">
+  <div class="log-header">
+    <h2>Activity Log</h2>
+    <div class="header-right">
+      <span class="count">{entries.length} entries</span>
+      <button class="open-logs-btn" onclick={openLogsFolder} title="Open Logs Folder"> 📂 Open Logs </button>
+    </div>
+  </div>
 
   {#if loading}
     <div class="empty">Loading...</div>

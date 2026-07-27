@@ -27,10 +27,7 @@
 
   const ALL_METRICS = ["cpu", "memory", "disk"];
   const TIER_LABELS = ["Read Only", "User Write", "System Modify", "Destructive"];
-  const HEALING_NOTIFICATIONS = new Set([
-    "self_healing_confirmation_required",
-    "self_healing_attempt_updated",
-  ]);
+  const HEALING_NOTIFICATIONS = new Set(["self_healing_confirmation_required", "self_healing_attempt_updated"]);
 
   let enabled = $state(false);
   let autoExecuteMaxTier = $state(1);
@@ -126,7 +123,7 @@
 
 <div class="healing-panel">
   <div class="healing-header">
-    <h3>{$_('settings.self_healing')}</h3>
+    <h3>{$_("settings.self_healing")}</h3>
     <button
       class="toggle"
       class:active={enabled}
@@ -138,7 +135,7 @@
     </button>
   </div>
 
-  <p class="healing-note">{$_('settings.self_healing_desc')}</p>
+  <p class="healing-note">{$_("settings.self_healing_desc")}</p>
 
   {#if error}
     <div class="panel-error" role="alert">{error}</div>
@@ -149,8 +146,8 @@
   {:else}
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.self_healing_tier')}</span>
-        <span class="setting-desc">{$_('settings.self_healing_tier_desc')}</span>
+        <span class="setting-label">{$_("settings.self_healing_tier")}</span>
+        <span class="setting-desc">{$_("settings.self_healing_tier_desc")}</span>
       </div>
       <select class="input-sm" bind:value={autoExecuteMaxTier}>
         {#each TIER_LABELS as label, tier}
@@ -159,7 +156,7 @@
       </select>
     </div>
 
-    <div class="monitor-grid" aria-label={$_('settings.self_healing_monitor_status')}>
+    <div class="monitor-grid" aria-label={$_("settings.self_healing_monitor_status")}>
       {#each watchedMetrics as metric}
         {@const monitor = monitors[metric]}
         <div class="monitor-card">
@@ -169,7 +166,9 @@
             <span class="monitor-state">{enabled ? (monitor?.status ?? "unavailable") : "disabled"}</span>
           </div>
           <div class="monitor-detail">
-            {monitor ? `${monitor.condition} · ${monitorValue(metric, monitor)} · ${monitor.run_count} checks` : "Monitor unavailable"}
+            {monitor
+              ? `${monitor.condition} · ${monitorValue(metric, monitor)} · ${monitor.run_count} checks`
+              : "Monitor unavailable"}
           </div>
         </div>
       {/each}
@@ -177,7 +176,7 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.self_healing_metrics')}</span>
+        <span class="setting-label">{$_("settings.self_healing_metrics")}</span>
       </div>
       <div class="metric-checks">
         {#each ALL_METRICS as metric}
@@ -196,17 +195,17 @@
 
     <div class="healing-actions">
       <button class="btn-save" onclick={save} disabled={saving}>
-        {saving ? "Saving..." : saved ? "✓ Saved" : $_('settings.save')}
+        {saving ? "Saving..." : saved ? "✓ Saved" : $_("settings.save")}
       </button>
     </div>
 
     <div class="attempts-header">
-      <span class="setting-label">{$_('settings.self_healing_attempts')}</span>
+      <span class="setting-label">{$_("settings.self_healing_attempts")}</span>
       <span class="count">{attempts.length}</span>
     </div>
 
     {#if attempts.length === 0}
-      <div class="empty">{$_('settings.self_healing_attempts_empty')}</div>
+      <div class="empty">{$_("settings.self_healing_attempts_empty")}</div>
     {:else}
       <div class="attempt-list">
         {#each attempts as attempt}
@@ -221,8 +220,8 @@
             {/if}
             {#if attempt.outcome === "proposed"}
               <div class="attempt-actions">
-                <button class="btn-save" onclick={() => approve(attempt)}>{$_('settings.self_healing_approve')}</button>
-                <button class="btn-remove" onclick={() => deny(attempt)}>{$_('settings.self_healing_deny')}</button>
+                <button class="btn-save" onclick={() => approve(attempt)}>{$_("settings.self_healing_approve")}</button>
+                <button class="btn-remove" onclick={() => deny(attempt)}>{$_("settings.self_healing_deny")}</button>
               </div>
             {/if}
           </div>

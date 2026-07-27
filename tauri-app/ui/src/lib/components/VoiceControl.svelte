@@ -2,7 +2,7 @@
   /**
    * VoiceControl — JARVIS-like voice input using Web Speech API.
    * Push-to-talk or continuous listening with wake word "Hey Heliox".
-   * 
+   *
    * Features:
    *  - Real-time speech-to-text transcription
    *  - Visual pulse animation while listening
@@ -136,7 +136,9 @@
         try {
           recognition.start();
           isListening = true;
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }, 100);
     }
   }
@@ -202,10 +204,10 @@
     if (!wakeWordActive) {
       stopListening();
     }
-    
+
     // Send the command via the session store
     await session.sendCommand(text);
-    
+
     // Speak the response if voice is enabled
     // Wait for the response, then use the configured daemon TTS engine.
     const unsub = session.subscribe((s: any) => {
@@ -228,9 +230,15 @@
   // ── Text-to-Speech ──
   function speakText(text: string) {
     ttsSpeak(text, {
-      onStart: () => { isSpeaking = true; },
-      onEnd: () => { isSpeaking = false; },
-      onError: () => { isSpeaking = false; },
+      onStart: () => {
+        isSpeaking = true;
+      },
+      onEnd: () => {
+        isSpeaking = false;
+      },
+      onError: () => {
+        isSpeaking = false;
+      },
     });
   }
 
@@ -397,13 +405,24 @@
   }
 
   @keyframes pulse-expand {
-    0% { transform: scale(1); opacity: 1; }
-    100% { transform: scale(1.6); opacity: 0; }
+    0% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1.6);
+      opacity: 0;
+    }
   }
 
   @keyframes breathe {
-    0%, 100% { box-shadow: 0 0 8px rgba(255, 60, 60, 0.3); }
-    50% { box-shadow: 0 0 20px rgba(255, 60, 60, 0.6); }
+    0%,
+    100% {
+      box-shadow: 0 0 8px rgba(255, 60, 60, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 20px rgba(255, 60, 60, 0.6);
+    }
   }
 
   /* ── Wake Word Button ── */
@@ -438,8 +457,13 @@
   }
 
   @keyframes gentle-glow {
-    0%, 100% { box-shadow: 0 0 8px rgba(0, 255, 136, 0.1); }
-    50% { box-shadow: 0 0 16px rgba(0, 255, 136, 0.25); }
+    0%,
+    100% {
+      box-shadow: 0 0 8px rgba(0, 255, 136, 0.1);
+    }
+    50% {
+      box-shadow: 0 0 16px rgba(0, 255, 136, 0.25);
+    }
   }
 
   .wave-icon {
@@ -485,15 +509,35 @@
     animation: speak-bar 0.6s ease-in-out infinite;
   }
 
-  .bar:nth-child(1) { height: 4px; animation-delay: 0s; }
-  .bar:nth-child(2) { height: 8px; animation-delay: 0.1s; }
-  .bar:nth-child(3) { height: 12px; animation-delay: 0.2s; }
-  .bar:nth-child(4) { height: 8px; animation-delay: 0.3s; }
-  .bar:nth-child(5) { height: 4px; animation-delay: 0.4s; }
+  .bar:nth-child(1) {
+    height: 4px;
+    animation-delay: 0s;
+  }
+  .bar:nth-child(2) {
+    height: 8px;
+    animation-delay: 0.1s;
+  }
+  .bar:nth-child(3) {
+    height: 12px;
+    animation-delay: 0.2s;
+  }
+  .bar:nth-child(4) {
+    height: 8px;
+    animation-delay: 0.3s;
+  }
+  .bar:nth-child(5) {
+    height: 4px;
+    animation-delay: 0.4s;
+  }
 
   @keyframes speak-bar {
-    0%, 100% { transform: scaleY(1); }
-    50% { transform: scaleY(0.3); }
+    0%,
+    100% {
+      transform: scaleY(1);
+    }
+    50% {
+      transform: scaleY(0.3);
+    }
   }
 
   /* ── Transcript Preview ── */

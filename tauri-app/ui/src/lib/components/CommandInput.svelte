@@ -27,13 +27,13 @@
 
   $effect(() => {
     let unlisten: () => void;
-    
+
     // Attempt to register Tauri native drag/drop listener (WebView API)
     async function setupTauri() {
       try {
         unlisten = await getCurrentWebview().onDragDropEvent(async (event) => {
           const payload = event.payload;
-          
+
           if (payload.type === "enter" || payload.type === "over") {
             isDragging = true;
           } else if (payload.type === "leave") {
@@ -41,15 +41,15 @@
           } else if (payload.type === "drop") {
             isDragging = false;
             const paths = payload.paths || [];
-            
+
             for (const path of paths) {
               try {
                 // Register path in the allowlist before reading
                 await invoke("register_allowed_path", { path });
                 // Extract filename
-                const filename = path.split('\\').pop()?.split('/').pop() || "unknown";
+                const filename = path.split("\\").pop()?.split("/").pop() || "unknown";
                 const content = await invoke("extract_file_text", { path });
-                
+
                 attachments = [...attachments, { name: filename, type: "file", content: content as string }];
               } catch (err) {
                 console.warn(`Failed to extract text from ${path}:`, err);
@@ -61,7 +61,7 @@
         // Not running in Tauri (e.g. browser), ignore gracefully
       }
     }
-    
+
     setupTauri();
 
     return () => {
@@ -99,10 +99,7 @@
     </div>
   {/if}
 
-  <div
-    class="input-wrapper"
-    class:dragging={isDragging}
-  >
+  <div class="input-wrapper" class:dragging={isDragging}>
     <span class="prompt">&gt;</span>
 
     <input
@@ -114,10 +111,7 @@
       autocomplete="off"
       spellcheck="false"
     />
-    <div
-      class="char-counter"
-      style:color={input.length >= MAX_CHARS ? "red" : "#888"}
-    >
+    <div class="char-counter" style:color={input.length >= MAX_CHARS ? "red" : "#888"}>
       {input.length}/{MAX_CHARS}
     </div>
 

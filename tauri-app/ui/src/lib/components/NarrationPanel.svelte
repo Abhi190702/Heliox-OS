@@ -52,7 +52,7 @@
 
 <div class="narration-panel">
   <div class="narration-header">
-    <h3>{$_('settings.narration')}</h3>
+    <h3>{$_("settings.narration")}</h3>
     <button
       class="toggle"
       class:active={enabled}
@@ -64,15 +64,15 @@
     </button>
   </div>
 
-  <p class="narration-note">{$_('settings.narration_desc')}</p>
+  <p class="narration-note">{$_("settings.narration_desc")}</p>
 
   {#if loading}
     <div class="empty">Loading...</div>
   {:else}
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.narration_narrate_steps')}</span>
-        <span class="setting-desc">{$_('settings.narration_narrate_steps_desc')}</span>
+        <span class="setting-label">{$_("settings.narration_narrate_steps")}</span>
+        <span class="setting-desc">{$_("settings.narration_narrate_steps_desc")}</span>
       </div>
       <button
         class="toggle toggle-sm"
@@ -86,8 +86,8 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.narration_interrupt_on_risk')}</span>
-        <span class="setting-desc">{$_('settings.narration_interrupt_on_risk_desc')}</span>
+        <span class="setting-label">{$_("settings.narration_interrupt_on_risk")}</span>
+        <span class="setting-desc">{$_("settings.narration_interrupt_on_risk_desc")}</span>
       </div>
       <button
         class="toggle toggle-sm"
@@ -101,8 +101,8 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.narration_timeout')}</span>
-        <span class="setting-desc">{$_('settings.narration_timeout_desc')}</span>
+        <span class="setting-label">{$_("settings.narration_timeout")}</span>
+        <span class="setting-desc">{$_("settings.narration_timeout_desc")}</span>
       </div>
       <input
         type="number"
@@ -117,7 +117,7 @@
 
     <div class="narration-actions">
       <button class="btn-save" onclick={save} disabled={saving}>
-        {saving ? "Saving..." : saved ? "✓ Saved" : $_('settings.save')}
+        {saving ? "Saving..." : saved ? "✓ Saved" : $_("settings.save")}
       </button>
     </div>
   {/if}

@@ -100,7 +100,7 @@ export function thumbExtensionRatio(landmarks: Landmark[], size: number = handSi
 export function isThumbExtended(
   landmarks: Landmark[],
   size: number = handSize(landmarks),
-  threshold: number = THUMB_EXTENDED_RATIO
+  threshold: number = THUMB_EXTENDED_RATIO,
 ): boolean {
   return thumbExtensionRatio(landmarks, size) > threshold;
 }
@@ -179,7 +179,7 @@ export class LandmarkFilterBank {
   constructor(
     private mincutoff = 1.0,
     private beta = 0.3,
-    private dcutoff = 1.0
+    private dcutoff = 1.0,
   ) {}
 
   filter(landmarks: Landmark[], tNowMs: number): Landmark[] {
@@ -244,7 +244,7 @@ export function mapCursorTargetToScreen(
   target: Landmark,
   screenWidth: number,
   screenHeight: number,
-  sensitivity: number
+  sensitivity: number,
 ): { x: number; y: number } {
   const width = Math.max(1, Math.floor(screenWidth));
   const height = Math.max(1, Math.floor(screenHeight));
@@ -328,7 +328,7 @@ export function geometricQuality(landmarks: Landmark[], size: number = handSize(
 export function computeHandQuality(
   landmarks: Landmark[],
   handednessScore: number | undefined,
-  size: number = handSize(landmarks)
+  size: number = handSize(landmarks),
 ): number {
   const qDetection = handednessScore ?? 1;
   const qGeometric = geometricQuality(landmarks, size);

@@ -116,7 +116,4 @@ export const multimodal = createMultimodalStore();
 
 export const lastFusedIntent = derived(multimodal, ($m) => $m.lastIntent);
 export const isFusionActive = derived(multimodal, ($m) => $m.fusionActive && $m.enabled);
-export const hasPendingInput = derived(
-  multimodal,
-  ($m) => $m.pendingVoice !== null || $m.pendingGesture !== null
-);
+export const hasPendingInput = derived(multimodal, ($m) => $m.pendingVoice !== null || $m.pendingGesture !== null);

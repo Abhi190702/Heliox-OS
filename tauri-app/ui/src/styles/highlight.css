@@ -86,5 +86,9 @@
 }
 
 /* Emphasis / strong inside comments */
-.hljs-emphasis { font-style: italic; }
-.hljs-strong   { font-weight: 700; }
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 700;
+}

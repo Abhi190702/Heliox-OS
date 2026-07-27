@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  isNearBottom,
-  movedUpward,
-  shouldFollowLatest,
-} from "./scrollPolicy";
+import { isNearBottom, movedUpward, shouldFollowLatest } from "./scrollPolicy";
 
 describe("chat scroll policy", () => {
   it("follows new content only while the user remains at the bottom", () => {
@@ -13,12 +9,8 @@ describe("chat scroll policy", () => {
   });
 
   it("treats the configured bottom threshold as still following", () => {
-    expect(
-      isNearBottom({ scrollTop: 491, clientHeight: 500, scrollHeight: 999 }),
-    ).toBe(true);
-    expect(
-      isNearBottom({ scrollTop: 490, clientHeight: 500, scrollHeight: 999 }),
-    ).toBe(false);
+    expect(isNearBottom({ scrollTop: 491, clientHeight: 500, scrollHeight: 999 })).toBe(true);
+    expect(isNearBottom({ scrollTop: 490, clientHeight: 500, scrollHeight: 999 })).toBe(false);
   });
 
   it("detects deliberate upward movement during a programmatic scroll", () => {

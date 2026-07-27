@@ -70,11 +70,7 @@
     shouldSendGazeUpdate,
     type GazeRegion,
   } from "../gesture/gazeTracking";
-  import {
-    gazeRuntime,
-    resetGazeRuntime,
-    updateGazeRuntime,
-  } from "../stores/gazeRuntime";
+  import { gazeRuntime, resetGazeRuntime, updateGazeRuntime } from "../stores/gazeRuntime";
   import { isTauriRuntime } from "../utils/runtime";
   import {
     classifyOutcome,
@@ -109,7 +105,7 @@
   let showCamera = $state(false);
   let isStarting = $state(false);
   let gestureHistory: string[] = $state([]);
-  
+
   let videoEl: HTMLVideoElement | undefined = $state();
   let canvasEl: HTMLCanvasElement | undefined = $state();
   let trailCanvas: HTMLCanvasElement | undefined = $state();
@@ -266,9 +262,8 @@
     } catch (error) {
       cursorRetryAfter = Date.now() + 1000;
       cursorRuntimePhase = "error";
-      cursorRuntimeMessage = error instanceof Error
-        ? `Cursor control unavailable: ${error.message}`
-        : "Cursor control unavailable";
+      cursorRuntimeMessage =
+        error instanceof Error ? `Cursor control unavailable: ${error.message}` : "Cursor control unavailable";
       throw error;
     }
   }
@@ -296,9 +291,8 @@
       }
     } catch (error) {
       cursorRuntimePhase = "error";
-      cursorRuntimeMessage = error instanceof Error
-        ? `Cursor click unavailable: ${error.message}`
-        : "Cursor click unavailable";
+      cursorRuntimeMessage =
+        error instanceof Error ? `Cursor click unavailable: ${error.message}` : "Cursor click unavailable";
     }
   }
 
@@ -350,7 +344,7 @@
       target,
       window.screen.width,
       window.screen.height,
-      sensitivity
+      sensitivity,
     );
     lastCursorX = screenX;
     lastCursorY = screenY;
@@ -391,17 +385,38 @@
   // Gesture emoji map — 30+ gestures
   const GESTURE_EMOJIS: Record<string, string> = {
     // Static poses
-    palm: "✋", thumbs_up: "👍", thumbs_down: "👎", peace: "✌️",
-    fist: "👊", point_up: "👆", rock: "🤟", ok: "👌",
-    call_me: "🤙", finger_gun: "🔫", pinch: "🤏",
-    middle_finger: "🖕", pinky_up: "🌸", vulcan: "🖖",
-    crossed_fingers: "🤞", snap_ready: "🫰", devil_horns: "🤘",
-    palm_down: "🫳", palm_up: "🫴", three_up: "🔆", four_up: "🔅",
+    palm: "✋",
+    thumbs_up: "👍",
+    thumbs_down: "👎",
+    peace: "✌️",
+    fist: "👊",
+    point_up: "👆",
+    rock: "🤟",
+    ok: "👌",
+    call_me: "🤙",
+    finger_gun: "🔫",
+    pinch: "🤏",
+    middle_finger: "🖕",
+    pinky_up: "🌸",
+    vulcan: "🖖",
+    crossed_fingers: "🤞",
+    snap_ready: "🫰",
+    devil_horns: "🤘",
+    palm_down: "🫳",
+    palm_up: "🫴",
+    three_up: "🔆",
+    four_up: "🔅",
     // Motion-based
-    swipe_left: "👈", swipe_right: "👉", swipe_up: "⬆️", swipe_down: "⬇️",
-    circular_cw: "🔄", circular_ccw: "🔃",
-    palm_push: "🫸", palm_pull: "🫷",
-    two_finger_swipe_left: "⏪", two_finger_swipe_right: "⏩",
+    swipe_left: "👈",
+    swipe_right: "👉",
+    swipe_up: "⬆️",
+    swipe_down: "⬇️",
+    circular_cw: "🔄",
+    circular_ccw: "🔃",
+    palm_push: "🫸",
+    palm_pull: "🫷",
+    two_finger_swipe_left: "⏪",
+    two_finger_swipe_right: "⏩",
   };
 
   // ── MediaPipe Hands Loading (legacy backend) ──
@@ -416,8 +431,7 @@
 
     try {
       hands = new Hands({
-        locateFile: (file: string) =>
-          `${MEDIAPIPE_HANDS_ASSET_BASE}/${file}`,
+        locateFile: (file: string) => `${MEDIAPIPE_HANDS_ASSET_BASE}/${file}`,
       });
 
       hands.setOptions({
@@ -515,9 +529,10 @@
         }
       }
 
-      const detail = lastError instanceof Error
-        ? `${lastError.name}: ${lastError.message}`
-        : String(lastError || "Unknown initialization error");
+      const detail =
+        lastError instanceof Error
+          ? `${lastError.name}: ${lastError.message}`
+          : String(lastError || "Unknown initialization error");
       console.error("MediaPipe FaceLandmarker load error (gaze tracking disabled for this session):", lastError);
       updateGazeRuntime({
         phase: "error",
@@ -539,7 +554,11 @@
     const loaded = await loadFaceLandmarker();
     if (!isActive || !$settings.vision?.gaze_tracking_enabled) {
       if (faceLandmarker) {
-        try { faceLandmarker.close(); } catch { /* ignore */ }
+        try {
+          faceLandmarker.close();
+        } catch {
+          /* ignore */
+        }
         faceLandmarker = null;
       }
       return;
@@ -559,7 +578,11 @@
 
   function deactivateGazeTracking(): void {
     if (faceLandmarker) {
-      try { faceLandmarker.close(); } catch { /* ignore */ }
+      try {
+        faceLandmarker.close();
+      } catch {
+        /* ignore */
+      }
       faceLandmarker = null;
     }
     gazeTrackingActive = false;
@@ -640,7 +663,7 @@
         workflows: Array<{ workflow_id: string; invocation_source: string; state: string }>;
       };
       const existing = result.workflows?.find(
-        (w) => w.invocation_source === "gesture" && (w.state === "paused" || w.state === "waiting_for_trigger")
+        (w) => w.invocation_source === "gesture" && (w.state === "paused" || w.state === "waiting_for_trigger"),
       );
       if (existing) pendingWorkflowId = existing.workflow_id;
     } catch {
@@ -670,35 +693,21 @@
   async function dispatchWorkflowControl(intent: "continue" | "cancel", workflowId: string) {
     const { call } = await import("../api/daemon");
     try {
-      const message = await controlGestureWorkflow(
-        (method, params) => call(method, params),
-        intent,
-        workflowId,
-      );
+      const message = await controlGestureWorkflow((method, params) => call(method, params), intent, workflowId);
       if (pendingWorkflowId === workflowId) pendingWorkflowId = null;
       showWorkflowFeedback(message);
     } catch (cause) {
-      showWorkflowFeedback(
-        cause instanceof Error ? cause.message : "Gesture workflow control failed",
-        true,
-      );
+      showWorkflowFeedback(cause instanceof Error ? cause.message : "Gesture workflow control failed", true);
     }
   }
 
   async function startBoundWorkflow(goalTemplate: string, gestureName: string) {
     const { call } = await import("../api/daemon");
     try {
-      const message = await submitGestureWorkflow(
-        (method, params) => call(method, params),
-        gestureName,
-        goalTemplate,
-      );
+      const message = await submitGestureWorkflow((method, params) => call(method, params), gestureName, goalTemplate);
       showWorkflowFeedback(message);
     } catch (cause) {
-      showWorkflowFeedback(
-        cause instanceof Error ? cause.message : "Gesture workflow could not be started",
-        true,
-      );
+      showWorkflowFeedback(cause instanceof Error ? cause.message : "Gesture workflow could not be started", true);
     }
   }
 
@@ -744,7 +753,7 @@
         video: { width: 640, height: 480, facingMode: "user" },
       });
     } catch (e: any) {
-      cameraError = `Camera error: ${e.name || e.message || 'Access denied or no device found'}`;
+      cameraError = `Camera error: ${e.name || e.message || "Access denied or no device found"}`;
       console.error("Camera error:", e);
       if ($settings.vision?.gaze_tracking_enabled) {
         updateGazeRuntime({
@@ -762,7 +771,7 @@
     onActiveChange(true);
     showCamera = true;
     fingerTrail = [];
-    
+
     // Wait for Svelte to render the `<video>` element before assigning the stream
     await tick();
 
@@ -788,16 +797,27 @@
     // 1. Stop the animation frame loop FIRST (prevents new MediaPipe sends)
     isActive = false;
     onActiveChange(false);
-    if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = 0; }
+    if (animFrameId) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = 0;
+    }
 
     // 2. Close MediaPipe (whichever backend was active) to release the
     // video element reference
     if (hands) {
-      try { hands.close(); } catch { /* ignore */ }
+      try {
+        hands.close();
+      } catch {
+        /* ignore */
+      }
       hands = null;
     }
     if (handLandmarker) {
-      try { handLandmarker.close(); } catch { /* ignore */ }
+      try {
+        handLandmarker.close();
+      } catch {
+        /* ignore */
+      }
       handLandmarker = null;
     }
     deactivateGazeTracking();
@@ -805,7 +825,7 @@
 
     // 3. Stop camera tracks AFTER MediaPipe is closed
     if (stream) {
-      stream.getTracks().forEach(t => t.stop());
+      stream.getTracks().forEach((t) => t.stop());
       stream = null;
     }
 
@@ -844,10 +864,16 @@
           const worldLandmarks = (result.worldLandmarks?.[0] as Landmark[] | undefined) ?? null;
           const handednessScore = result.handedness?.[0]?.[0]?.score;
           handleFrameResult(landmarks, worldLandmarks, handednessScore);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     } else if (hands) {
-      try { await hands.send({ image: videoEl }); } catch { /* ignore */ }
+      try {
+        await hands.send({ image: videoEl });
+      } catch {
+        /* ignore */
+      }
     } else {
       return;
     }
@@ -888,7 +914,9 @@
               message: "Gaze is on, but no face is visible to the camera.",
             });
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }
 
@@ -1124,8 +1152,7 @@
     const now = Date.now();
 
     // Only track when only index finger is extended (pointing)
-    const isPointing = landmarks[8].y < landmarks[6].y &&
-      landmarks[12].y > landmarks[10].y; // Index up, middle down
+    const isPointing = landmarks[8].y < landmarks[6].y && landmarks[12].y > landmarks[10].y; // Index up, middle down
 
     if (isPointing && trailCanvas) {
       const x = indexTip.x * trailCanvas.width;
@@ -1136,7 +1163,7 @@
     } else {
       // Decay trail
       if (fingerTrail.length > 0) {
-        fingerTrail = fingerTrail.filter(p => now - p.t < 2000);
+        fingerTrail = fingerTrail.filter((p) => now - p.t < 2000);
         drawTrail();
       }
     }
@@ -1195,9 +1222,17 @@
     use3DPushPull: boolean = false,
     pushPull3D: "push" | "pull" | null = null,
   ): Gesture {
-    const THUMB_TIP = 4, INDEX_TIP = 8, MIDDLE_TIP = 12, RING_TIP = 16, PINKY_TIP = 20;
-    const INDEX_PIP = 6, MIDDLE_PIP = 10, RING_PIP = 14, PINKY_PIP = 18;
-    const THUMB_MCP = 2, INDEX_MCP = 5;
+    const THUMB_TIP = 4,
+      INDEX_TIP = 8,
+      MIDDLE_TIP = 12,
+      RING_TIP = 16,
+      PINKY_TIP = 20;
+    const INDEX_PIP = 6,
+      MIDDLE_PIP = 10,
+      RING_PIP = 14,
+      PINKY_PIP = 18;
+    const THUMB_MCP = 2,
+      INDEX_MCP = 5;
     const WRIST = 0;
 
     const isExtended = (tip: number, pip: number) => landmarks[tip].y < landmarks[pip].y;
@@ -1301,8 +1336,8 @@
 
     // 🫳 Palm Down — all fingers extended, wrist higher than fingertips
     if (indexUp && middleUp && ringUp && pinkyUp && thumbExtended) {
-      const avgTipY = (landmarks[INDEX_TIP].y + landmarks[MIDDLE_TIP].y +
-        landmarks[RING_TIP].y + landmarks[PINKY_TIP].y) / 4;
+      const avgTipY =
+        (landmarks[INDEX_TIP].y + landmarks[MIDDLE_TIP].y + landmarks[RING_TIP].y + landmarks[PINKY_TIP].y) / 4;
       if (avgTipY > landmarks[WRIST].y + 0.15) {
         return { name: "palm_down", confidence: 0.8 };
       }
@@ -1427,7 +1462,7 @@
     const cy = recent.reduce((s, p) => s + p.y, 0) / recent.length;
 
     // Check if points form a rough circle around the centroid
-    const radii = recent.map(p => Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2));
+    const radii = recent.map((p) => Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2));
     const avgRadius = radii.reduce((s, r) => s + r, 0) / radii.length;
     if (avgRadius < 0.03 || avgRadius > 0.2) return null;
 
@@ -1613,20 +1648,39 @@
     ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
 
     const connections = [
-      [0,1],[1,2],[2,3],[3,4],
-      [0,5],[5,6],[6,7],[7,8],
-      [0,9],[9,10],[10,11],[11,12],
-      [0,13],[13,14],[14,15],[15,16],
-      [0,17],[17,18],[18,19],[19,20],
-      [5,9],[9,13],[13,17],
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [0, 5],
+      [5, 6],
+      [6, 7],
+      [7, 8],
+      [0, 9],
+      [9, 10],
+      [10, 11],
+      [11, 12],
+      [0, 13],
+      [13, 14],
+      [14, 15],
+      [15, 16],
+      [0, 17],
+      [17, 18],
+      [18, 19],
+      [19, 20],
+      [5, 9],
+      [9, 13],
+      [13, 17],
     ];
 
     // Neon connections
     ctx.lineWidth = 1.5;
     connections.forEach(([a, b]) => {
       const grad = ctx.createLinearGradient(
-        landmarks[a].x * canvasEl!.width, landmarks[a].y * canvasEl!.height,
-        landmarks[b].x * canvasEl!.width, landmarks[b].y * canvasEl!.height
+        landmarks[a].x * canvasEl!.width,
+        landmarks[a].y * canvasEl!.height,
+        landmarks[b].x * canvasEl!.width,
+        landmarks[b].y * canvasEl!.height,
       );
       grad.addColorStop(0, "rgba(0, 200, 255, 0.5)");
       grad.addColorStop(1, "rgba(120, 80, 255, 0.5)");
@@ -1713,7 +1767,8 @@
         else if ($gazeRuntime.phase === "error") void retryGazeTracking();
       }}
       disabled={isStarting}
-      title={$gazeRuntime.message || (isActive ? "Live coarse gaze region" : "Start the camera to activate gaze tracking")}
+      title={$gazeRuntime.message ||
+        (isActive ? "Live coarse gaze region" : "Start the camera to activate gaze tracking")}
     >
       <span class="gaze-runtime-dot"></span>
       {#if $gazeRuntime.phase === "active" && $gazeRuntime.region}
@@ -1860,8 +1915,13 @@
   }
 
   @keyframes gesture-pulse {
-    0%, 100% { box-shadow: 0 0 8px rgba(0, 255, 136, 0.15); }
-    50% { box-shadow: 0 0 20px rgba(0, 255, 136, 0.3); }
+    0%,
+    100% {
+      box-shadow: 0 0 8px rgba(0, 255, 136, 0.15);
+    }
+    50% {
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+    }
   }
 
   .cursor-mode-btn {
@@ -1903,16 +1963,32 @@
     animation: none;
   }
 
-  .hand-icon { width: 18px; height: 18px; z-index: 1; }
+  .hand-icon {
+    width: 18px;
+    height: 18px;
+    z-index: 1;
+  }
 
   .loading-dot {
-    position: absolute; top: 2px; right: 2px;
-    width: 6px; height: 6px; border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
     background: rgba(255, 200, 0, 0.8);
     animation: blink 0.8s infinite;
   }
 
-  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+  @keyframes blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.2;
+    }
+  }
 
   .gaze-runtime-chip {
     display: flex;
@@ -1959,12 +2035,17 @@
   }
 
   .gesture-label {
-    display: flex; align-items: center; gap: 4px;
-    padding: 3px 10px; border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 12px;
     background: rgba(180, 120, 255, 0.1);
     border: 1px solid rgba(180, 120, 255, 0.3);
-    font-size: 11px; color: rgba(180, 120, 255, 0.9);
-    white-space: nowrap; animation: fadeIn 0.2s ease;
+    font-size: 11px;
+    color: rgba(180, 120, 255, 0.9);
+    white-space: nowrap;
+    animation: fadeIn 0.2s ease;
   }
 
   .gesture-label.high-conf {
@@ -1973,17 +2054,32 @@
     color: rgba(0, 255, 136, 0.9);
   }
 
-  .gesture-emoji { font-size: 14px; }
-  .gesture-name { text-transform: capitalize; letter-spacing: 0.3px; }
+  .gesture-emoji {
+    font-size: 14px;
+  }
+  .gesture-name {
+    text-transform: capitalize;
+    letter-spacing: 0.3px;
+  }
 
-  @keyframes fadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
 
   /* Gesture History */
   .gesture-history {
-    display: flex; gap: 2px;
+    display: flex;
+    gap: 2px;
     padding: 2px 6px;
     border-radius: 10px;
-    background: rgba(255,255,255,0.03);
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .history-emoji {
@@ -1991,60 +2087,99 @@
     opacity: 0.5;
     transition: opacity 0.3s;
   }
-  .history-emoji:last-child { opacity: 1; }
+  .history-emoji:last-child {
+    opacity: 1;
+  }
 
   /* Camera PiP */
   .camera-pip {
-    position: fixed; bottom: 80px; right: 16px;
-    width: 220px; height: 165px;
-    border-radius: 12px; overflow: hidden;
+    position: fixed;
+    bottom: 80px;
+    right: 16px;
+    width: 220px;
+    height: 165px;
+    border-radius: 12px;
+    overflow: hidden;
     border: 2px solid rgba(180, 120, 255, 0.3);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(180, 120, 255, 0.1);
-    z-index: 1000; transition: border-color 0.3s;
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.5),
+      0 0 20px rgba(180, 120, 255, 0.1);
+    z-index: 1000;
+    transition: border-color 0.3s;
   }
 
   .camera-pip.gesture-detected,
   .camera-pip.hand-detected {
     border-color: rgba(0, 255, 136, 0.6);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 255, 136, 0.15);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.5),
+      0 0 20px rgba(0, 255, 136, 0.15);
   }
 
   .cam-video {
-    width: 100%; height: 100%;
-    object-fit: cover; transform: scaleX(-1);
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
   }
 
-  .cam-overlay, .cam-trail {
-    position: absolute; inset: 0;
-    width: 100%; height: 100%;
+  .cam-overlay,
+  .cam-trail {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     transform: scaleX(-1);
     pointer-events: none;
   }
 
   .pip-close {
-    position: absolute; top: 4px; right: 4px;
-    width: 20px; height: 20px; border-radius: 50%;
-    border: none; background: rgba(0,0,0,0.6);
-    color: white; font-size: 12px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; z-index: 2;
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
   }
 
   .pip-gesture-tag {
-    position: absolute; bottom: 6px; left: 50%;
+    position: absolute;
+    bottom: 6px;
+    left: 50%;
     transform: translateX(-50%);
-    padding: 2px 10px; border-radius: 8px;
-    background: rgba(0,0,0,0.7); color: rgba(0, 255, 136, 0.9);
-    font-size: 11px; font-family: "Inter", sans-serif;
-    text-transform: capitalize; z-index: 2;
-    display: flex; align-items: center; gap: 4px;
+    padding: 2px 10px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.7);
+    color: rgba(0, 255, 136, 0.9);
+    font-size: 11px;
+    font-family: "Inter", sans-serif;
+    text-transform: capitalize;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
 
   .pip-badge {
-    position: absolute; top: 4px; left: 4px;
-    padding: 1px 6px; border-radius: 6px;
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    padding: 1px 6px;
+    border-radius: 6px;
     background: rgba(180, 120, 255, 0.3);
-    color: rgba(255,255,255,0.7); font-size: 8px;
-    font-family: "Inter", sans-serif; letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 8px;
+    font-family: "Inter", sans-serif;
+    letter-spacing: 0.5px;
     z-index: 2;
   }
 
@@ -2088,7 +2223,9 @@
   }
 
   .gesture-error {
-    font-size: 10px; color: rgba(255, 80, 80, 0.8); max-width: 160px;
+    font-size: 10px;
+    color: rgba(255, 80, 80, 0.8);
+    max-width: 160px;
   }
 
   .gesture-workflow-feedback {

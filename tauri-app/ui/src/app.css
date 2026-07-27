@@ -1,4 +1,4 @@
-@import './styles/highlight.css';
+@import "./styles/highlight.css";
 :root {
   --bg-primary: #0f0f14;
   --bg-secondary: #16161e;
@@ -48,7 +48,9 @@
   box-sizing: border-box;
 }
 
-html, body, #app {
+html,
+body,
+#app {
   height: 100%;
   overflow: hidden;
   font-family: var(--font-sans);
@@ -59,11 +61,22 @@ html, body, #app {
 
 body {
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    border-color 0.3s ease;
 }
 
-#app, header, sidebar, main, div, button {
-  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+#app,
+header,
+sidebar,
+main,
+div,
+button {
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    border-color 0.3s ease;
 }
 
 ::-webkit-scrollbar {
@@ -92,7 +105,8 @@ button {
   color: inherit;
 }
 
-input, textarea {
+input,
+textarea {
   font-family: inherit;
   outline: none;
   border: none;

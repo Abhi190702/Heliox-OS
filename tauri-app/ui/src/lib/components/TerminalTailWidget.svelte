@@ -17,15 +17,11 @@
   }
   onMount(() => {
     loadLogs();
-    const interval =
-    setInterval(
-      loadLogs,
-      2000
-    );
-  return () =>
-    clearInterval(interval);
+    const interval = setInterval(loadLogs, 2000);
+    return () => clearInterval(interval);
   });
 </script>
+
 <div class="terminal-card">
   <WidgetCard title="Terminal Tail" color="#8b5cf6">
     <div class="terminal-content">
@@ -41,15 +37,16 @@
     </div>
   </WidgetCard>
 </div>
+
 <style>
   .terminal-card {
     background: #0b1020;
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 22px;
-  padding: 20px;
-  min-height: 450px;
-  color: white;
-  height: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 22px;
+    padding: 20px;
+    min-height: 450px;
+    color: white;
+    height: 100%;
   }
   .terminal-content {
     display: flex;

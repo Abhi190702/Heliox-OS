@@ -9,16 +9,20 @@
   let animId = 0;
 
   interface Node {
-    x: number; y: number;
-    vx: number; vy: number;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
     radius: number;
-    pulse: number; pulseSpeed: number;
+    pulse: number;
+    pulseSpeed: number;
   }
 
   const NODE_COUNT = 35;
   const CONNECTION_DIST = 120;
   let nodes: Node[] = [];
-  let mouseX = -100, mouseY = -100;
+  let mouseX = -100,
+    mouseY = -100;
 
   function initNodes(w: number, h: number) {
     nodes = [];
@@ -61,7 +65,7 @@
       const dy = node.y - mouseY;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < 80 && dist > 0) {
-        const force = (80 - dist) / 80 * 0.5;
+        const force = ((80 - dist) / 80) * 0.5;
         node.vx += (dx / dist) * force;
         node.vy += (dy / dist) * force;
       }

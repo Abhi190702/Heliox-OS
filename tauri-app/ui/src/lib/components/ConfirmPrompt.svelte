@@ -8,8 +8,14 @@
     oncancel: () => void;
   }
 
-  let { message, confirmLabel = "Confirm", cancelLabel = "Cancel", danger = false, onconfirm, oncancel }: Props =
-    $props();
+  let {
+    message,
+    confirmLabel = "Confirm",
+    cancelLabel = "Cancel",
+    danger = false,
+    onconfirm,
+    oncancel,
+  }: Props = $props();
 </script>
 
 <div class="confirm-overlay">

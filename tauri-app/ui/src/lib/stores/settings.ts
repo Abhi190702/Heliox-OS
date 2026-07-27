@@ -83,7 +83,7 @@ const defaultSettings: PilotSettings = {
     budget_monthly_limit_usd: 10.0,
     max_tokens_per_action: 6000,
     max_tokens_per_task: 50000,
-    max_usd_per_task: 0.10,
+    max_usd_per_task: 0.1,
     max_consecutive_failures: 3,
   },
   security: {
@@ -127,9 +127,7 @@ const defaultSettings: PilotSettings = {
   },
   first_run_complete: false,
   theme: "dark",
-  hotkey: typeof navigator !== "undefined" && navigator.platform.includes("Mac") 
-    ? "Cmd+Space" 
-    : "Ctrl+Space", // Default configuration set to dark mode
+  hotkey: typeof navigator !== "undefined" && navigator.platform.includes("Mac") ? "Cmd+Space" : "Ctrl+Space", // Default configuration set to dark mode
 };
 
 function createSettings() {
@@ -157,19 +155,25 @@ function createSettings() {
         // Apply detected system preference mode on fresh startup instances
         update((s) => ({ ...s, theme: getSystemTheme() }));
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     call("get_config")
       .then((config) => {
         const fullConfig = config as PilotSettings;
         // Keep localized store UI theme value if backend daemon returns empty config properties
         if (!fullConfig.theme) {
-          subscribe(s => { fullConfig.theme = s.theme; })();
+          subscribe((s) => {
+            fullConfig.theme = s.theme;
+          })();
         }
         set(fullConfig);
         try {
           localStorage.setItem("heliox_settings", JSON.stringify(fullConfig));
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       })
       .catch(() => {});
   }
@@ -208,7 +212,9 @@ function createSettings() {
         stored[section] = { ...(stored[section] || {}), ...values };
       }
       localStorage.setItem("heliox_settings", JSON.stringify(stored));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     if (!options.requireDaemon) {
       try {
@@ -250,21 +256,21 @@ function createSettings() {
     });
   }
   async function reset() {
-  // Reset app state immediately
-  set(defaultSettings);
+    // Reset app state immediately
+    set(defaultSettings);
 
-  // Remove cached local settings
-  try {
-    localStorage.removeItem("heliox_settings");
-  } catch {
-    /* ignore */
+    // Remove cached local settings
+    try {
+      localStorage.removeItem("heliox_settings");
+    } catch {
+      /* ignore */
+    }
+
+    // Tell backend/daemon to reset config
+    call("reset_config").catch((err) => {
+      console.warn("Failed to reset backend config:", err);
+    });
   }
-
-  // Tell backend/daemon to reset config
-  call("reset_config").catch((err) => {
-    console.warn("Failed to reset backend config:", err);
-  });
-}
 
   return {
     subscribe,

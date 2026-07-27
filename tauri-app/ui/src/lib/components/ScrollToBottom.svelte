@@ -9,13 +9,7 @@
   let { show, onclick }: Props = $props();
 </script>
 
-<button
-  class="scroll-fab"
-  class:visible={show}
-  aria-label="Scroll to bottom"
-  title="Scroll to bottom"
-  {onclick}
->
+<button class="scroll-fab" class:visible={show} aria-label="Scroll to bottom" title="Scroll to bottom" {onclick}>
   <ArrowDown size={18} />
 </button>
 
@@ -35,7 +29,9 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     opacity: 0;
     transform: translateY(8px);
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    transition:
+      opacity 0.2s ease,
+      transform 0.2s ease;
     pointer-events: none;
     z-index: 10;
   }

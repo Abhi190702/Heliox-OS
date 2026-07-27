@@ -11,9 +11,7 @@ export interface GestureWorkflowPolicy {
 
 type DaemonCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
-export function activeGestureWorkflowBindings(
-  policy: GestureWorkflowPolicy,
-): Record<string, string> {
+export function activeGestureWorkflowBindings(policy: GestureWorkflowPolicy): Record<string, string> {
   if (!policy.enabled || !Array.isArray(policy.bindings)) return {};
   return Object.fromEntries(
     policy.bindings
@@ -25,18 +23,11 @@ export function activeGestureWorkflowBindings(
           binding.gesture_name.trim() &&
           binding.goal_template.trim(),
       )
-      .map((binding) => [
-        binding.gesture_name.trim(),
-        binding.goal_template.trim(),
-      ]),
+      .map((binding) => [binding.gesture_name.trim(), binding.goal_template.trim()]),
   );
 }
 
-export async function submitGestureWorkflow(
-  call: DaemonCall,
-  gestureName: string,
-  goal: string,
-): Promise<string> {
+export async function submitGestureWorkflow(call: DaemonCall, gestureName: string, goal: string): Promise<string> {
   const result = (await call("voice_gesture_workflow_submit", {
     goal,
     invocation_source: "gesture",
@@ -52,10 +43,7 @@ export async function controlGestureWorkflow(
   intent: "continue" | "cancel",
   workflowId: string,
 ): Promise<string> {
-  const method =
-    intent === "continue"
-      ? "voice_gesture_workflow_resume"
-      : "voice_gesture_workflow_cancel";
+  const method = intent === "continue" ? "voice_gesture_workflow_resume" : "voice_gesture_workflow_cancel";
   const result = (await call(method, { workflow_id: workflowId })) as {
     resumed?: boolean;
     cancelled?: boolean;
@@ -63,12 +51,7 @@ export async function controlGestureWorkflow(
   };
   const completed = intent === "continue" ? result.resumed : result.cancelled;
   if (!completed) {
-    throw new Error(
-      result.message ||
-        `Workflow was not ${intent === "continue" ? "resumed" : "cancelled"}`,
-    );
+    throw new Error(result.message || `Workflow was not ${intent === "continue" ? "resumed" : "cancelled"}`);
   }
-  return intent === "continue"
-    ? "Gesture workflow resumed"
-    : "Gesture workflow cancelled";
+  return intent === "continue" ? "Gesture workflow resumed" : "Gesture workflow cancelled";
 }

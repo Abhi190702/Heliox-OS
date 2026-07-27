@@ -1,6 +1,6 @@
 <script lang="ts">
   import { settings } from "../stores/settings";
-  import { _, locale } from 'svelte-i18n';
+  import { _, locale } from "svelte-i18n";
   import { session } from "../stores/session";
   import { call } from "../api/daemon";
   import { invoke } from "../api/invoke";
@@ -16,15 +16,8 @@
   import NarrationPanel from "./NarrationPanel.svelte";
   import SupervisionPanel from "./SupervisionPanel.svelte";
   import { getSharedGestureCalibrationStore } from "../gesture/calibration";
-  import {
-    gazeRuntime,
-    resetGazeRuntime,
-  } from "../stores/gazeRuntime";
-  import {
-    defaultHotkey,
-    isNativeTauriRuntime,
-    normalizeHotkeyValue,
-  } from "../hotkey";
+  import { gazeRuntime, resetGazeRuntime } from "../stores/gazeRuntime";
+  import { defaultHotkey, isNativeTauriRuntime, normalizeHotkeyValue } from "../hotkey";
   import { speakText, stopSpeech } from "../utils/tts";
 
   let {
@@ -80,12 +73,14 @@
   let speechToast = $state("");
   let speechSaving = $state(false);
   let speechTesting = $state(false);
-  let audioInputDevices = $state<Array<{
-    id: string;
-    name: string;
-    hostapi: string;
-    is_default: boolean;
-  }>>([]);
+  let audioInputDevices = $state<
+    Array<{
+      id: string;
+      name: string;
+      hostapi: string;
+      is_default: boolean;
+    }>
+  >([]);
   let audioInputMessage = $state("");
 
   $effect(() => {
@@ -103,26 +98,30 @@
     gemini: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
     openai: ["gpt-4o", "gpt-4o-mini", "o1", "o3-mini"],
     claude: ["claude-3-7-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
-    meta: ["muse-spark-1.1"]
+    meta: ["muse-spark-1.1"],
   };
 
   let availableOllamaModels = $state<string[]>([]);
 
   $effect(() => {
-    call("list_ollama_models").then((res: any) => {
-      if (res && res.models) {
-        availableOllamaModels = res.models;
-      }
-    }).catch(console.error);
+    call("list_ollama_models")
+      .then((res: any) => {
+        if (res && res.models) {
+          availableOllamaModels = res.models;
+        }
+      })
+      .catch(console.error);
   });
 
   // Load the current hotkey when component mounts
-  invoke("get_hotkey").then((val) => {
-    hotkeyInput = normalizeHotkeyValue(val);
-  }).catch(() => {
-    hotkeyInput = defaultHotkey();
-    hotkeyError = "Could not read the active system shortcut.";
-  });
+  invoke("get_hotkey")
+    .then((val) => {
+      hotkeyInput = normalizeHotkeyValue(val);
+    })
+    .catch(() => {
+      hotkeyInput = defaultHotkey();
+      hotkeyError = "Could not read the active system shortcut.";
+    });
 
   async function saveHotkey() {
     hotkeyError = "";
@@ -143,9 +142,7 @@
       setTimeout(() => (hotkeySaved = false), 3000);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
-      hotkeyError = detail
-        ? `Shortcut was not changed: ${detail}`
-        : "Invalid shortcut. Try Ctrl+Space or Alt+H.";
+      hotkeyError = detail ? `Shortcut was not changed: ${detail}` : "Invalid shortcut. Try Ctrl+Space or Alt+H.";
     }
   }
 
@@ -202,19 +199,16 @@
       }
     } catch (err) {
       elevationRequesting = false;
-      elevationMessage = err instanceof Error
-        ? `Administrator restart failed: ${err.message}`
-        : "Administrator restart failed. The existing daemon is still running.";
+      elevationMessage =
+        err instanceof Error
+          ? `Administrator restart failed: ${err.message}`
+          : "Administrator restart failed. The existing daemon is still running.";
     }
   }
 
   async function applyRootToggle(turningOn: boolean) {
     rootSaving = true;
-    const synced = await settings.updateSection(
-      "security",
-      { root_enabled: turningOn },
-      { requireDaemon: true },
-    );
+    const synced = await settings.updateSection("security", { root_enabled: turningOn }, { requireDaemon: true });
     rootSaving = false;
 
     if (!synced) {
@@ -243,16 +237,16 @@
     if (turningOn) {
       askConfirm(
         "⚠️ ENABLE ROOT ACCESS?\n\n" +
-        "This unlocks Heliox's full power:\n" +
-        "• Admin/sudo shell commands\n" +
-        "• System service management\n" +
-        "• Protected file modifications\n" +
-        "• Registry & disk-level operations\n\n" +
-        "Actions requiring elevated privileges will no longer be blocked by Heliox policy.\n" +
-        "The operating system may still deny them unless the daemon is elevated.\n" +
-        "Only enable this if you trust the AI agent with system-level access.",
+          "This unlocks Heliox's full power:\n" +
+          "• Admin/sudo shell commands\n" +
+          "• System service management\n" +
+          "• Protected file modifications\n" +
+          "• Registry & disk-level operations\n\n" +
+          "Actions requiring elevated privileges will no longer be blocked by Heliox policy.\n" +
+          "The operating system may still deny them unless the daemon is elevated.\n" +
+          "Only enable this if you trust the AI agent with system-level access.",
         () => applyRootToggle(true),
-        true
+        true,
       );
       return;
     }
@@ -276,9 +270,9 @@
 
     await refreshSnapshotRuntime();
     snapshotToast = turningOn
-      ? (snapshotRuntime?.ready
+      ? snapshotRuntime?.ready
         ? "Auto-Snapshot enabled. The snapshot backend is ready."
-        : "Auto-Snapshot enabled, but its backend is not ready. Destructive actions will be blocked.")
+        : "Auto-Snapshot enabled, but its backend is not ready. Destructive actions will be blocked."
       : "Auto-Snapshot disabled. Confirmed destructive actions can run without a rollback point.";
     setTimeout(() => (snapshotToast = ""), 5000);
   }
@@ -289,7 +283,7 @@
     if (!turningOn) {
       askConfirm(
         "DISABLE AUTO-SNAPSHOT?\n\n" +
-        "Destructive actions will be able to run after confirmation without first creating a rollback point.",
+          "Destructive actions will be able to run after confirmation without first creating a rollback point.",
         () => applyAutoSnapshotToggle(false),
         true,
       );
@@ -304,14 +298,10 @@
     if (backend === "timeshift") return "Timeshift";
     return "No backend";
   }
- 
+
   async function applyDryRunToggle(turningOn: boolean) {
     dryRunSaving = true;
-    const synced = await settings.updateSection(
-      "security",
-      { dry_run: turningOn },
-      { requireDaemon: true },
-    );
+    const synced = await settings.updateSection("security", { dry_run: turningOn }, { requireDaemon: true });
     dryRunSaving = false;
 
     if (!synced) {
@@ -332,7 +322,7 @@
     if (!turningOn) {
       askConfirm(
         "RETURN TO LIVE EXECUTION?\n\n" +
-        "Future approved plans can change the operating system, files, processes, and browser state.",
+          "Future approved plans can change the operating system, files, processes, and browser state.",
         () => applyDryRunToggle(false),
         true,
       );
@@ -375,9 +365,7 @@
       audioInputMessage = result.message ?? "";
     } catch (err) {
       audioInputDevices = [];
-      audioInputMessage = err instanceof Error
-        ? err.message
-        : "Could not enumerate microphone inputs.";
+      audioInputMessage = err instanceof Error ? err.message : "Could not enumerate microphone inputs.";
     }
   }
 
@@ -388,11 +376,7 @@
   async function updateAudioInput(e: Event) {
     const val = (e.target as HTMLInputElement).value;
     speechSaving = true;
-    const synced = await settings.updateSection(
-      "voice",
-      { input_device: val },
-      { requireDaemon: true },
-    );
+    const synced = await settings.updateSection("voice", { input_device: val }, { requireDaemon: true });
     speechSaving = false;
     speechToast = synced
       ? "Microphone input saved. Restart Heliox Active to use it."
@@ -403,11 +387,7 @@
   async function updateTtsEngine(e: Event) {
     const val = (e.target as HTMLInputElement).value;
     speechSaving = true;
-    const synced = await settings.updateSection(
-      "voice",
-      { tts_engine: val },
-      { requireDaemon: true },
-    );
+    const synced = await settings.updateSection("voice", { tts_engine: val }, { requireDaemon: true });
     speechSaving = false;
     speechToast = synced
       ? `Speech engine changed to ${val === "pocket_tts" ? "Pocket TTS" : "OS Voice"}.`
@@ -418,11 +398,7 @@
   async function updateTtsVoice(e: Event) {
     const val = (e.target as HTMLInputElement).value;
     speechSaving = true;
-    const synced = await settings.updateSection(
-      "voice",
-      { tts_voice: val },
-      { requireDaemon: true },
-    );
+    const synced = await settings.updateSection("voice", { tts_voice: val }, { requireDaemon: true });
     speechSaving = false;
     speechToast = synced
       ? `Pocket TTS voice changed to ${val}.`
@@ -464,11 +440,7 @@
     const parsed = Number.parseInt(input.value, 10);
     const val = Number.isFinite(parsed) ? Math.min(100, Math.max(1, parsed)) : 10;
     input.value = String(val);
-    const synced = await settings.updateSection(
-      "security",
-      { snapshot_retention_count: val },
-      { requireDaemon: true },
-    );
+    const synced = await settings.updateSection("security", { snapshot_retention_count: val }, { requireDaemon: true });
     snapshotToast = synced
       ? `Snapshot retention saved at ${val}.`
       : "Snapshot retention was not changed because the daemon could not confirm it.";
@@ -490,12 +462,12 @@
       enabled: turningOn,
     });
     gestureCursorToast = synced
-      ? (turningOn
+      ? turningOn
         ? "Gesture Cursor enabled. Start the camera and explicitly enter Cursor Mode to control the pointer."
-        : "Gesture Cursor disabled. Any active Cursor Mode was stopped.")
-      : (turningOn
+        : "Gesture Cursor disabled. Any active Cursor Mode was stopped."
+      : turningOn
         ? "Enabled for this UI session, but daemon persistence could not be confirmed."
-        : "Disabled locally; daemon persistence could not be confirmed.");
+        : "Disabled locally; daemon persistence could not be confirmed.";
     setTimeout(() => (gestureCursorToast = ""), 5000);
   }
 
@@ -514,16 +486,12 @@
     if (previewSaving) return;
     const turningOn = !$settings.preview?.enabled;
     previewSaving = true;
-    const synced = await settings.updateSection(
-      "preview",
-      { enabled: turningOn },
-      { requireDaemon: true },
-    );
+    const synced = await settings.updateSection("preview", { enabled: turningOn }, { requireDaemon: true });
     previewSaving = false;
     previewToast = synced
-      ? (turningOn
+      ? turningOn
         ? "Preview gate enabled. Autonomous actions now require a real preview and approval."
-        : "Preview gate disabled.")
+        : "Preview gate disabled."
       : "Preview was not changed because the daemon could not confirm it.";
     setTimeout(() => (previewToast = ""), 5000);
   }
@@ -569,7 +537,9 @@
       gesture_enabled: turningOn,
     });
     gestureCalibrationToast = synced
-      ? (turningOn ? "Adaptive gesture calibration enabled." : "Adaptive gesture calibration paused.")
+      ? turningOn
+        ? "Adaptive gesture calibration enabled."
+        : "Adaptive gesture calibration paused."
       : "Calibration changed locally, but daemon persistence could not be confirmed.";
     setTimeout(() => (gestureCalibrationToast = ""), 5000);
   }
@@ -611,7 +581,9 @@
       { requireDaemon: true },
     );
     voiceCalibrationToast = synced
-      ? (turningOn ? "Adaptive wake-word matching enabled." : "Adaptive wake-word matching disabled.")
+      ? turningOn
+        ? "Adaptive wake-word matching enabled."
+        : "Adaptive wake-word matching disabled."
       : "Wake-word calibration was not changed because the daemon could not confirm it.";
     setTimeout(() => (voiceCalibrationToast = ""), 5000);
   }
@@ -650,10 +622,16 @@
       apiKeySaving = false;
     }
   }
-  
+
   // Function to reset all settings to defaults
   function handleReset() {
-    askConfirm($_('settings.reset_confirm'), () => { void settings.reset(); }, true);
+    askConfirm(
+      $_("settings.reset_confirm"),
+      () => {
+        void settings.reset();
+      },
+      true,
+    );
   }
   function toggleTheme() {
     const currentTheme = $settings.theme || "dark";
@@ -749,14 +727,14 @@
     />
   {/if}
 
-  <h2>{$_('settings.title')}</h2>
+  <h2>{$_("settings.title")}</h2>
 
   <section class="settings-group">
-    <h3>{$_('settings.appearance')}</h3>
+    <h3>{$_("settings.appearance")}</h3>
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.light_mode')}</span>
-        <span class="setting-desc">{$_('settings.light_mode_desc')}</span>
+        <span class="setting-label">{$_("settings.light_mode")}</span>
+        <span class="setting-desc">{$_("settings.light_mode_desc")}</span>
       </div>
       <button
         class="toggle"
@@ -771,8 +749,8 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.language')}</span>
-        <span class="setting-desc">{$_('settings.language_desc')}</span>
+        <span class="setting-label">{$_("settings.language")}</span>
+        <span class="setting-desc">{$_("settings.language_desc")}</span>
       </div>
       <select class="input-md" bind:value={$locale}>
         <option value="en">English</option>
@@ -815,10 +793,14 @@
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.security')}</h3>
+    <h3>{$_("settings.security")}</h3>
 
     {#if rootToast}
-      <div class="root-toast" class:root-toast-warning={rootToastType === 'warning'} class:root-toast-success={rootToastType === 'success'}>
+      <div
+        class="root-toast"
+        class:root-toast-warning={rootToastType === "warning"}
+        class:root-toast-success={rootToastType === "success"}
+      >
         {rootToast}
       </div>
     {/if}
@@ -841,15 +823,15 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.root_access')}</span>
-        <span class="setting-desc">{$_('settings.root_access_desc')}</span>
+        <span class="setting-label">{$_("settings.root_access")}</span>
+        <span class="setting-desc">{$_("settings.root_access_desc")}</span>
         <span class="security-setting-status">
           {$settings.security.root_enabled
-            ? (rootRuntime
-              ? (rootRuntime.process_elevated
+            ? rootRuntime
+              ? rootRuntime.process_elevated
                 ? "Policy enabled · Administrator/root detected"
-                : "Policy enabled · OS elevation not detected")
-              : "Policy enabled · privilege status unavailable")
+                : "Policy enabled · OS elevation not detected"
+              : "Policy enabled · privilege status unavailable"
             : "Policy disabled · root-tier actions blocked"}
         </span>
       </div>
@@ -872,9 +854,9 @@
         <div class="root-status-info">
           <span class="root-status-title">
             {rootRuntime
-              ? (rootRuntime.process_elevated
+              ? rootRuntime.process_elevated
                 ? "Root policy active · OS elevated"
-                : "Root policy active · OS elevation not detected")
+                : "Root policy active · OS elevation not detected"
               : "Root policy active · privilege status unavailable"}
           </span>
           <span class="root-status-desc">
@@ -882,17 +864,11 @@
               "Root-tier actions are allowed by Heliox policy; checking the daemon's OS privileges."}
           </span>
           {#if rootRuntime?.platform === "win32" && !rootRuntime.process_elevated}
-            <span class="root-status-desc">
-              Windows will show a UAC prompt. Heliox stays running if you cancel.
-            </span>
+            <span class="root-status-desc"> Windows will show a UAC prompt. Heliox stays running if you cancel. </span>
           {/if}
         </div>
         {#if rootRuntime?.platform === "win32" && !rootRuntime.process_elevated}
-          <button
-            class="elevation-button"
-            onclick={requestAdministratorRestart}
-            disabled={elevationRequesting}
-          >
+          <button class="elevation-button" onclick={requestAdministratorRestart} disabled={elevationRequesting}>
             {elevationRequesting ? "Waiting for UAC..." : "Restart as Administrator"}
           </button>
         {/if}
@@ -905,15 +881,15 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.auto_snapshot')}</span>
-        <span class="setting-desc">{$_('settings.auto_snapshot_desc')}</span>
+        <span class="setting-label">{$_("settings.auto_snapshot")}</span>
+        <span class="setting-desc">{$_("settings.auto_snapshot_desc")}</span>
         <span class="security-setting-status">
           {$settings.security.snapshot_on_destructive
-            ? (snapshotRuntime
-              ? (snapshotRuntime.ready
+            ? snapshotRuntime
+              ? snapshotRuntime.ready
                 ? `Protection ready · ${snapshotBackendLabel(snapshotRuntime.backend)}`
-                : `Enabled but unavailable · ${snapshotBackendLabel(snapshotRuntime.backend)}`)
-              : "Enabled · backend status unavailable")
+                : `Enabled but unavailable · ${snapshotBackendLabel(snapshotRuntime.backend)}`
+              : "Enabled · backend status unavailable"
             : "Disabled · no automatic rollback point"}
         </span>
       </div>
@@ -951,8 +927,8 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.dry_run')}</span>
-        <span class="setting-desc">{$_('settings.dry_run_desc')}</span>
+        <span class="setting-label">{$_("settings.dry_run")}</span>
+        <span class="setting-desc">{$_("settings.dry_run_desc")}</span>
         <span class="security-setting-status">
           {$settings.security.dry_run
             ? "Active · every planned action is simulation-only"
@@ -986,8 +962,8 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.snapshot_retention')}</span>
-        <span class="setting-desc">{$_('settings.snapshot_retention_desc')}</span>
+        <span class="setting-label">{$_("settings.snapshot_retention")}</span>
+        <span class="setting-desc">{$_("settings.snapshot_retention_desc")}</span>
         {#if snapshotRuntime}
           <span class="security-setting-status">{snapshotRuntime.retention_detail}</span>
         {/if}
@@ -1006,38 +982,38 @@
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.usage')}</h3>
+    <h3>{$_("settings.usage")}</h3>
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.total_tokens')}</span>
-        <span class="setting-desc">{$_('settings.total_tokens_desc')}</span>
+        <span class="setting-label">{$_("settings.total_tokens")}</span>
+        <span class="setting-desc">{$_("settings.total_tokens_desc")}</span>
       </div>
       <span>{$session.totalTokens}</span>
     </div>
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.estimated_cost')}</span>
-        <span class="setting-desc">{$_('settings.estimated_cost_desc')}</span>
+        <span class="setting-label">{$_("settings.estimated_cost")}</span>
+        <span class="setting-desc">{$_("settings.estimated_cost_desc")}</span>
       </div>
       <span>
-        {$settings.model.provider === "ollama" ? $_('settings.free_local') : `$${$session.estimatedCost.toFixed(4)}`}
+        {$settings.model.provider === "ollama" ? $_("settings.free_local") : `$${$session.estimatedCost.toFixed(4)}`}
       </span>
     </div>
 
     <div class="setting-row">
-      <button class="btn-save" onclick={() => session.resetUsage()}>{$_('settings.reset_usage')}</button>
+      <button class="btn-save" onclick={() => session.resetUsage()}>{$_("settings.reset_usage")}</button>
     </div>
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.screen_vision')}</h3>
+    <h3>{$_("settings.screen_vision")}</h3>
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.capture_interval')}</span>
-        <span class="setting-desc">{$_('settings.capture_interval_desc')}</span>
+        <span class="setting-label">{$_("settings.capture_interval")}</span>
+        <span class="setting-desc">{$_("settings.capture_interval_desc")}</span>
       </div>
       <input
         type="number"
@@ -1052,13 +1028,13 @@
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.gaze_tracking')}</h3>
-    <p class="gesture-cursor-warning">{$_('settings.gaze_tracking_desc')}</p>
+    <h3>{$_("settings.gaze_tracking")}</h3>
+    <p class="gesture-cursor-warning">{$_("settings.gaze_tracking_desc")}</p>
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.gaze_tracking_enabled')}</span>
-        <span class="setting-desc">{$_('settings.gaze_tracking_enabled_desc')}</span>
+        <span class="setting-label">{$_("settings.gaze_tracking_enabled")}</span>
+        <span class="setting-desc">{$_("settings.gaze_tracking_enabled_desc")}</span>
       </div>
       <button
         class="toggle"
@@ -1074,58 +1050,63 @@
     <div
       class="gaze-status-row"
       class:active={$settings.vision?.gaze_tracking_enabled && $gazeRuntime.phase === "active"}
-      class:error={$settings.vision?.gaze_tracking_enabled && ($gazeRuntime.phase === "error" || $gazeRuntime.daemonStatus === "error")}
+      class:error={$settings.vision?.gaze_tracking_enabled &&
+        ($gazeRuntime.phase === "error" || $gazeRuntime.daemonStatus === "error")}
     >
       <span class="gaze-status-dot"></span>
       <div class="gaze-status-copy">
         <strong>
           {#if !$settings.vision?.gaze_tracking_enabled}
-            {$_('settings.gaze_status_off')}
+            {$_("settings.gaze_status_off")}
           {:else if $gazeRuntime.phase === "loading"}
-            {$_('settings.gaze_status_loading')}
+            {$_("settings.gaze_status_loading")}
           {:else if $gazeRuntime.phase === "scanning"}
-            {$_('settings.gaze_status_scanning')}
+            {$_("settings.gaze_status_scanning")}
           {:else if $gazeRuntime.phase === "active" && $gazeRuntime.region}
-            {$_('settings.gaze_status_active')}: {$gazeRuntime.region}
+            {$_("settings.gaze_status_active")}: {$gazeRuntime.region}
             ({Math.round(($gazeRuntime.confidence ?? 0) * 100)}%)
           {:else if $gazeRuntime.phase === "error"}
-            {$_('settings.gaze_status_error')}
+            {$_("settings.gaze_status_error")}
           {:else}
-            {$_('settings.gaze_status_ready')}
+            {$_("settings.gaze_status_ready")}
           {/if}
         </strong>
         <span>
           {#if $settings.vision?.gaze_tracking_enabled && $gazeRuntime.message}
             {$gazeRuntime.message}
           {:else if $settings.vision?.gaze_tracking_enabled}
-            {$_('settings.gaze_status_ready_desc')}
+            {$_("settings.gaze_status_ready_desc")}
           {:else}
-            {$_('settings.gaze_status_off_desc')}
+            {$_("settings.gaze_status_off_desc")}
           {/if}
         </span>
       </div>
       {#if $settings.vision?.gaze_tracking_enabled && !$gazeRuntime.cameraActive}
         <button class="gaze-open-command" onclick={onOpenCommand}>
-          {$_('settings.gaze_open_command')}
+          {$_("settings.gaze_open_command")}
         </button>
       {/if}
     </div>
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.preview')}</h3>
-    <p class="gesture-cursor-warning">{$_('settings.preview_desc')}</p>
+    <h3>{$_("settings.preview")}</h3>
+    <p class="gesture-cursor-warning">{$_("settings.preview_desc")}</p>
 
     {#if previewToast}
-      <div class="root-toast" class:root-toast-success={$settings.preview?.enabled} class:root-toast-warning={!$settings.preview?.enabled}>
+      <div
+        class="root-toast"
+        class:root-toast-success={$settings.preview?.enabled}
+        class:root-toast-warning={!$settings.preview?.enabled}
+      >
         {previewToast}
       </div>
     {/if}
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.preview_enabled')}</span>
-        <span class="setting-desc">{$_('settings.preview_enabled_desc')}</span>
+        <span class="setting-label">{$_("settings.preview_enabled")}</span>
+        <span class="setting-desc">{$_("settings.preview_enabled_desc")}</span>
         <span class="security-setting-status">
           {$settings.preview?.enabled
             ? "Active · autonomous actions fail closed if a real preview is unavailable"
@@ -1146,9 +1127,9 @@
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.gesture_cursor')}</h3>
+    <h3>{$_("settings.gesture_cursor")}</h3>
 
-    <p class="gesture-cursor-warning">{$_('settings.gesture_cursor_warning')}</p>
+    <p class="gesture-cursor-warning">{$_("settings.gesture_cursor_warning")}</p>
 
     {#if gestureCursorToast}
       <div class="root-toast root-toast-warning">{gestureCursorToast}</div>
@@ -1156,8 +1137,8 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.gesture_cursor_enabled')}</span>
-        <span class="setting-desc">{$_('settings.gesture_cursor_enabled_desc')}</span>
+        <span class="setting-label">{$_("settings.gesture_cursor_enabled")}</span>
+        <span class="setting-desc">{$_("settings.gesture_cursor_enabled_desc")}</span>
         <span class="security-setting-status">
           {$settings.gesture_cursor?.enabled
             ? "Enabled · cursor movement still requires the visible Cursor Mode button"
@@ -1178,8 +1159,8 @@
     {#if $settings.gesture_cursor?.enabled}
       <div class="setting-row">
         <div class="setting-info">
-          <span class="setting-label">{$_('settings.gesture_cursor_sensitivity')}</span>
-          <span class="setting-desc">{$_('settings.gesture_cursor_sensitivity_desc')}</span>
+          <span class="setting-label">{$_("settings.gesture_cursor_sensitivity")}</span>
+          <span class="setting-desc">{$_("settings.gesture_cursor_sensitivity_desc")}</span>
         </div>
         <input
           type="number"
@@ -1194,8 +1175,8 @@
 
       <div class="setting-row">
         <div class="setting-info">
-          <span class="setting-label">{$_('settings.gesture_cursor_blend')}</span>
-          <span class="setting-desc">{$_('settings.gesture_cursor_blend_desc')}</span>
+          <span class="setting-label">{$_("settings.gesture_cursor_blend")}</span>
+          <span class="setting-desc">{$_("settings.gesture_cursor_blend_desc")}</span>
         </div>
         <input
           type="number"
@@ -1211,8 +1192,8 @@
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.gesture_calibration')}</h3>
-    <p class="gesture-cursor-warning">{$_('settings.gesture_calibration_desc')}</p>
+    <h3>{$_("settings.gesture_calibration")}</h3>
+    <p class="gesture-cursor-warning">{$_("settings.gesture_calibration_desc")}</p>
 
     {#if gestureCalibrationToast}
       <div class="root-toast root-toast-success">{gestureCalibrationToast}</div>
@@ -1220,8 +1201,8 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.gesture_calibration_enabled')}</span>
-        <span class="setting-desc">{$_('settings.gesture_calibration_enabled_desc')}</span>
+        <span class="setting-label">{$_("settings.gesture_calibration_enabled")}</span>
+        <span class="setting-desc">{$_("settings.gesture_calibration_enabled_desc")}</span>
         <span class="security-setting-status">
           {$settings.adaptive_calibration?.gesture_enabled
             ? "Learning active · bounded thresholds update after confirmed samples"
@@ -1241,22 +1222,24 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.gesture_calibration_learned')}</span>
+        <span class="setting-label">{$_("settings.gesture_calibration_learned")}</span>
         <span class="setting-desc">
           {#if gestureCalibrationSnapshot.pinchSampleCount === 0 && gestureCalibrationSnapshot.thumbSampleCount === 0}
-            {$_('settings.gesture_calibration_no_data')}
+            {$_("settings.gesture_calibration_no_data")}
           {:else}
-            {$_('settings.gesture_calibration_pinch_samples')}: {gestureCalibrationSnapshot.pinchSampleCount} · {$_('settings.gesture_calibration_thumb_samples')}: {gestureCalibrationSnapshot.thumbSampleCount}
+            {$_("settings.gesture_calibration_pinch_samples")}: {gestureCalibrationSnapshot.pinchSampleCount} · {$_(
+              "settings.gesture_calibration_thumb_samples",
+            )}: {gestureCalibrationSnapshot.thumbSampleCount}
           {/if}
         </span>
       </div>
-      <button class="btn-save" onclick={resetGestureCalibration}>{$_('settings.gesture_calibration_reset')}</button>
+      <button class="btn-save" onclick={resetGestureCalibration}>{$_("settings.gesture_calibration_reset")}</button>
     </div>
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.voice_calibration')}</h3>
-    <p class="gesture-cursor-warning">{$_('settings.voice_calibration_desc')}</p>
+    <h3>{$_("settings.voice_calibration")}</h3>
+    <p class="gesture-cursor-warning">{$_("settings.voice_calibration_desc")}</p>
 
     {#if voiceCalibrationToast}
       <div class="root-toast root-toast-success">{voiceCalibrationToast}</div>
@@ -1264,8 +1247,8 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.voice_calibration_enabled')}</span>
-        <span class="setting-desc">{$_('settings.voice_calibration_enabled_desc')}</span>
+        <span class="setting-label">{$_("settings.voice_calibration_enabled")}</span>
+        <span class="setting-desc">{$_("settings.voice_calibration_enabled_desc")}</span>
         <span class="security-setting-status">
           {$settings.adaptive_calibration?.voice_wake_word_enabled
             ? "Active · the daemon's Hey Heliox listener can use promoted variants"
@@ -1285,29 +1268,34 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.voice_calibration_learned')}</span>
+        <span class="setting-label">{$_("settings.voice_calibration_learned")}</span>
         <span class="setting-desc">
           {#if !voiceVariantsAvailable}
             Calibration status unavailable
           {:else if voiceVariants.length === 0}
-            {$_('settings.voice_calibration_no_data')}
+            {$_("settings.voice_calibration_no_data")}
           {:else}
             {#each voiceVariants as variant}
-              "{variant.text}" ({variant.confirmed_count}/{voicePromotionThreshold}){#if variant !== voiceVariants[voiceVariants.length - 1]}, {/if}
+              "{variant.text}" ({variant.confirmed_count}/{voicePromotionThreshold}){#if variant !== voiceVariants[voiceVariants.length - 1]},
+              {/if}
             {/each}
           {/if}
         </span>
       </div>
-      <button class="btn-save" onclick={resetVoiceCalibration}>{$_('settings.voice_calibration_reset')}</button>
+      <button class="btn-save" onclick={resetVoiceCalibration}>{$_("settings.voice_calibration_reset")}</button>
     </div>
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.voice_speech')}</h3>
-    <p class="gesture-cursor-warning">{$_('settings.voice_speech_desc')}</p>
+    <h3>{$_("settings.voice_speech")}</h3>
+    <p class="gesture-cursor-warning">{$_("settings.voice_speech_desc")}</p>
 
     {#if speechToast}
-      <div class="root-toast" class:root-toast-success={!speechToast.includes("not changed") && !speechToast.includes("failed")} class:root-toast-warning={speechToast.includes("not changed") || speechToast.includes("failed")}>
+      <div
+        class="root-toast"
+        class:root-toast-success={!speechToast.includes("not changed") && !speechToast.includes("failed")}
+        class:root-toast-warning={speechToast.includes("not changed") || speechToast.includes("failed")}
+      >
         {speechToast}
       </div>
     {/if}
@@ -1337,11 +1325,16 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.tts_engine')}</span>
-        <span class="setting-desc">{$_('settings.tts_engine_desc')}</span>
+        <span class="setting-label">{$_("settings.tts_engine")}</span>
+        <span class="setting-desc">{$_("settings.tts_engine_desc")}</span>
         <span class="security-setting-status">Used by voice replies, live narration, supervision, and this test.</span>
       </div>
-      <select class="input-md" value={$settings.voice?.tts_engine ?? "pocket_tts"} onchange={updateTtsEngine} disabled={speechSaving || speechTesting}>
+      <select
+        class="input-md"
+        value={$settings.voice?.tts_engine ?? "pocket_tts"}
+        onchange={updateTtsEngine}
+        disabled={speechSaving || speechTesting}
+      >
         <option value="pocket_tts">Pocket TTS</option>
         <option value="os_native">OS Voice</option>
       </select>
@@ -1349,8 +1342,8 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.tts_voice')}</span>
-        <span class="setting-desc">{$_('settings.tts_voice_desc')}</span>
+        <span class="setting-label">{$_("settings.tts_voice")}</span>
+        <span class="setting-desc">{$_("settings.tts_voice_desc")}</span>
       </div>
       <select
         class="input-md"
@@ -1378,41 +1371,43 @@
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.model')}</h3>
+    <h3>{$_("settings.model")}</h3>
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.provider')}</span>
-        <span class="setting-desc">{$_('settings.provider_desc')}</span>
+        <span class="setting-label">{$_("settings.provider")}</span>
+        <span class="setting-desc">{$_("settings.provider_desc")}</span>
       </div>
       <div class="btn-group">
-        <button class:active={$settings.model.provider === "ollama"} onclick={() => setProvider("ollama")}>Ollama</button>
+        <button class:active={$settings.model.provider === "ollama"} onclick={() => setProvider("ollama")}
+          >Ollama</button
+        >
         <button class:active={$settings.model.provider === "cloud"} onclick={() => setProvider("cloud")}>Cloud</button>
       </div>
     </div>
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.reasoning_mode')}</span>
-        <span class="setting-desc">{$_('settings.reasoning_mode_desc')}</span>
+        <span class="setting-label">{$_("settings.reasoning_mode")}</span>
+        <span class="setting-desc">{$_("settings.reasoning_mode_desc")}</span>
       </div>
       <div class="btn-group">
-        <button class:active={$settings.model.mode === "lightweight"} onclick={() => setMode("lightweight")}>{$_('settings.light')}</button>
-        <button class:active={$settings.model.mode === "full"} onclick={() => setMode("full")}>{$_('settings.full')}</button>
+        <button class:active={$settings.model.mode === "lightweight"} onclick={() => setMode("lightweight")}
+          >{$_("settings.light")}</button
+        >
+        <button class:active={$settings.model.mode === "full"} onclick={() => setMode("full")}
+          >{$_("settings.full")}</button
+        >
       </div>
     </div>
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.ollama_model')}</span>
-        <span class="setting-desc">{$_('settings.ollama_model_desc')}</span>
+        <span class="setting-label">{$_("settings.ollama_model")}</span>
+        <span class="setting-desc">{$_("settings.ollama_model_desc")}</span>
       </div>
       {#if availableOllamaModels.length > 0}
-        <select
-          class="input-md"
-          value={$settings.model.ollama_model}
-          onchange={updateOllamaModel}
-        >
+        <select class="input-md" value={$settings.model.ollama_model} onchange={updateOllamaModel}>
           {#each availableOllamaModels as modelOption}
             <option value={modelOption}>{modelOption}</option>
           {/each}
@@ -1430,8 +1425,8 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.gpu_memory')}</span>
-        <span class="setting-desc">{$_('settings.gpu_memory_desc')}</span>
+        <span class="setting-label">{$_("settings.gpu_memory")}</span>
+        <span class="setting-desc">{$_("settings.gpu_memory_desc")}</span>
       </div>
       <input
         type="number"
@@ -1445,33 +1440,37 @@
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.cloud_api')}</h3>
+    <h3>{$_("settings.cloud_api")}</h3>
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.cloud_provider')}</span>
-        <span class="setting-desc">{$_('settings.cloud_provider_desc')}</span>
+        <span class="setting-label">{$_("settings.cloud_provider")}</span>
+        <span class="setting-desc">{$_("settings.cloud_provider_desc")}</span>
       </div>
       <div class="btn-group">
-        <button class:active={$settings.model.cloud_provider === "gemini"} onclick={() => setCloudProvider("gemini")}>Gemini</button>
-        <button class:active={$settings.model.cloud_provider === "openai"} onclick={() => setCloudProvider("openai")}>OpenAI</button>
-        <button class:active={$settings.model.cloud_provider === "claude"} onclick={() => setCloudProvider("claude")}>Claude</button>
-        <button class:active={$settings.model.cloud_provider === "meta"} onclick={() => setCloudProvider("meta")}>Meta</button>
+        <button class:active={$settings.model.cloud_provider === "gemini"} onclick={() => setCloudProvider("gemini")}
+          >Gemini</button
+        >
+        <button class:active={$settings.model.cloud_provider === "openai"} onclick={() => setCloudProvider("openai")}
+          >OpenAI</button
+        >
+        <button class:active={$settings.model.cloud_provider === "claude"} onclick={() => setCloudProvider("claude")}
+          >Claude</button
+        >
+        <button class:active={$settings.model.cloud_provider === "meta"} onclick={() => setCloudProvider("meta")}
+          >Meta</button
+        >
       </div>
     </div>
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.cloud_model')}</span>
-        <span class="setting-desc">{$_('settings.cloud_model_desc')}</span>
+        <span class="setting-label">{$_("settings.cloud_model")}</span>
+        <span class="setting-desc">{$_("settings.cloud_model_desc")}</span>
       </div>
-      <select
-        class="input-md"
-        value={$settings.model.cloud_model}
-        onchange={updateCloudModel}
-      >
+      <select class="input-md" value={$settings.model.cloud_model} onchange={updateCloudModel}>
         <option value="">Default for provider</option>
-        {#each (cloudModels[$settings.model.cloud_provider || "gemini"] || []) as modelOption}
+        {#each cloudModels[$settings.model.cloud_provider || "gemini"] || [] as modelOption}
           <option value={modelOption}>{modelOption}</option>
         {/each}
       </select>
@@ -1479,36 +1478,39 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.api_key')}</span>
-        <span class="setting-desc">{$_('settings.api_key_desc')}</span>
+        <span class="setting-label">{$_("settings.api_key")}</span>
+        <span class="setting-desc">{$_("settings.api_key_desc")}</span>
       </div>
       <div class="api-key-row">
-        <input type="password" class="input-md" bind:value={apiKeyInput} placeholder={$_('settings.api_key_placeholder')} />
+        <input
+          type="password"
+          class="input-md"
+          bind:value={apiKeyInput}
+          placeholder={$_("settings.api_key_placeholder")}
+        />
         <button class="btn-save" onclick={saveApiKey} disabled={apiKeySaving}>
-          {apiKeySaved ? $_('settings.saved') : apiKeySaving ? $_('settings.saving') : $_('settings.save')}
+          {apiKeySaved ? $_("settings.saved") : apiKeySaving ? $_("settings.saving") : $_("settings.save")}
         </button>
       </div>
     </div>
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.restrictions')}</h3>
+    <h3>{$_("settings.restrictions")}</h3>
 
     {#each restrictionFields as field}
       <div class="restriction-editor">
         <span class="setting-label">{$_(field.labelKey)}</span>
         <div class="restriction-chips">
-          {#each ($settings.restrictions?.[field.key] ?? []) as entry}
+          {#each $settings.restrictions?.[field.key] ?? [] as entry}
             <span class="restriction-chip">
               <code>{entry}</code>
-              <button
-                class="chip-remove"
-                title="Remove"
-                onclick={() => removeRestrictionEntry(field.key, entry)}
-              >&times;</button>
+              <button class="chip-remove" title="Remove" onclick={() => removeRestrictionEntry(field.key, entry)}
+                >&times;</button
+              >
             </span>
           {:else}
-            <span class="restriction-empty">{$_('settings.configured')}: 0</span>
+            <span class="restriction-empty">{$_("settings.configured")}: 0</span>
           {/each}
         </div>
         <div class="restriction-add-row">
@@ -1517,7 +1519,9 @@
             class="input-md"
             placeholder={field.placeholder}
             bind:value={newRestrictionEntry[field.key]}
-            onkeydown={(e) => { if (e.key === "Enter") addRestrictionEntry(field.key); }}
+            onkeydown={(e) => {
+              if (e.key === "Enter") addRestrictionEntry(field.key);
+            }}
           />
           <button class="btn-save" onclick={() => addRestrictionEntry(field.key)}>Add</button>
         </div>
@@ -1581,17 +1585,19 @@
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-label">Budget enforcement</span>
-        <span class="setting-desc">Master switch for all budget checks. When off, none of the limits below are enforced.</span>
+        <span class="setting-desc"
+          >Master switch for all budget checks. When off, none of the limits below are enforced.</span
+        >
       </div>
       <div class="btn-group">
         <button
           class:active={$settings.model.budget_enabled}
-          onclick={() => settings.updateSection("model", { budget_enabled: true })}
-        >On</button>
+          onclick={() => settings.updateSection("model", { budget_enabled: true })}>On</button
+        >
         <button
           class:active={!$settings.model.budget_enabled}
-          onclick={() => settings.updateSection("model", { budget_enabled: false })}
-        >Off</button>
+          onclick={() => settings.updateSection("model", { budget_enabled: false })}>Off</button
+        >
       </div>
     </div>
 
@@ -1606,14 +1612,19 @@
         min="0"
         step="0.5"
         value={$settings.model.budget_monthly_limit_usd}
-        onchange={(e) => settings.updateSection("model", { budget_monthly_limit_usd: parseFloat((e.target as HTMLInputElement).value) || 0 })}
+        onchange={(e) =>
+          settings.updateSection("model", {
+            budget_monthly_limit_usd: parseFloat((e.target as HTMLInputElement).value) || 0,
+          })}
       />
     </div>
 
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-label">Per-action token cap</span>
-        <span class="setting-desc">Maximum estimated input tokens for a single LLM call. Oversized prompts are blocked before being sent.</span>
+        <span class="setting-desc"
+          >Maximum estimated input tokens for a single LLM call. Oversized prompts are blocked before being sent.</span
+        >
       </div>
       <input
         type="number"
@@ -1621,14 +1632,19 @@
         min="0"
         step="500"
         value={$settings.model.max_tokens_per_action}
-        onchange={(e) => settings.updateSection("model", { max_tokens_per_action: parseInt((e.target as HTMLInputElement).value, 10) || 0 })}
+        onchange={(e) =>
+          settings.updateSection("model", {
+            max_tokens_per_action: parseInt((e.target as HTMLInputElement).value, 10) || 0,
+          })}
       />
     </div>
 
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-label">Per-task token cap</span>
-        <span class="setting-desc">Cumulative token budget for a single user task. Halts the task cleanly when exceeded.</span>
+        <span class="setting-desc"
+          >Cumulative token budget for a single user task. Halts the task cleanly when exceeded.</span
+        >
       </div>
       <input
         type="number"
@@ -1636,14 +1652,19 @@
         min="0"
         step="5000"
         value={$settings.model.max_tokens_per_task}
-        onchange={(e) => settings.updateSection("model", { max_tokens_per_task: parseInt((e.target as HTMLInputElement).value, 10) || 0 })}
+        onchange={(e) =>
+          settings.updateSection("model", {
+            max_tokens_per_task: parseInt((e.target as HTMLInputElement).value, 10) || 0,
+          })}
       />
     </div>
 
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-label">Per-task USD cap</span>
-        <span class="setting-desc">Cumulative USD cap per task. Useful for bounding cloud spend on autonomous loops.</span>
+        <span class="setting-desc"
+          >Cumulative USD cap per task. Useful for bounding cloud spend on autonomous loops.</span
+        >
       </div>
       <input
         type="number"
@@ -1651,7 +1672,8 @@
         min="0"
         step="0.01"
         value={$settings.model.max_usd_per_task}
-        onchange={(e) => settings.updateSection("model", { max_usd_per_task: parseFloat((e.target as HTMLInputElement).value) || 0 })}
+        onchange={(e) =>
+          settings.updateSection("model", { max_usd_per_task: parseFloat((e.target as HTMLInputElement).value) || 0 })}
       />
     </div>
 
@@ -1667,37 +1689,40 @@
         max="20"
         step="1"
         value={$settings.model.max_consecutive_failures}
-        onchange={(e) => settings.updateSection("model", { max_consecutive_failures: parseInt((e.target as HTMLInputElement).value, 10) || 1 })}
+        onchange={(e) =>
+          settings.updateSection("model", {
+            max_consecutive_failures: parseInt((e.target as HTMLInputElement).value, 10) || 1,
+          })}
       />
     </div>
   </section>
 
   <!--Adding a reset button to clear all settings and return to defaults, with a confirmation prompt to prevent accidental resets -->
   <section class="settings-group">
-    <h3>{$_('settings.reset_header')}</h3>
+    <h3>{$_("settings.reset_header")}</h3>
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.reset_label')}</span>
+        <span class="setting-label">{$_("settings.reset_label")}</span>
         <span class="setting-desc">
-          {$_('settings.reset_desc')}
+          {$_("settings.reset_desc")}
         </span>
       </div>
 
       <button class="btn-save" onclick={handleReset}>
-        {$_('settings.reset_button')}
+        {$_("settings.reset_button")}
       </button>
     </div>
   </section>
 
   <section class="settings-group">
-    <h3>{$_('settings.debug')}</h3>
+    <h3>{$_("settings.debug")}</h3>
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">{$_('settings.notifications')}</span>
-        <span class="setting-desc">{$_('settings.notifications_desc')}</span>
+        <span class="setting-label">{$_("settings.notifications")}</span>
+        <span class="setting-desc">{$_("settings.notifications_desc")}</span>
       </div>
-      <button class="btn-save" onclick={testNotification}>{$_('settings.test_popup')}</button>
+      <button class="btn-save" onclick={testNotification}>{$_("settings.test_popup")}</button>
     </div>
   </section>
 </div>
@@ -1964,8 +1989,14 @@
   }
 
   @keyframes toastSlide {
-    from { opacity: 0; transform: translateY(-6px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .gesture-cursor-warning {

@@ -25,7 +25,7 @@
 
   onMount(async () => {
     try {
-      const result = await call("list_ollama_models") as { models: string[]; available: boolean };
+      const result = (await call("list_ollama_models")) as { models: string[]; available: boolean };
       ollamaModels = result.models ?? [];
       ollamaAvailable = result.available ?? false;
       if (ollamaModels.length > 0) {
@@ -100,7 +100,10 @@
       {#if step === 0}
         <div class="wizard-step">
           <h2>Welcome to Heliox OS</h2>
-          <p>Heliox OS is your AI system control agent. It lets you control your computer using natural language, voice, or gestures while keeping you in full control.</p>
+          <p>
+            Heliox OS is your AI system control agent. It lets you control your computer using natural language, voice,
+            or gestures while keeping you in full control.
+          </p>
           <p>This setup will configure a few essentials:</p>
           <ul>
             <li>Choose your AI model backend</li>
@@ -109,13 +112,12 @@
           </ul>
           <p class="note">You can change all of these later in Settings.</p>
         </div>
-
       {:else if step === 1}
         <div class="wizard-step">
           <h2>Model Configuration</h2>
 
           <div class="field" role="group" aria-labelledby="provider-label">
-            <label id="provider-label">Primary Provider</label>
+            <span id="provider-label" class="field-label">Primary Provider</span>
             <div class="radio-group">
               <label class="radio-option" class:selected={modelProvider === "ollama"}>
                 <input type="radio" bind:group={modelProvider} value="ollama" />
@@ -145,10 +147,14 @@
                     <option value={m}>{m}</option>
                   {/each}
                 </select>
-                <span class="hint">{ollamaModels.length} model{ollamaModels.length === 1 ? "" : "s"} detected from Ollama</span>
+                <span class="hint"
+                  >{ollamaModels.length} model{ollamaModels.length === 1 ? "" : "s"} detected from Ollama</span
+                >
               {:else if ollamaAvailable}
                 <input id="ollama-model-input" type="text" bind:value={ollamaModel} placeholder="llama3.1:8b" />
-                <span class="hint warning">Ollama is running but no models found. Run <code>ollama pull qwen2.5:7b</code></span>
+                <span class="hint warning"
+                  >Ollama is running but no models found. Run <code>ollama pull qwen2.5:7b</code></span
+                >
               {:else}
                 <input id="ollama-model-input-2" type="text" bind:value={ollamaModel} placeholder="llama3.1:8b" />
                 <span class="hint warning">Ollama is not running. Start it first, or choose Cloud.</span>
@@ -173,7 +179,6 @@
             {/if}
           {/if}
         </div>
-
       {:else if step === 2}
         <div class="wizard-step">
           <h2>Security Boundaries</h2>
@@ -184,8 +189,7 @@
               id="protected-folders"
               bind:value={protectedFolders}
               placeholder={"~/Documents/private\n~/ssh"}
-              rows={4}
-            ></textarea>
+              rows={4}></textarea>
             <span class="hint">One path per line. Heliox OS will never modify files in these folders.</span>
           </div>
 
@@ -207,7 +211,6 @@
             </label>
           </div>
         </div>
-
       {:else}
         <div class="wizard-step">
           <h2>All Set</h2>
@@ -392,6 +395,14 @@
   }
 
   .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+
+  .field-label {
     display: block;
     font-size: 12px;
     font-weight: 600;

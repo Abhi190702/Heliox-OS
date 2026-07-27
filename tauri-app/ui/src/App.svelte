@@ -33,12 +33,12 @@
   import ConnectionBadge from "./lib/components/ConnectionBadge.svelte";
   import HeaderMiniMonitor from "./lib/components/HeaderMiniMonitor.svelte";
   import CommandHistory from "./lib/components/CommandHistory.svelte";
-  import { _, isLoading } from 'svelte-i18n';
+  import { _, isLoading } from "svelte-i18n";
 
   let isDragging = $state(false);
   let activeTab: "chat" | "log" | "dashboard" | "settings" | "plugins" = $state("chat");
   let showWizard = $derived(
-    !$settings.first_run_complete && localStorage.getItem("heliox_first_run_complete") !== "true"
+    !$settings.first_run_complete && localStorage.getItem("heliox_first_run_complete") !== "true",
   );
   let showScrollFAB = $state(false);
   let isAtBottom = $state(true);
@@ -103,7 +103,9 @@
     return "SAFE";
   }
   function actionLabel(action: { action_type: string; dry_run?: boolean }, planDryRun = false): string {
-    return action.dry_run || planDryRun ? `${formatActionType(action.action_type)} (dry run)` : formatActionType(action.action_type);
+    return action.dry_run || planDryRun
+      ? `${formatActionType(action.action_type)} (dry run)`
+      : formatActionType(action.action_type);
   }
   function tierClass(action: { requires_root?: boolean; destructive?: boolean }): string {
     if (action.requires_root) return "tier-root";
@@ -141,14 +143,14 @@
   });
   function exportReActTrace() {
     const traceSteps = $session.messages
-      .filter(m => m.type === "plan" || m.type === "result" || m.type === "error")
-      .map(m => ({
+      .filter((m) => m.type === "plan" || m.type === "result" || m.type === "error")
+      .map((m) => ({
         type: m.type,
         timestamp: m.timestamp,
         ...(m.plan && { plan: m.plan }),
         ...(m.actionResults && { actionResults: m.actionResults }),
         ...(m.verification && { verification: m.verification }),
-        ...(m.text && { text: m.text })
+        ...(m.text && { text: m.text }),
       }));
 
     if (traceSteps.length === 0) {
@@ -160,13 +162,10 @@
       exported_at: new Date().toISOString(),
       version: "1.0",
       total_steps: traceSteps.length,
-      steps: traceSteps
+      steps: traceSteps,
     };
 
-    const blob = new Blob(
-      [JSON.stringify(exportData, null, 2)],
-      { type: "application/json" }
-    );
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -177,31 +176,57 @@
     URL.revokeObjectURL(url);
   }
 </script>
+
 {#if showWizard}
   <SetupWizard oncomplete={onSetupComplete} />
 {/if}
-<main
-  class="window"
-  class:dragging={isDragging}
-  class:hidden-behind-wizard={showWizard}
->
+<main class="window" class:dragging={isDragging} class:hidden-behind-wizard={showWizard}>
   <header
     class="titlebar"
     role="none"
     data-tauri-drag-region
-    onmousedown={() => {isDragging = true}}
-    onmouseup={() => {isDragging = false}}
+    onmousedown={() => {
+      isDragging = true;
+    }}
+    onmouseup={() => {
+      isDragging = false;
+    }}
   >
     <div class="titlebar-left">
       <ArcReactor />
-      <span class="title">{$_('app.title')}</span>
+      <span class="title">{$_("app.title")}</span>
     </div>
     <nav class="tabs">
-      <button class="tab" class:active={activeTab === "chat"} title="Open Command Panel" onclick={() => activeTab = "chat"}>{$_('app.tab_command')}</button>
-      <button class="tab" class:active={activeTab === "log"} title="Open activity log" onclick={() => activeTab = "log"}>{$_('app.tab_activity')}</button>
-      <button class="tab" class:active={activeTab === "dashboard"} title="Open Dashboard" onclick={() => activeTab = "dashboard"}>Dashboard</button>
-      <button class="tab" class:active={activeTab === "plugins"} title="Browse plugin marketplace" onclick={() => activeTab = "plugins"}>{$_('app.tab_plugins')}</button>
-      <button class="tab" class:active={activeTab === "settings"} title="Open Settings" onclick={() => activeTab = "settings"}>{$_('app.tab_settings')}</button>
+      <button
+        class="tab"
+        class:active={activeTab === "chat"}
+        title="Open Command Panel"
+        onclick={() => (activeTab = "chat")}>{$_("app.tab_command")}</button
+      >
+      <button
+        class="tab"
+        class:active={activeTab === "log"}
+        title="Open activity log"
+        onclick={() => (activeTab = "log")}>{$_("app.tab_activity")}</button
+      >
+      <button
+        class="tab"
+        class:active={activeTab === "dashboard"}
+        title="Open Dashboard"
+        onclick={() => (activeTab = "dashboard")}>Dashboard</button
+      >
+      <button
+        class="tab"
+        class:active={activeTab === "plugins"}
+        title="Browse plugin marketplace"
+        onclick={() => (activeTab = "plugins")}>{$_("app.tab_plugins")}</button
+      >
+      <button
+        class="tab"
+        class:active={activeTab === "settings"}
+        title="Open Settings"
+        onclick={() => (activeTab = "settings")}>{$_("app.tab_settings")}</button
+      >
     </nav>
     <div class="titlebar-right">
       <HeaderMiniMonitor />
@@ -213,122 +238,131 @@
   <div class="content">
     <svelte:boundary>
       <div class="chat-panel" class:inactive={activeTab !== "chat"}>
-          <NeuralBackground />
+        <NeuralBackground />
 
-          <div class="pipeline-container">
-            <ReActPipeline />
+        <div class="pipeline-container">
+          <ReActPipeline />
+        </div>
+        {#if $session.confirmRequired}
+          <ConfirmDialog
+            actions={$session.confirmActions}
+            reason={$session.confirmReason}
+            riskAssessment={$session.confirmRiskAssessment}
+            submitting={$session.confirmSubmitting}
+            error={$session.confirmError}
+            onconfirm={(approvedIndices) => session.confirm(true, approvedIndices)}
+            ondeny={() => session.confirm(false)}
+          />
+        {/if}
+
+        {#if $session.rollbackPending}
+          <RollbackDialog onconfirm={() => session.confirmRollback()} oncancel={() => session.cancelRollback()} />
+        {/if}
+
+        {#if $session.rollback && !$session.rollbackPending}
+          <div class="undo-banner">
+            <span>{$_("rollback.banner")}</span>
+            <button class="undo-btn" onclick={() => session.requestRollback()}>{$_("rollback.undo")}</button>
           </div>
-          {#if $session.confirmRequired}
-            <ConfirmDialog
-              actions={$session.confirmActions}
-              reason={$session.confirmReason}
-              riskAssessment={$session.confirmRiskAssessment}
-              submitting={$session.confirmSubmitting}
-              error={$session.confirmError}
-              onconfirm={(approvedIndices) => session.confirm(true, approvedIndices)}
-              ondeny={() => session.confirm(false)}
-            />
-          {/if}
+        {/if}
 
-          {#if $session.rollbackPending}
-            <RollbackDialog
-              onconfirm={() => session.confirmRollback()}
-              oncancel={() => session.cancelRollback()}
-            />
-          {/if}
+        <BudgetExceededDialog />
+        <InterruptDialog />
+        <SupervisionAlertDialog />
 
-          {#if $session.rollback && !$session.rollbackPending}
-            <div class="undo-banner">
-              <span>{$_('rollback.banner')}</span>
-              <button class="undo-btn" onclick={() => session.requestRollback()}>{$_('rollback.undo')}</button>
-            </div>
-          {/if}
-
-          <BudgetExceededDialog />
-          <InterruptDialog />
-          <SupervisionAlertDialog />
-
-          <div class="results">
-            {#if $session.messages.length === 0 && !$session.loading}
-              <div class="empty-state">
-                <div class="empty-logo">C</div>
-                <h2>{$_('chat.empty_title')}</h2>
-                <p>{$_('chat.empty_subtitle')}</p>
-                <div class="suggestions">
-                  <button class="suggestion" onclick={() => session.sendCommand("Show system information")}>{$_('chat.suggestion_sysinfo')}</button>
-                  <button class="suggestion" onclick={() => session.sendCommand("Take a screenshot and describe it")}>{$_('chat.suggestion_screenshot')}</button>
-                  <button class="suggestion" onclick={() => session.sendCommand("What processes are running?")}>{$_('chat.suggestion_processes')}</button>
-                </div>
+        <div class="results">
+          {#if $session.messages.length === 0 && !$session.loading}
+            <div class="empty-state">
+              <div class="empty-logo">C</div>
+              <h2>{$_("chat.empty_title")}</h2>
+              <p>{$_("chat.empty_subtitle")}</p>
+              <div class="suggestions">
+                <button class="suggestion" onclick={() => session.sendCommand("Show system information")}
+                  >{$_("chat.suggestion_sysinfo")}</button
+                >
+                <button class="suggestion" onclick={() => session.sendCommand("Take a screenshot and describe it")}
+                  >{$_("chat.suggestion_screenshot")}</button
+                >
+                <button class="suggestion" onclick={() => session.sendCommand("What processes are running?")}
+                  >{$_("chat.suggestion_processes")}</button
+                >
               </div>
-            {:else}
-              <VirtualList bind:this={virtualListEl} items={$session.messages} bind:atBottom={isAtBottom}>
-                {#snippet item(msg)}
-                  {@render messageBlock(msg)}
-                {/snippet}
-                {#snippet footer()}
-                  {#if $session.loading}
-                    <ExecutionGraph />
-                    {#if $session.streamingText}
-                      <div class="message system streaming">
-                        <div class="msg-header">
-                          <span class="msg-label">HELIOX</span>
-                          <span class="phase-badge">{$_('chat.streaming')}</span>
-                          <button class="stop-btn" type="button" onclick={() => session.abort()}>{$_('chat.stop')}</button>
-                        </div>
-                        <span class="msg-text">{$session.streamingText}</span>
-                      </div>
-                    {:else}
-                      <div class="message system">
-                        <div class="msg-header">
-                          <span class="msg-label">HELIOX</span>
-                          <span class="phase-badge">{$session.phase || $_('chat.thinking')}</span>
-                          <button class="stop-btn" type="button" onclick={() => session.abort()}>{$_('chat.stop')}</button>
-                        </div>
-                        <span class="msg-text loading-dots">
-                          {$session.phase ? `${$session.phase}` : $_('chat.thinking')}
-                        </span>
-                      </div>
-                    {/if}
-                  {/if}
-                {/snippet}
-              </VirtualList>
-            {/if}
-            <ScrollToBottom show={showScrollFAB} onclick={scrollToBottom} />
-          </div>
-          <div class="input-row">
-            <CommandHistory onReplay={handleReplay} />
-            <VoiceControl />
-            <CommandInput prefill={prefillText} />
-            <div class="gesture-control-host" class:camera-active={cameraControlsActive}>
-              <GestureControl
-                onGesture={onGestureDetected}
-                onActiveChange={(active) => cameraControlsActive = active}
-              />
             </div>
-            <button class="tab" type="button" onclick={() => session.exportChat("json")}>{$_('app.export_json')}</button>
-            <button class="tab" type="button" onclick={() => session.exportChat("csv")}>{$_('app.export_csv')}</button>
-            <button class="tab" type="button" onclick={() => session.exportChat("json")}>Export JSON</button>
-            <button class="tab" type="button" onclick={() => session.exportChat("csv")}>Export CSV</button>
-            <button class="tab" type="button" onclick={exportReActTrace} title="Export ReAct reasoning trace to JSON">Export Trace</button>
+          {:else}
+            <VirtualList bind:this={virtualListEl} items={$session.messages} bind:atBottom={isAtBottom}>
+              {#snippet item(msg)}
+                {@render messageBlock(msg)}
+              {/snippet}
+              {#snippet footer()}
+                {#if $session.loading}
+                  <ExecutionGraph />
+                  {#if $session.streamingText}
+                    <div class="message system streaming">
+                      <div class="msg-header">
+                        <span class="msg-label">HELIOX</span>
+                        <span class="phase-badge">{$_("chat.streaming")}</span>
+                        <button class="stop-btn" type="button" onclick={() => session.abort()}>{$_("chat.stop")}</button
+                        >
+                      </div>
+                      <span class="msg-text">{$session.streamingText}</span>
+                    </div>
+                  {:else}
+                    <div class="message system">
+                      <div class="msg-header">
+                        <span class="msg-label">HELIOX</span>
+                        <span class="phase-badge">{$session.phase || $_("chat.thinking")}</span>
+                        <button class="stop-btn" type="button" onclick={() => session.abort()}>{$_("chat.stop")}</button
+                        >
+                      </div>
+                      <span class="msg-text loading-dots">
+                        {$session.phase ? `${$session.phase}` : $_("chat.thinking")}
+                      </span>
+                    </div>
+                  {/if}
+                {/if}
+              {/snippet}
+            </VirtualList>
+          {/if}
+          <ScrollToBottom show={showScrollFAB} onclick={scrollToBottom} />
+        </div>
+        <div class="input-row">
+          <CommandHistory onReplay={handleReplay} />
+          <VoiceControl />
+          <CommandInput prefill={prefillText} />
+          <div class="gesture-control-host" class:camera-active={cameraControlsActive}>
+            <GestureControl
+              onGesture={onGestureDetected}
+              onActiveChange={(active) => (cameraControlsActive = active)}
+            />
           </div>
+          <button class="tab" type="button" onclick={() => session.exportChat("json")}>{$_("app.export_json")}</button>
+          <button class="tab" type="button" onclick={() => session.exportChat("csv")}>{$_("app.export_csv")}</button>
+          <button class="tab" type="button" onclick={() => session.exportChat("json")}>Export JSON</button>
+          <button class="tab" type="button" onclick={() => session.exportChat("csv")}>Export CSV</button>
+          <button class="tab" type="button" onclick={exportReActTrace} title="Export ReAct reasoning trace to JSON"
+            >Export Trace</button
+          >
+        </div>
       </div>
       {#if activeTab === "log"}
         <ActivityLog />
       {:else if activeTab === "dashboard"}
-       <Dashboard />
+        <Dashboard />
       {:else if activeTab === "plugins"}
         <PluginsTab />
       {:else if activeTab === "settings"}
-        <SettingsPanel onOpenCommand={() => activeTab = "chat"} />
+        <SettingsPanel onOpenCommand={() => (activeTab = "chat")} />
       {/if}
       {#snippet failed(error, reset)}
         <div class="empty-state">
           <div class="empty-logo" style="background: var(--danger)">!</div>
           <h2>Something went wrong</h2>
-          <p style="font-family: var(--font-mono); font-size: 11px;">{error instanceof Error ? error.message : String(error)}</p>
+          <p style="font-family: var(--font-mono); font-size: 11px;">
+            {error instanceof Error ? error.message : String(error)}
+          </p>
           <div class="suggestions">
             <button class="suggestion" onclick={reset}>Try Again</button>
-            <button class="suggestion" onclick={() => activeTab = "chat"}>Go to Chat</button>
+            <button class="suggestion" onclick={() => (activeTab = "chat")}>Go to Chat</button>
           </div>
         </div>
       {/snippet}
@@ -346,8 +380,8 @@
   {:else if msg.type === "plan" && msg.plan}
     <div class="message plan-msg has-copy">
       <div class="msg-header">
-        <span class="msg-label">{$_('plan.label')}</span>
-        <span class="phase-badge">{msg.plan.dry_run ? $_('plan.dry_run') : $_('plan.planning')}</span>
+        <span class="msg-label">{$_("plan.label")}</span>
+        <span class="phase-badge">{msg.plan.dry_run ? $_("plan.dry_run") : $_("plan.planning")}</span>
       </div>
       {#if msg.plan.explanation}
         <p class="plan-explanation">{msg.plan.explanation}</p>
@@ -367,18 +401,23 @@
       <button class="copy-button" type="button" aria-label="Copy message" title="Copy" onclick={() => copyMessage(msg)}>
         <Copy size={14} />
       </button>
-      <span class="copy-feedback" role="status" aria-live="polite" aria-atomic="true" class:active={copiedMessageId === msg.timestamp}>
-        {$_('chat.copied')}
+      <span
+        class="copy-feedback"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        class:active={copiedMessageId === msg.timestamp}
+      >
+        {$_("chat.copied")}
       </span>
     </div>
-
   {:else if msg.type === "result"}
     <div class="message result-msg has-copy">
       <div class="msg-header">
-        <span class="msg-label">{$_('result.label')}</span>
+        <span class="msg-label">{$_("result.label")}</span>
         {#if msg.verification}
           <span class="status-badge" class:passed={msg.verification.passed} class:failed={!msg.verification.passed}>
-            {msg.verification.passed ? $_('result.verified') : $_('result.issues')}
+            {msg.verification.passed ? $_("result.verified") : $_("result.issues")}
           </span>
         {/if}
       </div>
@@ -391,7 +430,7 @@
                 <code class="ar-target">{ar.target}</code>
               {/if}
               <span class="ar-status" class:success={ar.success} class:failure={!ar.success}>
-                {ar.success ? $_('result.ok') : $_('result.failed')}
+                {ar.success ? $_("result.ok") : $_("result.failed")}
               </span>
             </div>
             {#if ar.success && ar.output}
@@ -405,13 +444,17 @@
           </div>
         {/each}
       {:else}
-        <span class="msg-text">{msg.text || $_('result.done')}</span>
+        <span class="msg-text">{msg.text || $_("result.done")}</span>
       {/if}
       {#if msg.verification && msg.verification.details.length > 0}
         <div class="verification-section">
-          <span class="verification-label">{$_('result.verification')}</span>
+          <span class="verification-label">{$_("result.verification")}</span>
           {#each msg.verification.details as detail}
-            <span class="verification-detail" class:v-pass={detail.includes("VERIFIED")} class:v-fail={detail.includes("FAILED") || detail.includes("MISMATCH")}>
+            <span
+              class="verification-detail"
+              class:v-pass={detail.includes("VERIFIED")}
+              class:v-fail={detail.includes("FAILED") || detail.includes("MISMATCH")}
+            >
               {detail}
             </span>
           {/each}
@@ -420,25 +463,35 @@
       <button class="copy-button" type="button" aria-label="Copy message" title="Copy" onclick={() => copyMessage(msg)}>
         <Copy size={14} />
       </button>
-      <span class="copy-feedback" role="status" aria-live="polite" aria-atomic="true" class:active={copiedMessageId === msg.timestamp}>
-        {$_('chat.copied')}
+      <span
+        class="copy-feedback"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        class:active={copiedMessageId === msg.timestamp}
+      >
+        {$_("chat.copied")}
       </span>
     </div>
   {:else if msg.type === "error"}
     <div class="message error-msg has-copy">
-      <span class="msg-label">{$_('error.label')}</span>
+      <span class="msg-label">{$_("error.label")}</span>
       <span class="msg-text">{msg.text}</span>
       <button class="copy-button" type="button" aria-label="Copy message" title="Copy" onclick={() => copyMessage(msg)}>
         <Copy size={14} />
       </button>
-      <span class="copy-feedback" role="status" aria-live="polite" aria-atomic="true" class:active={copiedMessageId === msg.timestamp}>
-        {$_('chat.copied')}
+      <span
+        class="copy-feedback"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        class:active={copiedMessageId === msg.timestamp}
+      >
+        {$_("chat.copied")}
       </span>
     </div>
-
   {:else if msg.type === "git_conflict" && msg.gitConflict}
     <GitConflictResolver payload={msg.gitConflict} />
-
   {:else}
     <div class="message system-msg has-copy">
       <span class="msg-label">HELIOX</span>
@@ -448,8 +501,14 @@
       <button class="copy-button" type="button" aria-label="Copy message" title="Copy" onclick={() => copyMessage(msg)}>
         <Copy size={14} />
       </button>
-      <span class="copy-feedback" role="status" aria-live="polite" aria-atomic="true" class:active={copiedMessageId === msg.timestamp}>
-        {$_('chat.copied')}
+      <span
+        class="copy-feedback"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        class:active={copiedMessageId === msg.timestamp}
+      >
+        {$_("chat.copied")}
       </span>
     </div>
   {/if}
@@ -539,7 +598,11 @@
     box-shadow: 0 0 10px rgba(0, 200, 255, 0.3);
   }
 
-  .title { font-weight: 600; font-size: 14px; letter-spacing: 0.5px; }
+  .title {
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+  }
 
   .tabs {
     display: flex;
@@ -566,8 +629,14 @@
     transition: all 0.15s;
   }
 
-  .tab:hover { color: var(--text-primary); background: var(--bg-hover); }
-  .tab.active { color: var(--accent); background: var(--accent-muted); }
+  .tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+  .tab.active {
+    color: var(--accent);
+    background: var(--accent-muted);
+  }
 
   .content {
     flex: 1;
@@ -652,8 +721,17 @@
     margin-bottom: 4px;
   }
 
-  .empty-state h2 { font-size: 18px; font-weight: 700; color: var(--text-primary); }
-  .empty-state p { font-size: 13px; color: var(--text-muted); max-width: 320px; line-height: 1.5; }
+  .empty-state h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .empty-state p {
+    font-size: 13px;
+    color: var(--text-muted);
+    max-width: 320px;
+    line-height: 1.5;
+  }
 
   .suggestions {
     display: flex;
@@ -672,7 +750,10 @@
     transition: all 0.15s;
   }
 
-  .suggestion:hover { background: var(--accent); color: white; }
+  .suggestion:hover {
+    background: var(--accent);
+    color: white;
+  }
 
   .message {
     display: flex;
@@ -705,7 +786,12 @@
     opacity: 0;
     transform: translateY(-2px);
     pointer-events: none;
-    transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease,
+      background 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease;
   }
 
   .message.has-copy:hover .copy-button,
@@ -737,7 +823,9 @@
     border-radius: 10px;
     opacity: 0;
     transform: translateY(-2px);
-    transition: opacity 0.15s ease, transform 0.15s ease;
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease;
     pointer-events: none;
   }
 
@@ -747,8 +835,14 @@
   }
 
   @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .msg-header {
@@ -773,15 +867,21 @@
     word-break: break-word;
   }
 
-  .user-msg { background: var(--bg-secondary); }
-  .system-msg { background: var(--bg-tertiary); }
+  .user-msg {
+    background: var(--bg-secondary);
+  }
+  .system-msg {
+    background: var(--bg-tertiary);
+  }
 
   .error-msg {
     border-color: var(--danger);
     background: var(--danger-bg);
   }
 
-  .error-msg .msg-label { color: var(--danger); }
+  .error-msg .msg-label {
+    color: var(--danger);
+  }
 
   .message.system.streaming {
     background: var(--bg-tertiary);
@@ -790,8 +890,13 @@
   }
 
   @keyframes pulse-glow {
-    0%, 100% { border-left-color: var(--accent); }
-    50% { border-left-color: var(--accent-hover); }
+    0%,
+    100% {
+      border-left-color: var(--accent);
+    }
+    50% {
+      border-left-color: var(--accent-hover);
+    }
   }
 
   .plan-msg {
@@ -799,7 +904,9 @@
     border-color: var(--accent-muted);
   }
 
-  .plan-msg .msg-label { color: var(--accent); }
+  .plan-msg .msg-label {
+    color: var(--accent);
+  }
 
   .phase-badge {
     font-size: 10px;
@@ -819,7 +926,9 @@
     color: var(--danger);
     background: var(--danger-bg);
     border-radius: var(--radius-sm);
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
     white-space: nowrap;
   }
 
@@ -850,7 +959,9 @@
     border-radius: var(--radius-sm);
   }
 
-  .action-item:hover { background: var(--bg-hover); }
+  .action-item:hover {
+    background: var(--bg-hover);
+  }
 
   .action-index {
     width: 20px;
@@ -898,16 +1009,27 @@
     flex-shrink: 0;
   }
 
-  .tier-safe { background: rgba(74, 222, 128, 0.1); color: var(--success); }
-  .tier-destructive { background: rgba(251, 191, 36, 0.1); color: var(--warning); }
-  .tier-root { background: var(--danger-bg); color: var(--danger); }
+  .tier-safe {
+    background: rgba(74, 222, 128, 0.1);
+    color: var(--success);
+  }
+  .tier-destructive {
+    background: rgba(251, 191, 36, 0.1);
+    color: var(--warning);
+  }
+  .tier-root {
+    background: var(--danger-bg);
+    color: var(--danger);
+  }
 
   .result-msg {
     background: var(--bg-secondary);
     gap: 8px;
   }
 
-  .result-msg .msg-label { color: var(--success); }
+  .result-msg .msg-label {
+    color: var(--success);
+  }
 
   .status-badge {
     font-size: 10px;
@@ -916,8 +1038,14 @@
     border-radius: 20px;
   }
 
-  .status-badge.passed { background: rgba(74, 222, 128, 0.1); color: var(--success); }
-  .status-badge.failed { background: var(--danger-bg); color: var(--danger); }
+  .status-badge.passed {
+    background: rgba(74, 222, 128, 0.1);
+    color: var(--success);
+  }
+  .status-badge.failed {
+    background: var(--danger-bg);
+    color: var(--danger);
+  }
 
   .action-result {
     border-radius: var(--radius-sm);
@@ -960,8 +1088,14 @@
     flex-shrink: 0;
   }
 
-  .ar-status.success { background: rgba(74, 222, 128, 0.15); color: var(--success); }
-  .ar-status.failure { background: var(--danger-bg); color: var(--danger); }
+  .ar-status.success {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--success);
+  }
+  .ar-status.failure {
+    background: var(--danger-bg);
+    color: var(--danger);
+  }
 
   .ar-output {
     padding: 8px 10px;
@@ -1012,8 +1146,12 @@
     padding: 2px 0;
   }
 
-  .verification-detail.v-pass { color: var(--success); }
-  .verification-detail.v-fail { color: var(--danger); }
+  .verification-detail.v-pass {
+    color: var(--success);
+  }
+  .verification-detail.v-fail {
+    color: var(--danger);
+  }
 
   .loading-dots::after {
     content: "";
@@ -1021,9 +1159,17 @@
   }
 
   @keyframes dots {
-    0%, 20% { content: "."; }
-    40% { content: ".."; }
-    60%, 100% { content: "..."; }
+    0%,
+    20% {
+      content: ".";
+    }
+    40% {
+      content: "..";
+    }
+    60%,
+    100% {
+      content: "...";
+    }
   }
 
   .hlx-code-wrapper {
@@ -1039,7 +1185,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 4px 10px;
-    background: rgba(0,0,0,0.3);
+    background: rgba(0, 0, 0, 0.3);
     border-bottom: 1px solid var(--border);
     min-height: 26px;
   }
@@ -1056,7 +1202,7 @@
   .hlx-copy-btn {
     font-size: 10px;
     padding: 2px 8px;
-    background: rgba(255,255,255,0.05);
+    background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text-muted);
@@ -1078,12 +1224,5 @@
     font-size: 12px;
     line-height: 1.6;
     background: transparent;
-  }
-
-  .hlx-pre code {
-    font-family: var(--font-mono);
-    background: none;
-    border: none;
-    padding: 0;
   }
 </style>

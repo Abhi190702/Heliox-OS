@@ -97,7 +97,12 @@
         <span class="value" style="color: {getAttentionColor(attention)}">{Math.round(attention * 100)}%</span>
       </div>
       <div class="bar-bg">
-        <div class="bar-fill" style="width: {attention * 100}%; background: {getAttentionColor(attention)}; box-shadow: 0 0 10px {getAttentionColor(attention)}"></div>
+        <div
+          class="bar-fill"
+          style="width: {attention * 100}%; background: {getAttentionColor(
+            attention,
+          )}; box-shadow: 0 0 10px {getAttentionColor(attention)}"
+        ></div>
       </div>
     </div>
 
@@ -107,7 +112,12 @@
         <span class="value" style="color: {getStressColor(stress)}">{Math.round(stress * 100)}%</span>
       </div>
       <div class="bar-bg">
-        <div class="bar-fill" style="width: {stress * 100}%; background: {getStressColor(stress)}; box-shadow: 0 0 10px {getStressColor(stress)}"></div>
+        <div
+          class="bar-fill"
+          style="width: {stress * 100}%; background: {getStressColor(stress)}; box-shadow: 0 0 10px {getStressColor(
+            stress,
+          )}"
+        ></div>
       </div>
     </div>
 
@@ -117,7 +127,10 @@
         <span class="value" style="color: {getLoadColor(load)}">{Math.round(load * 100)}%</span>
       </div>
       <div class="bar-bg">
-        <div class="bar-fill" style="width: {load * 100}%; background: {getLoadColor(load)}; box-shadow: 0 0 10px {getLoadColor(load)}"></div>
+        <div
+          class="bar-fill"
+          style="width: {load * 100}%; background: {getLoadColor(load)}; box-shadow: 0 0 10px {getLoadColor(load)}"
+        ></div>
       </div>
     </div>
   </div>
@@ -143,7 +156,9 @@
 
   .cognitive-hud.active {
     border-color: rgba(124, 58, 237, 0.5);
-    box-shadow: 0 0 20px rgba(124, 58, 237, 0.1), inset 0 0 10px rgba(124, 58, 237, 0.05);
+    box-shadow:
+      0 0 20px rgba(124, 58, 237, 0.1),
+      inset 0 0 10px rgba(124, 58, 237, 0.05);
   }
 
   .hud-header {
@@ -173,8 +188,15 @@
   }
 
   @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.8); }
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.5;
+      transform: scale(0.8);
+    }
   }
 
   .modality {
@@ -228,12 +250,17 @@
   .bar-fill {
     height: 100%;
     border-radius: 3px;
-    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1), background 1s;
+    transition:
+      width 1s cubic-bezier(0.4, 0, 0.2, 1),
+      background 1s;
   }
 
   .overlay {
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     background: rgba(10, 12, 24, 0.8);
     backdrop-filter: blur(2px);
     display: flex;
@@ -251,7 +278,12 @@
   }
 
   @keyframes flash {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 1; }
+    0%,
+    100% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 1;
+    }
   }
 </style>

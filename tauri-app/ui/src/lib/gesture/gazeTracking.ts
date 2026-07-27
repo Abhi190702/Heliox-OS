@@ -96,7 +96,7 @@ interface EyeRatio {
 
 function eyeGazeRatio(
   landmarks: FaceLandmark[],
-  eye: { iris: number; outer: number; inner: number; top: number; bottom: number }
+  eye: { iris: number; outer: number; inner: number; top: number; bottom: number },
 ): EyeRatio {
   const iris = landmarks[eye.iris];
   const outer = landmarks[eye.outer];

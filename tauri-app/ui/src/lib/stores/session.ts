@@ -70,10 +70,10 @@ export interface LiveActionState {
 
 export interface BudgetInfo {
   exceeded: boolean;
-  errorType: string;   // "ActionBudgetExceededError" | "TaskBudgetExceededError" | "BudgetExceededError" | "CircuitBreakerOpenError"
+  errorType: string; // "ActionBudgetExceededError" | "TaskBudgetExceededError" | "BudgetExceededError" | "CircuitBreakerOpenError"
   message: string;
   taskId: string;
-  failureCount?: number;  // populated for circuit-breaker events
+  failureCount?: number; // populated for circuit-breaker events
   timestamp: number;
 }
 
@@ -113,7 +113,16 @@ export interface Attachment {
 const initialState: SessionState = {
   daemonConnected: false,
   loading: false,
-  messages: typeof localStorage !== "undefined" && localStorage.getItem("heliox_session_history") ? (() => { try { return JSON.parse(localStorage.getItem("heliox_session_history") || "[]"); } catch(e) { return []; } })() : [],
+  messages:
+    typeof localStorage !== "undefined" && localStorage.getItem("heliox_session_history")
+      ? (() => {
+          try {
+            return JSON.parse(localStorage.getItem("heliox_session_history") || "[]");
+          } catch (e) {
+            return [];
+          }
+        })()
+      : [],
   currentPlan: null,
   confirmRequired: false,
   confirmPlanId: "",
@@ -213,7 +222,7 @@ function createSession() {
         const newLiveActions: LiveActionState[] = plan.actions.map((a, i) => ({
           index: i,
           action: a,
-          status: "pending"
+          status: "pending",
         }));
         update((s) => ({
           ...s,
@@ -233,8 +242,8 @@ function createSession() {
       }
 
       case "action_start": {
-        update(s => {
-          const nextIdx = s.liveActions.findIndex(a => a.status === "pending");
+        update((s) => {
+          const nextIdx = s.liveActions.findIndex((a) => a.status === "pending");
           if (nextIdx !== -1) {
             const live = [...s.liveActions];
             live[nextIdx] = { ...live[nextIdx], status: "running" };
@@ -249,8 +258,8 @@ function createSession() {
         const resultObj = p.result as Record<string, unknown>;
         const success = Boolean(resultObj.success);
         const snapshotId = resultObj.snapshot_id ? String(resultObj.snapshot_id) : "";
-        update(s => {
-          const runningIdx = s.liveActions.findIndex(a => a.status === "running");
+        update((s) => {
+          const runningIdx = s.liveActions.findIndex((a) => a.status === "running");
           let next = s;
           if (runningIdx !== -1) {
             const live = [...s.liveActions];
@@ -258,7 +267,7 @@ function createSession() {
               ...live[runningIdx],
               status: success ? "success" : "error",
               output: String(resultObj.output || ""),
-              error: String(resultObj.error || "")
+              error: String(resultObj.error || ""),
             };
             next = { ...next, liveActions: live };
           }
@@ -318,7 +327,7 @@ function createSession() {
       case "token_usage":
         update((s) => {
           const tok = Number(p.tokens ?? p.total_tokens ?? 0);
-          const cost = Number(p.cost_usd ?? p.estimated_cost ?? (tok * 0.000002));
+          const cost = Number(p.cost_usd ?? p.estimated_cost ?? tok * 0.000002);
           return {
             ...s,
             totalTokens: s.totalTokens + tok,
@@ -399,7 +408,7 @@ function createSession() {
     // Inject empty container block for assistant text buffer
     update((s) => ({
       ...s,
-      messages: [...s.messages, { type: "assistant", text: "", timestamp: Date.now() }]
+      messages: [...s.messages, { type: "assistant", text: "", timestamp: Date.now() }],
     }));
 
     listenToLLMStream(
@@ -418,24 +427,18 @@ function createSession() {
       },
       () => {
         console.log("Stream capture cycle completed cleanly.");
-      }
+      },
     );
   }
 
-  async function sendCommand(
-    input: string,
-    attachments: Attachment[] = []
-  ) {
+  async function sendCommand(input: string, attachments: Attachment[] = []) {
     if (input.startsWith("/git-resolve ") || input.startsWith("git-resolve ")) {
       const filepath = input.replace(/^(\/)?git-resolve\s+/, "").trim();
       update((s) => ({
         ...s,
         loading: true,
         phase: "detecting conflicts",
-        messages: [
-          ...s.messages,
-          { type: "user", text: input, timestamp: Date.now() },
-        ],
+        messages: [...s.messages, { type: "user", text: input, timestamp: Date.now() }],
       }));
       try {
         const res = (await call("resolve_git_conflict", { filepath })) as any;
@@ -501,10 +504,7 @@ function createSession() {
       confirmSubmitting: false,
       confirmError: "",
       streamingText: "",
-      messages: [
-        ...s.messages,
-        { type: "user", text: input, timestamp: Date.now() },
-      ],
+      messages: [...s.messages, { type: "user", text: input, timestamp: Date.now() }],
     }));
 
     // Trigger instant real-time layout stream hooks before payload dispatch
@@ -532,9 +532,9 @@ function createSession() {
       const rawVerification = result.verification as Record<string, unknown> | undefined;
       const verification: VerificationData | undefined = rawVerification
         ? {
-          passed: Boolean(rawVerification.passed),
-          details: ((rawVerification.details ?? []) as string[]),
-        }
+            passed: Boolean(rawVerification.passed),
+            details: (rawVerification.details ?? []) as string[],
+          }
         : undefined;
 
       if (result.status === "error") {
@@ -584,10 +584,7 @@ function createSession() {
 
         const estimatedTokens = estimateTokens(responseText);
         const settingsState = get(settings);
-        const model =
-          settingsState?.model?.cloud_model ||
-          settingsState?.model?.cloud_provider ||
-          "ollama";
+        const model = settingsState?.model?.cloud_model || settingsState?.model?.cloud_provider || "ollama";
 
         const normalizedModel = model.toLowerCase();
         let rate = 0;
@@ -703,10 +700,7 @@ function createSession() {
           confirmRiskAssessment: null,
           confirmSubmitting: false,
           confirmError: "",
-          messages: [
-            ...s.messages,
-            { type: "system" as MessageType, text: acknowledgement, timestamp: Date.now() },
-          ],
+          messages: [...s.messages, { type: "system" as MessageType, text: acknowledgement, timestamp: Date.now() }],
         };
       });
     } catch (err) {
@@ -737,7 +731,9 @@ function createSession() {
 
   async function confirmRollback() {
     let planId = "";
-    const unsub = subscribe((s) => { planId = s.rollback?.planId ?? ""; });
+    const unsub = subscribe((s) => {
+      planId = s.rollback?.planId ?? "";
+    });
     unsub();
     if (!planId) {
       update((s) => ({ ...s, rollbackPending: false }));
@@ -797,10 +793,7 @@ function createSession() {
   function addSystemMessage(text: string) {
     update((s) => ({
       ...s,
-      messages: [
-        ...s.messages,
-        { type: "system" as MessageType, text, timestamp: Date.now() },
-      ],
+      messages: [...s.messages, { type: "system" as MessageType, text, timestamp: Date.now() }],
     }));
   }
 

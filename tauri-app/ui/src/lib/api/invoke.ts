@@ -58,7 +58,7 @@ export async function invoke<T = any>(command: string, args?: any): Promise<T> {
       power: 52,
       cpu_name: "Local CPU",
       cpu_threads: 16,
-      battery_percent: 95
+      battery_percent: 95,
     } as unknown as T;
   }
   if (command === "get_uptime") {
@@ -77,16 +77,20 @@ export async function invoke<T = any>(command: string, args?: any): Promise<T> {
   }
   if (command === "get_agent_activity") {
     return [
-      { agent: "System Agent", status: "Idle", tasks_completed: 14 },
-      { agent: "Code Agent", status: "Active", tasks_completed: 8 },
-      { agent: "Web Agent", status: "Idle", tasks_completed: 5 },
-      { agent: "Monitor Agent", status: "Monitoring", tasks_completed: 42 },
-      { agent: "Communication Agent", status: "Ready", tasks_completed: 3 },
+      { name: "System Agent", status: "Active", message: "Monitoring system health" },
+      { name: "Code Agent", status: "Idle", message: "Waiting for a coding task" },
+      { name: "Web Agent", status: "Idle", message: "Waiting for a browser task" },
+      { name: "Monitor Agent", status: "Active", message: "Watching resource usage" },
+      { name: "Communication Agent", status: "Idle", message: "Ready" },
     ] as unknown as T;
   }
   if (command === "get_rss_feed") {
     return [
-      { title: "Heliox OS v0.7.1 Released with JARVIS Autonomy", url: "https://github.com/VyomKulshrestha/Heliox-OS/releases", source: "GitHub" },
+      {
+        title: "Heliox OS v0.7.1 Released with JARVIS Autonomy",
+        url: "https://github.com/VyomKulshrestha/Heliox-OS/releases",
+        source: "GitHub",
+      },
       { title: "Cognitive Engine Integration Live", url: "https://helioxos.dev", source: "Heliox Blog" },
     ] as unknown as T;
   }

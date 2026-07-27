@@ -49,7 +49,7 @@
           await invoke("apply_git_conflict_resolution", {
             path: conflict.path,
             fullBlock: conflict.full_block,
-            resolvedCode: resolvedCode
+            resolvedCode: resolvedCode,
           });
         } else {
           // Fallback: Apply via WebSocket JSON-RPC bridge command when running in standard browser
@@ -57,13 +57,15 @@
           await call("apply_git_resolution", {
             path: conflict.path,
             full_block: conflict.full_block,
-            resolved_code: resolvedCode
+            resolved_code: resolvedCode,
           });
         }
       }
 
       saveStatus = "success";
-      session.addSystemMessage(`Successfully applied conflict resolutions to: ${getFilename(payload.conflicts[0].path)}`);
+      session.addSystemMessage(
+        `Successfully applied conflict resolutions to: ${getFilename(payload.conflicts[0].path)}`,
+      );
     } catch (err: any) {
       console.error(err);
       saveStatus = "error";
@@ -124,21 +126,27 @@
             <button
               class="opt-btn"
               class:active={selections[idx] === "original"}
-              onclick={() => { selections[idx] = "original"; }}
+              onclick={() => {
+                selections[idx] = "original";
+              }}
             >
               Keep Local (HEAD)
             </button>
             <button
               class="opt-btn"
               class:active={selections[idx] === "conflict"}
-              onclick={() => { selections[idx] = "conflict"; }}
+              onclick={() => {
+                selections[idx] = "conflict";
+              }}
             >
               Keep Incoming
             </button>
             <button
               class="opt-btn opt-ai"
               class:active={selections[idx] === "proposed"}
-              onclick={() => { selections[idx] = "proposed"; }}
+              onclick={() => {
+                selections[idx] = "proposed";
+              }}
             >
               Keep AI Proposed
             </button>
@@ -150,20 +158,17 @@
 
   {#if saveStatus === "error"}
     <div class="error-banner">
-      <strong>Error:</strong> {errorMessage}
+      <strong>Error:</strong>
+      {errorMessage}
     </div>
   {/if}
 
   {#if saveStatus === "success"}
-    <div class="success-banner">
-      Successfully resolved and saved to disk.
-    </div>
+    <div class="success-banner">Successfully resolved and saved to disk.</div>
   {/if}
 
   <div class="action-footer">
-    <button class="btn-secondary" onclick={handleReject} disabled={saveStatus === "saving"}>
-      Dismiss
-    </button>
+    <button class="btn-secondary" onclick={handleReject} disabled={saveStatus === "saving"}> Dismiss </button>
     <button class="btn-primary" onclick={handleApply} disabled={saveStatus === "saving" || saveStatus === "success"}>
       {#if saveStatus === "saving"}
         Applying Resolution...

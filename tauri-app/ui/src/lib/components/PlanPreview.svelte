@@ -39,7 +39,7 @@
       <div class="action-item">
         <span class="action-index">{i + 1}</span>
         <div class="action-detail">
-        <span class="action-type">{actionLabel(action, Boolean(plan.dry_run))}</span>
+          <span class="action-type">{actionLabel(action, Boolean(plan.dry_run))}</span>
           <span class="action-target">{action.target}</span>
         </div>
         <span class="tier-badge {tierClass(action)}">{tierLabel(action)}</span>

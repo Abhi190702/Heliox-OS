@@ -7,10 +7,7 @@ export interface ScrollMetrics {
 export const BOTTOM_THRESHOLD_PX = 8;
 export const UPWARD_SCROLL_TOLERANCE_PX = 1;
 
-export function isNearBottom(
-  metrics: ScrollMetrics,
-  threshold = BOTTOM_THRESHOLD_PX,
-): boolean {
+export function isNearBottom(metrics: ScrollMetrics, threshold = BOTTOM_THRESHOLD_PX): boolean {
   return metrics.scrollTop + metrics.clientHeight >= metrics.scrollHeight - threshold;
 }
 

@@ -59,7 +59,15 @@
     { id: "memory_recall", label: "Memory Recall", emoji: "🧠", status: "idle", detail: "", startTime: 0, endTime: 0 },
     { id: "agent_routing", label: "Agent Routing", emoji: "🔀", status: "idle", detail: "", startTime: 0, endTime: 0 },
     { id: "planning", label: "Planning", emoji: "📐", status: "idle", detail: "", startTime: 0, endTime: 0 },
-    { id: "confirmation", label: "Confirmation Gate", emoji: "🔐", status: "idle", detail: "", startTime: 0, endTime: 0 },
+    {
+      id: "confirmation",
+      label: "Confirmation Gate",
+      emoji: "🔐",
+      status: "idle",
+      detail: "",
+      startTime: 0,
+      endTime: 0,
+    },
     { id: "executing", label: "Execution", emoji: "⚡", status: "idle", detail: "", startTime: 0, endTime: 0 },
     { id: "verifying", label: "Verification", emoji: "✅", status: "idle", detail: "", startTime: 0, endTime: 0 },
     { id: "reflection", label: "Reflection", emoji: "🪞", status: "idle", detail: "", startTime: 0, endTime: 0 },
@@ -79,7 +87,7 @@
   let thoughtStream = $state<ThoughtEntry[]>([]);
 
   function resetPipeline() {
-    stages = stages.map(s => ({ ...s, status: "idle" as StageStatus, detail: "", startTime: 0, endTime: 0 }));
+    stages = stages.map((s) => ({ ...s, status: "idle" as StageStatus, detail: "", startTime: 0, endTime: 0 }));
     executionActions = [];
     totalDuration = 0;
     agentRouting = null;
@@ -90,12 +98,15 @@
     showThoughts = false;
     expandedThoughtStages = {};
     collapsed = false;
-    if (autoCollapseTimer) { clearTimeout(autoCollapseTimer); autoCollapseTimer = null; }
+    if (autoCollapseTimer) {
+      clearTimeout(autoCollapseTimer);
+      autoCollapseTimer = null;
+    }
   }
 
   function setStage(id: string, status: StageStatus, detail: string = "") {
     const now = Date.now();
-    stages = stages.map(s => {
+    stages = stages.map((s) => {
       if (s.id === id) {
         return {
           ...s,
@@ -142,8 +153,7 @@
           if (pipelineStartTime === 0) pipelineStartTime = Date.now();
           setStage("user_input", "success", "Received");
           setStage("memory_recall", "success", "Context loaded");
-          setStage("agent_routing", "success",
-            agentRouting ? agentRouting.assigned_agents.join(", ") : "Routed");
+          setStage("agent_routing", "success", agentRouting ? agentRouting.assigned_agents.join(", ") : "Routed");
           setStage("planning", "active", phase.includes("re-planning") ? "Re-planning..." : "Generating plan...");
           // Reset downstream
           setStage("confirmation", "idle");
@@ -181,8 +191,7 @@
           assigned_agents: p.assigned_agents || [],
           is_multi_agent: p.is_multi_agent || false,
         };
-        setStage("agent_routing", "success",
-          (p.assigned_agents || []).join(", ") || "general");
+        setStage("agent_routing", "success", (p.assigned_agents || []).join(", ") || "general");
         break;
       }
 
@@ -199,11 +208,14 @@
 
       case "action_start": {
         const action = p.action || {};
-        executionActions = [...executionActions, {
-          type: action.action_type || "unknown",
-          target: action.target || "",
-          status: "running",
-        }];
+        executionActions = [
+          ...executionActions,
+          {
+            type: action.action_type || "unknown",
+            target: action.target || "",
+            status: "running",
+          },
+        ];
         setStage("executing", "active", `Running: ${action.action_type}`);
         break;
       }
@@ -212,10 +224,10 @@
         const result = p.result || {};
         const action = result.action || {};
         const success = result.success;
-        executionActions = executionActions.map(a =>
+        executionActions = executionActions.map((a) =>
           a.type === (action.action_type || "") && a.status === "running"
             ? { ...a, status: success ? "success" : "error" }
-            : a
+            : a,
         );
         break;
       }
@@ -334,8 +346,11 @@
           showSkeleton = false;
           if (lastMsg.type === "result") {
             setStage("executing", "success", `${executionActions.length} action(s) completed`);
-            setStage("verifying", lastMsg.verification?.passed ? "success" : "error",
-              lastMsg.verification?.passed ? "All checks passed" : "Verification failed");
+            setStage(
+              "verifying",
+              lastMsg.verification?.passed ? "success" : "error",
+              lastMsg.verification?.passed ? "All checks passed" : "Verification failed",
+            );
             setStage("reflection", "success", "Performance analyzed");
             setStage("memory_update", "success", "History saved");
             totalDuration = Date.now() - pipelineStartTime;
@@ -367,18 +382,26 @@
     if (progress === 100 && !collapsed && isVisible) {
       queueMicrotask(() => {
         if (autoCollapseTimer) clearTimeout(autoCollapseTimer);
-        autoCollapseTimer = setTimeout(() => { collapsed = true; }, 2000);
+        autoCollapseTimer = setTimeout(() => {
+          collapsed = true;
+        }, 2000);
       });
     }
   });
 
-  let dismiss = () => { isVisible = false; };
-  let toggleCollapse = () => { collapsed = !collapsed; };
-  let toggleThoughts = () => { showThoughts = !showThoughts; };
+  let dismiss = () => {
+    isVisible = false;
+  };
+  let toggleCollapse = () => {
+    collapsed = !collapsed;
+  };
+  let toggleThoughts = () => {
+    showThoughts = !showThoughts;
+  };
 
   // ── Keyboard Shortcut: Ctrl+Shift+L toggles the ReAct Pipeline panel ──
   function handleKeydown(e: KeyboardEvent): void {
-    if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+    if (e.ctrlKey && e.shiftKey && e.key === "L") {
       e.preventDefault();
       if (!isVisible) {
         // Restore from dismissed state
@@ -394,8 +417,8 @@
       }
     }
   }
-  onMount(() => window.addEventListener('keydown', handleKeydown));
-  onDestroy(() => window.removeEventListener('keydown', handleKeydown));
+  onMount(() => window.addEventListener("keydown", handleKeydown));
+  onDestroy(() => window.removeEventListener("keydown", handleKeydown));
   let toggleThoughtStage = (stageId: string) => {
     expandedThoughtStages = {
       ...expandedThoughtStages,
@@ -421,9 +444,7 @@
 
   // Computed: progress percentage
   let progress = $derived(
-    Math.round(
-      (stages.filter(s => s.status === "success" || s.status === "skipped").length / stages.length) * 100
-    )
+    Math.round((stages.filter((s) => s.status === "success" || s.status === "skipped").length / stages.length) * 100),
   );
 
   let thoughtGroups = $derived.by(() => {
@@ -441,10 +462,14 @@
   });
 </script>
 
-{#if !isVisible && (thoughtStream.length > 0 || stages.some(s => s.status !== 'idle'))}
+{#if !isVisible && (thoughtStream.length > 0 || stages.some((s) => s.status !== "idle"))}
   <button
     class="pipeline-restore-btn"
-    onclick={() => { isVisible = true; collapsed = false; showThoughts = true; }}
+    onclick={() => {
+      isVisible = true;
+      collapsed = false;
+      showThoughts = true;
+    }}
     title="Restore pipeline (Ctrl+Shift+L)"
     aria-label="Restore ReAct pipeline"
   >
@@ -457,7 +482,13 @@
 {#if isVisible}
   <div class="react-pipeline" class:collapsed transition:slide={{ duration: 300 }}>
     <!-- Header (always visible, clickable to expand/collapse) -->
-    <div class="pipeline-header" role="button" tabindex="0" onclick={toggleCollapse} onkeydown={(e) => e.key === 'Enter' && toggleCollapse()}>
+    <div
+      class="pipeline-header"
+      role="button"
+      tabindex="0"
+      onclick={toggleCollapse}
+      onkeydown={(e) => e.key === "Enter" && toggleCollapse()}
+    >
       <div class="pipeline-title">
         <span class="reactor-icon">⚛️</span>
         ReAct Pipeline
@@ -473,20 +504,37 @@
         {#if agentRouting?.is_multi_agent}
           <span class="multi-agent-badge">Multi-Agent</span>
         {/if}
-        <button class="collapse-toggle" onclick={(e) => { e.stopPropagation(); toggleCollapse(); }} title={collapsed ? 'Expand pipeline (Ctrl+Shift+L)' : 'Collapse pipeline (Ctrl+Shift+L)'}>
-          {collapsed ? '▼' : '▲'}
+        <button
+          class="collapse-toggle"
+          onclick={(e) => {
+            e.stopPropagation();
+            toggleCollapse();
+          }}
+          title={collapsed ? "Expand pipeline (Ctrl+Shift+L)" : "Collapse pipeline (Ctrl+Shift+L)"}
+        >
+          {collapsed ? "▼" : "▲"}
         </button>
         <button
           class="thought-toggle"
           class:active={showThoughts}
-          onclick={(e) => { e.stopPropagation(); toggleThoughts(); }}
+          onclick={(e) => {
+            e.stopPropagation();
+            toggleThoughts();
+          }}
           title={showThoughts ? "Hide agent thoughts" : "Show agent thoughts"}
           aria-label={showThoughts ? "Hide agent thoughts" : "Show agent thoughts"}
           aria-expanded={showThoughts}
         >
           ◫
         </button>
-        <button class="dismiss-btn" onclick={(e) => { e.stopPropagation(); dismiss(); }} title="Dismiss">✕</button>
+        <button
+          class="dismiss-btn"
+          onclick={(e) => {
+            e.stopPropagation();
+            dismiss();
+          }}
+          title="Dismiss">✕</button
+        >
       </div>
     </div>
 
@@ -495,161 +543,159 @@
       <div class="progress-fill" style="width: {showSkeleton ? 0 : progress}%"></div>
     </div>
 
-  {#if !collapsed}
-    {#if showSkeleton}
-      <div class="pipeline-graph skeleton-graph" aria-label="Preparing ReAct pipeline">
-        {#each skeletonStages as stage, i}
-          <div class="stage-wrapper skeleton-stage" transition:fade={{ duration: 180, delay: i * 30 }}>
-            {#if i > 0}
-              <div class="connector skeleton-connector"></div>
-            {/if}
-
-            <div class="stage-node skeleton-node">
-              <div class="skeleton-emoji" aria-hidden="true"></div>
-              <div class="stage-info">
-                <div class="stage-label">{stage}</div>
-                <div class="skeleton-detail" aria-hidden="true"></div>
-              </div>
-              <div class="stage-indicator">
-                <span class="skeleton-dot" aria-hidden="true"></span>
-              </div>
-            </div>
-          </div>
-        {/each}
-      </div>
-    {:else}
-    <!-- Pipeline nodes -->
-    <div class="pipeline-graph">
-      {#each stages as stage, i (stage.id)}
-        <div class="stage-wrapper" transition:fade={{ duration: 200, delay: i * 30 }}>
-          {#if i > 0}
-            <div class="connector" class:active={stage.status !== "idle"} class:success={stage.status === "success"} class:error={stage.status === "error"}></div>
-          {/if}
-
-          <div class="stage-node {stage.status}" class:pulse={stage.status === "active"}>
-            <div class="stage-emoji">{stage.emoji}</div>
-            <div class="stage-info">
-              <div class="stage-label">{stage.label}</div>
-              {#if stage.detail}
-                <div class="stage-detail" transition:fade={{ duration: 150 }}>{stage.detail}</div>
+    {#if !collapsed}
+      {#if showSkeleton}
+        <div class="pipeline-graph skeleton-graph" aria-label="Preparing ReAct pipeline">
+          {#each skeletonStages as stage, i}
+            <div class="stage-wrapper skeleton-stage" transition:fade={{ duration: 180, delay: i * 30 }}>
+              {#if i > 0}
+                <div class="connector skeleton-connector"></div>
               {/if}
-              <!-- Decision badge -->
-              {#if showThoughts && stageDecisions[stage.id]}
-                <div class="decision-badge" transition:fade={{ duration: 200 }}>
-                  <span class="decision-icon">⚖️</span>
-                  <span class="decision-text">{stageDecisions[stage.id]}</span>
+
+              <div class="stage-node skeleton-node">
+                <div class="skeleton-emoji" aria-hidden="true"></div>
+                <div class="stage-info">
+                  <div class="stage-label">{stage}</div>
+                  <div class="skeleton-detail" aria-hidden="true"></div>
                 </div>
-              {/if}
-              <!-- Stage timing -->
-              {#if stageTiming[stage.id]}
-                <div class="stage-timing">{stageTiming[stage.id]}ms</div>
-              {/if}
+                <div class="stage-indicator">
+                  <span class="skeleton-dot" aria-hidden="true"></span>
+                </div>
+              </div>
             </div>
-            <div class="stage-indicator">
-              {#if stage.status === "active"}
-                <div class="spinner"></div>
-              {:else if stage.status === "success"}
-                <span class="check">✓</span>
-              {:else if stage.status === "error"}
-                <span class="cross">✗</span>
-              {:else if stage.status === "skipped"}
-                <span class="skip">⤸</span>
-              {:else}
-                <span class="dot"></span>
+          {/each}
+        </div>
+      {:else}
+        <!-- Pipeline nodes -->
+        <div class="pipeline-graph">
+          {#each stages as stage, i (stage.id)}
+            <div class="stage-wrapper" transition:fade={{ duration: 200, delay: i * 30 }}>
+              {#if i > 0}
+                <div
+                  class="connector"
+                  class:active={stage.status !== "idle"}
+                  class:success={stage.status === "success"}
+                  class:error={stage.status === "error"}
+                ></div>
               {/if}
-            </div>
-          </div>
 
-          <!-- Execution sub-actions -->
-          {#if stage.id === "executing" && executionActions.length > 0}
-            <div class="sub-actions" transition:slide={{ duration: 200 }}>
-              {#each executionActions as act, j}
-                <div class="sub-action {act.status}" transition:fade={{ duration: 150 }}>
-                  <span class="sub-dot {act.status}"></span>
-                  <span class="sub-type">{act.type.replace(/_/g, " ")}</span>
-                  {#if act.target}
-                    <span class="sub-target">{act.target}</span>
+              <div class="stage-node {stage.status}" class:pulse={stage.status === "active"}>
+                <div class="stage-emoji">{stage.emoji}</div>
+                <div class="stage-info">
+                  <div class="stage-label">{stage.label}</div>
+                  {#if stage.detail}
+                    <div class="stage-detail" transition:fade={{ duration: 150 }}>{stage.detail}</div>
+                  {/if}
+                  <!-- Decision badge -->
+                  {#if showThoughts && stageDecisions[stage.id]}
+                    <div class="decision-badge" transition:fade={{ duration: 200 }}>
+                      <span class="decision-icon">⚖️</span>
+                      <span class="decision-text">{stageDecisions[stage.id]}</span>
+                    </div>
+                  {/if}
+                  <!-- Stage timing -->
+                  {#if stageTiming[stage.id]}
+                    <div class="stage-timing">{stageTiming[stage.id]}ms</div>
                   {/if}
                 </div>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/each}
-    </div>
-    {/if}
+                <div class="stage-indicator">
+                  {#if stage.status === "active"}
+                    <div class="spinner"></div>
+                  {:else if stage.status === "success"}
+                    <span class="check">✓</span>
+                  {:else if stage.status === "error"}
+                    <span class="cross">✗</span>
+                  {:else if stage.status === "skipped"}
+                    <span class="skip">⤸</span>
+                  {:else}
+                    <span class="dot"></span>
+                  {/if}
+                </div>
+              </div>
 
-    <!-- Collapsible Thought Stream -->
-    {#if !showSkeleton && showThoughts && thoughtStream.length > 0}
-      <div class="thought-stream" transition:slide={{ duration: 200 }}>
-        <div class="thought-stream-header">
-          <span class="thought-stream-icon">◫</span>
-          <span class="thought-stream-title">Agent Thoughts</span>
-          <span class="thought-count">{thoughtStream.length}</span>
-        </div>
-        <div class="thought-accordion-list">
-          {#each thoughtGroups as group (group.stageId)}
-            <section class="thought-accordion" class:open={expandedThoughtStages[group.stageId]}>
-              <button
-                type="button"
-                class="thought-accordion-header"
-                onclick={() => toggleThoughtStage(group.stageId)}
-                aria-expanded={Boolean(expandedThoughtStages[group.stageId])}
-              >
-                <span class="thought-stage-chip">{group.label}</span>
-                <span class="thought-preview">{group.latest.text}</span>
-                <span class="thought-count">{group.entries.length}</span>
-                <span class="thought-chevron">{expandedThoughtStages[group.stageId] ? "▲" : "▼"}</span>
-              </button>
-              {#if expandedThoughtStages[group.stageId]}
-                <div class="thought-stream-list" transition:slide={{ duration: 160 }}>
-                  {#each group.entries as thought, idx (`${thought.seq}-${idx}`)}
-                    <div class="thought-entry {thought.type}" transition:fade={{ duration: 120 }}>
-                      <span class="thought-seq">#{thought.seq}</span>
-                      <span class="thought-type">{thoughtTypeLabel(thought.type)}</span>
-                      <span class="thought-content">{thought.text}</span>
+              <!-- Execution sub-actions -->
+              {#if stage.id === "executing" && executionActions.length > 0}
+                <div class="sub-actions" transition:slide={{ duration: 200 }}>
+                  {#each executionActions as act, j}
+                    <div class="sub-action {act.status}" transition:fade={{ duration: 150 }}>
+                      <span class="sub-dot {act.status}"></span>
+                      <span class="sub-type">{act.type.replace(/_/g, " ")}</span>
+                      {#if act.target}
+                        <span class="sub-target">{act.target}</span>
+                      {/if}
                     </div>
                   {/each}
                 </div>
               {/if}
-            </section>
+            </div>
           {/each}
         </div>
-      </div>
-    {:else if showThoughts}
-      <div class="thought-stream empty" transition:fade={{ duration: 160 }}>
-        <div class="thought-stream-header">
-          <span class="thought-stream-icon">◫</span>
-          <span class="thought-stream-title">Agent Thoughts</span>
-        </div>
-        <div class="thought-empty">
-          Intermediate agent thoughts will appear here.
-        </div>
-      </div>
-    {/if}
+      {/if}
 
-    {#if !showThoughts && thoughtStream.length > 0}
-      <button
-        type="button"
-        class="thought-summary"
-        onclick={toggleThoughts}
-        aria-label="Show grouped agent thoughts"
-      >
-        <span>Agent thoughts hidden</span>
-        <span class="thought-count">{thoughtStream.length}</span>
-      </button>
-    {/if}
+      <!-- Collapsible Thought Stream -->
+      {#if !showSkeleton && showThoughts && thoughtStream.length > 0}
+        <div class="thought-stream" transition:slide={{ duration: 200 }}>
+          <div class="thought-stream-header">
+            <span class="thought-stream-icon">◫</span>
+            <span class="thought-stream-title">Agent Thoughts</span>
+            <span class="thought-count">{thoughtStream.length}</span>
+          </div>
+          <div class="thought-accordion-list">
+            {#each thoughtGroups as group (group.stageId)}
+              <section class="thought-accordion" class:open={expandedThoughtStages[group.stageId]}>
+                <button
+                  type="button"
+                  class="thought-accordion-header"
+                  onclick={() => toggleThoughtStage(group.stageId)}
+                  aria-expanded={Boolean(expandedThoughtStages[group.stageId])}
+                >
+                  <span class="thought-stage-chip">{group.label}</span>
+                  <span class="thought-preview">{group.latest.text}</span>
+                  <span class="thought-count">{group.entries.length}</span>
+                  <span class="thought-chevron">{expandedThoughtStages[group.stageId] ? "▲" : "▼"}</span>
+                </button>
+                {#if expandedThoughtStages[group.stageId]}
+                  <div class="thought-stream-list" transition:slide={{ duration: 160 }}>
+                    {#each group.entries as thought, idx (`${thought.seq}-${idx}`)}
+                      <div class="thought-entry {thought.type}" transition:fade={{ duration: 120 }}>
+                        <span class="thought-seq">#{thought.seq}</span>
+                        <span class="thought-type">{thoughtTypeLabel(thought.type)}</span>
+                        <span class="thought-content">{thought.text}</span>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              </section>
+            {/each}
+          </div>
+        </div>
+      {:else if showThoughts}
+        <div class="thought-stream empty" transition:fade={{ duration: 160 }}>
+          <div class="thought-stream-header">
+            <span class="thought-stream-icon">◫</span>
+            <span class="thought-stream-title">Agent Thoughts</span>
+          </div>
+          <div class="thought-empty">Intermediate agent thoughts will appear here.</div>
+        </div>
+      {/if}
 
-    <!-- Agent routing info -->
-    {#if !showSkeleton && agentRouting}
-      <div class="routing-info" transition:fade>
-        <span class="routing-label">Agents:</span>
-        {#each agentRouting.assigned_agents as agent}
-          <span class="agent-chip">{agent.replace(/_/g, " ")}</span>
-        {/each}
-      </div>
+      {#if !showThoughts && thoughtStream.length > 0}
+        <button type="button" class="thought-summary" onclick={toggleThoughts} aria-label="Show grouped agent thoughts">
+          <span>Agent thoughts hidden</span>
+          <span class="thought-count">{thoughtStream.length}</span>
+        </button>
+      {/if}
+
+      <!-- Agent routing info -->
+      {#if !showSkeleton && agentRouting}
+        <div class="routing-info" transition:fade>
+          <span class="routing-label">Agents:</span>
+          {#each agentRouting.assigned_agents as agent}
+            <span class="agent-chip">{agent.replace(/_/g, " ")}</span>
+          {/each}
+        </div>
+      {/if}
     {/if}
-  {/if}
   </div>
 {/if}
 
@@ -661,8 +707,10 @@
     padding: 1rem 1.25rem;
     margin: 0.75rem 0;
     backdrop-filter: blur(12px);
-    font-family: 'Inter', 'JetBrains Mono', monospace;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    font-family: "Inter", "JetBrains Mono", monospace;
+    box-shadow:
+      0 4px 24px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
     transition: padding 0.3s ease;
     max-height: 75vh;
     overflow-y: auto;
@@ -906,7 +954,9 @@
   .stage-node.active {
     background: rgba(0, 240, 255, 0.08);
     border-color: rgba(0, 240, 255, 0.35);
-    box-shadow: 0 0 24px rgba(0, 240, 255, 0.08), inset 0 0 20px rgba(0, 240, 255, 0.03);
+    box-shadow:
+      0 0 24px rgba(0, 240, 255, 0.08),
+      inset 0 0 20px rgba(0, 240, 255, 0.03);
   }
 
   .stage-node.success {
@@ -948,10 +998,18 @@
     letter-spacing: 0.3px;
   }
 
-  .stage-node.idle .stage-label { color: rgba(255, 255, 255, 0.35); }
-  .stage-node.active .stage-label { color: #00f0ff; }
-  .stage-node.success .stage-label { color: #00ffaa; }
-  .stage-node.error .stage-label { color: #ff5555; }
+  .stage-node.idle .stage-label {
+    color: rgba(255, 255, 255, 0.35);
+  }
+  .stage-node.active .stage-label {
+    color: #00f0ff;
+  }
+  .stage-node.success .stage-label {
+    color: #00ffaa;
+  }
+  .stage-node.error .stage-label {
+    color: #ff5555;
+  }
 
   .stage-detail {
     color: rgba(255, 255, 255, 0.45);
@@ -1034,9 +1092,16 @@
     flex-shrink: 0;
   }
 
-  .sub-dot.running { background: #00f0ff; box-shadow: 0 0 6px #00f0ff; }
-  .sub-dot.success { background: #00ffaa; }
-  .sub-dot.error { background: #ff5555; }
+  .sub-dot.running {
+    background: #00f0ff;
+    box-shadow: 0 0 6px #00f0ff;
+  }
+  .sub-dot.success {
+    background: #00ffaa;
+  }
+  .sub-dot.error {
+    background: #ff5555;
+  }
 
   .sub-type {
     color: rgba(255, 255, 255, 0.75);
@@ -1083,17 +1148,33 @@
   }
 
   @keyframes node-pulse {
-    0% { box-shadow: 0 0 8px rgba(0, 240, 255, 0.1), inset 0 0 8px rgba(0, 240, 255, 0.02); }
-    50% { box-shadow: 0 0 20px rgba(0, 240, 255, 0.2), inset 0 0 16px rgba(0, 240, 255, 0.05); }
-    100% { box-shadow: 0 0 8px rgba(0, 240, 255, 0.1), inset 0 0 8px rgba(0, 240, 255, 0.02); }
+    0% {
+      box-shadow:
+        0 0 8px rgba(0, 240, 255, 0.1),
+        inset 0 0 8px rgba(0, 240, 255, 0.02);
+    }
+    50% {
+      box-shadow:
+        0 0 20px rgba(0, 240, 255, 0.2),
+        inset 0 0 16px rgba(0, 240, 255, 0.05);
+    }
+    100% {
+      box-shadow:
+        0 0 8px rgba(0, 240, 255, 0.1),
+        inset 0 0 8px rgba(0, 240, 255, 0.02);
+    }
   }
 
   @keyframes skeleton-shimmer {
-    100% { transform: translateX(100%); }
+    100% {
+      transform: translateX(100%);
+    }
   }
 
   @keyframes spin {
-    100% { transform: rotate(360deg); }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 
   /* ── Thought Visualization Styles ── */
@@ -1113,7 +1194,8 @@
     transition: all 0.2s;
   }
 
-  .thought-toggle:hover, .thought-toggle.active {
+  .thought-toggle:hover,
+  .thought-toggle.active {
     background: rgba(120, 100, 255, 0.15);
     border-color: rgba(120, 100, 255, 0.4);
   }
@@ -1131,13 +1213,15 @@
     color: rgba(255, 200, 80, 0.9);
   }
 
-  .decision-icon { font-size: 0.65rem; }
+  .decision-icon {
+    font-size: 0.65rem;
+  }
 
   .stage-timing {
     font-size: 0.6rem;
     color: rgba(0, 255, 170, 0.5);
     margin-top: 2px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: "JetBrains Mono", monospace;
   }
 
   /* Collapsible Thought Stream */
@@ -1172,7 +1256,9 @@
     letter-spacing: 0.5px;
   }
 
-  .thought-stream-icon { font-size: 0.85rem; }
+  .thought-stream-icon {
+    font-size: 0.85rem;
+  }
 
   .thought-count {
     background: rgba(120, 100, 255, 0.15);
@@ -1254,14 +1340,22 @@
     line-height: 1.3;
   }
 
-  .thought-entry.thought { color: rgba(180, 160, 255, 0.7); }
-  .thought-entry.decision { color: rgba(255, 200, 80, 0.8); }
-  .thought-entry.metric { color: rgba(0, 255, 170, 0.7); }
-  .thought-entry.error { color: rgba(255, 80, 80, 0.8); }
+  .thought-entry.thought {
+    color: rgba(180, 160, 255, 0.7);
+  }
+  .thought-entry.decision {
+    color: rgba(255, 200, 80, 0.8);
+  }
+  .thought-entry.metric {
+    color: rgba(0, 255, 170, 0.7);
+  }
+  .thought-entry.error {
+    color: rgba(255, 80, 80, 0.8);
+  }
 
   .thought-seq {
     color: rgba(255, 255, 255, 0.25);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: "JetBrains Mono", monospace;
     font-size: 0.6rem;
     min-width: 20px;
     flex-shrink: 0;
@@ -1347,6 +1441,6 @@
     font-size: 0.65rem;
     opacity: 0.55;
     font-weight: 400;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: "JetBrains Mono", monospace;
   }
 </style>

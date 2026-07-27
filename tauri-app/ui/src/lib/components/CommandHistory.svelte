@@ -29,10 +29,10 @@
             .map((m: any) => ({
               raw_input: m.text,
               created_at: new Date(m.timestamp || Date.now()).toISOString(),
-              execution_status: "success"
+              execution_status: "success",
             }))
             .reverse();
-        } catch(e) {}
+        } catch (e) {}
       }
       history = loaded;
     } catch (e) {
@@ -44,10 +44,10 @@
             .map((m: any) => ({
               raw_input: m.text,
               created_at: new Date(m.timestamp || Date.now()).toISOString(),
-              execution_status: "success"
+              execution_status: "success",
             }))
             .reverse();
-        } catch(err) {
+        } catch (err) {
           history = [];
         }
       } else {
@@ -84,15 +84,13 @@
 </script>
 
 <div class="history-wrapper">
-  <button class="history-toggle" onclick={togglePanel} title="Command History">
-    🕒 History
-  </button>
+  <button class="history-toggle" onclick={togglePanel} title="Command History"> 🕒 History </button>
 
   {#if isOpen}
     <div class="history-panel">
       <div class="history-header">
         <span class="history-title">Command History</span>
-        <button class="close-btn" onclick={() => isOpen = false}>✕</button>
+        <button class="close-btn" onclick={() => (isOpen = false)}>✕</button>
       </div>
 
       {#if loading}
@@ -113,7 +111,10 @@
               <button
                 class="replay-btn"
                 title="Replay this command"
-                onclick={() => { onReplay(entry.raw_input); isOpen = false; }}
+                onclick={() => {
+                  onReplay(entry.raw_input);
+                  isOpen = false;
+                }}
               >
                 ↩ Replay
               </button>
@@ -152,7 +153,7 @@
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -161,8 +162,14 @@
   }
 
   @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .history-header {
@@ -186,7 +193,9 @@
     color: var(--text-muted);
     background: none;
   }
-  .close-btn:hover { color: var(--text-primary); }
+  .close-btn:hover {
+    color: var(--text-primary);
+  }
 
   .history-loading,
   .history-empty {
@@ -209,7 +218,9 @@
     border-bottom: 1px solid var(--border);
     transition: background 0.1s;
   }
-  .history-item:hover { background: var(--bg-hover); }
+  .history-item:hover {
+    background: var(--bg-hover);
+  }
 
   .status-dot {
     font-size: 12px;
@@ -218,9 +229,15 @@
     text-align: center;
     flex-shrink: 0;
   }
-  .status-success { color: var(--success); }
-  .status-error   { color: var(--danger); }
-  .status-other   { color: var(--text-muted); }
+  .status-success {
+    color: var(--success);
+  }
+  .status-error {
+    color: var(--danger);
+  }
+  .status-other {
+    color: var(--text-muted);
+  }
 
   .entry-info {
     flex: 1;

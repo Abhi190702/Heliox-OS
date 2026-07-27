@@ -75,9 +75,7 @@
         const uid = `hlx-${Math.random().toString(36).slice(2, 9)}`;
 
         const langLabel = detected !== "plaintext" ? detected : "";
-        const langBadge = langLabel
-          ? `<span class="hlx-lang-badge">${langLabel}</span>`
-          : "";
+        const langBadge = langLabel ? `<span class="hlx-lang-badge">${langLabel}</span>` : "";
 
         return `
           <div class="hlx-code-wrapper" data-uid="${uid}">
@@ -112,16 +110,13 @@
 
     if (!looksLikeMarkdown(text)) {
       // Fast path: escape HTML and return plain text
-      return text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
     marked.use({
       renderer: buildRenderer() as Renderer,
-      gfm: true,        // GitHub Flavored Markdown
-      breaks: true,     // Single newlines become <br>
+      gfm: true, // GitHub Flavored Markdown
+      breaks: true, // Single newlines become <br>
     });
 
     const raw = await marked.parse(text);
@@ -130,10 +125,21 @@
     return DOMPurify.sanitize(raw, {
       ADD_TAGS: ["svg", "path", "rect"],
       ADD_ATTR: [
-        "viewBox", "fill", "stroke", "stroke-width",
-        "stroke-linecap", "stroke-linejoin",
-        "width", "height", "x", "y", "rx", "ry", "d",
-        "data-uid", "data-code",
+        "viewBox",
+        "fill",
+        "stroke",
+        "stroke-width",
+        "stroke-linecap",
+        "stroke-linejoin",
+        "width",
+        "height",
+        "x",
+        "y",
+        "rx",
+        "ry",
+        "d",
+        "data-uid",
+        "data-code",
       ],
     });
   }
@@ -144,8 +150,8 @@
     if (!btn) return;
 
     const encoded = btn.dataset.code ?? "";
-    const uid     = btn.dataset.uid ?? "";
-    const code    = decodeURIComponent(encoded);
+    const uid = btn.dataset.uid ?? "";
+    const code = decodeURIComponent(encoded);
 
     try {
       // Use Tauri's clipboard API (matches existing Heliox clipboard_write action)
@@ -183,20 +189,13 @@
 </script>
 
 <!-- ── Template ─────────────────────────────────────────────────────────── -->
-<div
-  class="hlx-message hlx-message--{role}"
-  bind:this={messageEl}
->
+<div class="hlx-message hlx-message--{role}" bind:this={messageEl}>
   {#if timestamp}
     <span class="hlx-timestamp">{new Date(timestamp).toLocaleTimeString()}</span>
   {/if}
 
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div
-    class="hlx-content"
-    role="log"
-    aria-live="polite"
-  >
+  <div class="hlx-content" role="log" aria-live="polite">
     <!-- eslint-disable-next-line svelte/no-at-html-tags -->
     {@html renderedHtml}
   </div>
@@ -216,9 +215,19 @@
     color: var(--color-text, #e2e8f0);
   }
 
-  .hlx-message--agent  { border-left: 2px solid var(--accent); padding-left: 10px; }
-  .hlx-message--user   { border-left: 2px solid var(--color-muted,  #64748b); padding-left: 10px; }
-  .hlx-message--system { border-left: 2px solid var(--color-warn,   #f59e0b); padding-left: 10px; opacity: 0.75; }
+  .hlx-message--agent {
+    border-left: 2px solid var(--accent);
+    padding-left: 10px;
+  }
+  .hlx-message--user {
+    border-left: 2px solid var(--color-muted, #64748b);
+    padding-left: 10px;
+  }
+  .hlx-message--system {
+    border-left: 2px solid var(--color-warn, #f59e0b);
+    padding-left: 10px;
+    opacity: 0.75;
+  }
 
   .hlx-timestamp {
     font-size: 10px;
@@ -227,13 +236,27 @@
   }
 
   /* ── Prose ────────────────────────────────────────────────────────────── */
-  .hlx-content :global(p)      { margin: 4px 0; }
+  .hlx-content :global(p) {
+    margin: 4px 0;
+  }
   .hlx-content :global(ul),
-  .hlx-content :global(ol)     { margin: 4px 0; padding-left: 20px; }
-  .hlx-content :global(li)     { margin: 2px 0; }
-  .hlx-content :global(strong) { color: var(--accent); }
-  .hlx-content :global(em)     { color: var(--color-text-dim, #94a3b8); }
-  .hlx-content :global(a)      { color: var(--color-link, #7dd3fc); text-decoration: underline; }
+  .hlx-content :global(ol) {
+    margin: 4px 0;
+    padding-left: 20px;
+  }
+  .hlx-content :global(li) {
+    margin: 2px 0;
+  }
+  .hlx-content :global(strong) {
+    color: var(--accent);
+  }
+  .hlx-content :global(em) {
+    color: var(--color-text-dim, #94a3b8);
+  }
+  .hlx-content :global(a) {
+    color: var(--color-link, #7dd3fc);
+    text-decoration: underline;
+  }
 
   /* Inline code */
   .hlx-content :global(:not(pre) > code) {
@@ -317,7 +340,10 @@
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s,
+      border-color 0.15s;
     line-height: 1;
   }
   .hlx-content :global(.hlx-copy-btn:hover) {
@@ -340,12 +366,16 @@
 
     /* Custom scrollbar to match dark UI */
     scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.15) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
   }
-  .hlx-content :global(.hlx-pre::-webkit-scrollbar) { height: 5px; }
-  .hlx-content :global(.hlx-pre::-webkit-scrollbar-track) { background: transparent; }
+  .hlx-content :global(.hlx-pre::-webkit-scrollbar) {
+    height: 5px;
+  }
+  .hlx-content :global(.hlx-pre::-webkit-scrollbar-track) {
+    background: transparent;
+  }
   .hlx-content :global(.hlx-pre::-webkit-scrollbar-thumb) {
-    background: rgba(255,255,255,0.15);
+    background: rgba(255, 255, 255, 0.15);
     border-radius: 3px;
   }
 

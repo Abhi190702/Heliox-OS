@@ -304,7 +304,7 @@ describe("mapCursorTargetToScreen", () => {
 
   it("clamps sensitivity to the supported range", () => {
     expect(mapCursorTargetToScreen({ x: 0, y: 0 }, 1000, 500, 99)).toEqual(
-      mapCursorTargetToScreen({ x: 0, y: 0 }, 1000, 500, 3)
+      mapCursorTargetToScreen({ x: 0, y: 0 }, 1000, 500, 3),
     );
   });
 });

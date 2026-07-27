@@ -72,7 +72,7 @@
 
 <div class="supervision-panel">
   <div class="supervision-header">
-    <h3>{$_('settings.supervision')}</h3>
+    <h3>{$_("settings.supervision")}</h3>
     <button
       class="toggle"
       class:active={enabled}
@@ -84,7 +84,7 @@
     </button>
   </div>
 
-  <p class="supervision-warning">{$_('settings.supervision_warning')}</p>
+  <p class="supervision-warning">{$_("settings.supervision_warning")}</p>
 
   {#if loading}
     <div class="empty">Loading...</div>
@@ -92,8 +92,8 @@
     {#if enabled}
       <div class="setting-row">
         <div class="setting-info">
-          <span class="setting-label">{$_('settings.supervision_cognitive_coaching')}</span>
-          <span class="setting-desc">{$_('settings.supervision_cognitive_coaching_desc')}</span>
+          <span class="setting-label">{$_("settings.supervision_cognitive_coaching")}</span>
+          <span class="setting-desc">{$_("settings.supervision_cognitive_coaching_desc")}</span>
         </div>
         <button
           class="toggle toggle-sm"
@@ -107,8 +107,8 @@
 
       <div class="setting-row">
         <div class="setting-info">
-          <span class="setting-label">{$_('settings.supervision_risk_detection')}</span>
-          <span class="setting-desc">{$_('settings.supervision_risk_detection_desc')}</span>
+          <span class="setting-label">{$_("settings.supervision_risk_detection")}</span>
+          <span class="setting-desc">{$_("settings.supervision_risk_detection_desc")}</span>
         </div>
         <button
           class="toggle toggle-sm"
@@ -121,19 +121,19 @@
       </div>
 
       <div class="supervision-hook-section">
-        <p class="supervision-hook-warning">{$_('settings.supervision_hook_warning')}</p>
+        <p class="supervision-hook-warning">{$_("settings.supervision_hook_warning")}</p>
 
         {#if !keyboardMouseHookEnabled}
           <label class="hook-understood">
             <input type="checkbox" bind:checked={hookWarningUnderstood} />
-            {$_('settings.supervision_hook_understood')}
+            {$_("settings.supervision_hook_understood")}
           </label>
         {/if}
 
         <div class="setting-row">
           <div class="setting-info">
-            <span class="setting-label">{$_('settings.supervision_hook_enabled')}</span>
-            <span class="setting-desc">{$_('settings.supervision_hook_enabled_desc')}</span>
+            <span class="setting-label">{$_("settings.supervision_hook_enabled")}</span>
+            <span class="setting-desc">{$_("settings.supervision_hook_enabled_desc")}</span>
           </div>
           <button
             class="toggle toggle-sm"
@@ -148,7 +148,7 @@
 
         {#if keyboardMouseHookEnabled}
           <p class="hook-status" class:hook-status-bad={!hookHealthy}>
-            {hookHealthy ? $_('settings.supervision_hook_healthy') : $_('settings.supervision_hook_unhealthy')}
+            {hookHealthy ? $_("settings.supervision_hook_healthy") : $_("settings.supervision_hook_unhealthy")}
           </p>
         {/if}
       </div>
@@ -156,7 +156,7 @@
 
     <div class="supervision-actions">
       <button class="btn-save" onclick={save} disabled={saving}>
-        {saving ? "Saving..." : saved ? "✓ Saved" : $_('settings.save')}
+        {saving ? "Saving..." : saved ? "✓ Saved" : $_("settings.save")}
       </button>
     </div>
   {/if}

@@ -3,5 +3,4 @@ export type PinnedWidget = {
   title: string;
   color: string;
 };
-export const pinnedWidgets =
-  writable<PinnedWidget[]>([]);
+export const pinnedWidgets = writable<PinnedWidget[]>([]);

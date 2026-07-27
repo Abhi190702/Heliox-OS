@@ -88,13 +88,9 @@
 
       <div class="budget-actions">
         {#if onopensettings}
-          <button class="btn-secondary" onclick={handleOpenSettings}>
-            Open settings
-          </button>
+          <button class="btn-secondary" onclick={handleOpenSettings}> Open settings </button>
         {/if}
-        <button class="btn-primary" onclick={handleAcknowledge}>
-          Acknowledge
-        </button>
+        <button class="btn-primary" onclick={handleAcknowledge}> Acknowledge </button>
       </div>
     </div>
   </div>
