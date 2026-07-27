@@ -330,6 +330,9 @@ export async function freezeAnimations(page: Page): Promise<void> {
         transition-duration: 0s !important;
         transition-delay: 0s !important;
       }
+      .particle-canvas {
+        display: none !important;
+      }
     `,
   });
 }
