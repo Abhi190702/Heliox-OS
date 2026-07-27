@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import typing
 import uuid
 from typing import TYPE_CHECKING
@@ -71,6 +72,19 @@ if TYPE_CHECKING:
     from pilot.skills.loader import SkillRegistry
 
 logger = logging.getLogger("pilot.agents.executor")
+
+_EXIT_CODE_PATTERN = re.compile(r"\[EXIT CODE:\s*(-?\d+)\]")
+
+
+def _code_execution_error(output: str) -> str | None:
+    """Return a useful error when a code backend reports terminal failure."""
+    text = (output or "").strip()
+    match = _EXIT_CODE_PATTERN.search(text)
+    if match and int(match.group(1)) != 0:
+        return f"Code execution exited with code {match.group(1)}. {text[:800]}"
+    if text.upper().startswith("ERROR:"):
+        return text[:800]
+    return None
 
 
 class Executor:
@@ -1945,7 +1959,8 @@ class Executor:
         logger.info("Code execute result (%d chars): %s", len(result), result[:200] if result else "(empty)")
 
         # --- Auto-retry on failure: ask LLM to fix the code ---
-        if result and ("[STDERR]" in result or "[EXIT CODE:" in result):
+        execution_error = _code_execution_error(result)
+        if execution_error:
             # Code failed — try to fix it with the LLM
             logger.warning("Code execution failed, attempting auto-fix via LLM")
             try:
@@ -1983,19 +1998,24 @@ class Executor:
                 logger.info("Auto-fix: retrying with LLM-fixed code (%d chars)", len(fixed_code))
                 retry_result = await execute_code(fixed_code, p.language, p.timeout, sandbox_cfg=sandbox_cfg)
 
-                # Only use the retry if it's better (no error)
-                if "[STDERR]" not in retry_result and "[EXIT CODE:" not in retry_result:
+                # A retry is successful only when its terminal markers say so.
+                retry_error = _code_execution_error(retry_result)
+                if retry_error is None:
                     logger.info("Auto-fix succeeded!")
-                    return retry_result
+                    result = retry_result
+                    execution_error = retry_error
                 elif len(retry_result) > len(result):
-                    # Partial improvement — use it if it produced more output
-                    logger.info("Auto-fix partially improved output")
-                    return retry_result
+                    # Preserve richer diagnostics, but still fail the action.
+                    logger.info("Auto-fix produced more diagnostic output")
+                    result = retry_result
+                    execution_error = retry_error
                 else:
                     logger.warning("Auto-fix didn't improve, keeping original result")
             except Exception as e:
                 logger.warning("Auto-fix LLM call failed: %s", e)
 
+        if execution_error:
+            raise RuntimeError(execution_error)
         return result
 
     async def _exec_code_generate(self, action: Action) -> str:
@@ -2016,7 +2036,11 @@ class Executor:
             firecracker_rootfs_path=getattr(self._config.security, "sandbox_firecracker_rootfs_path", ""),
             firecracker_fallback=getattr(self._config.security, "sandbox_firecracker_fallback", True),
         )
-        return await generate_and_execute(p.task_description, p.language, p.timeout, sandbox_cfg=sandbox_cfg)
+        result = await generate_and_execute(p.task_description, p.language, p.timeout, sandbox_cfg=sandbox_cfg)
+        execution_error = _code_execution_error(result)
+        if execution_error:
+            raise RuntimeError(execution_error)
+        return result
 
     # ======================================================================
     # TIER 2: FILE CONTENT INTELLIGENCE
