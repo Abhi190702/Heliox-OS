@@ -1,5 +1,6 @@
 import { writable, get } from "svelte/store";
 import { call, connect, isConnected, onNotification } from "../api/daemon";
+import { classifyExecuteResponse } from "../utils/executeResponse";
 import { settings } from "./settings";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
@@ -102,6 +103,7 @@ interface SessionState {
   budget: BudgetInfo | null;
   rollback: RollbackAvailable | null;
   rollbackPending: boolean;
+  terminalStatus: string;
 }
 
 export interface Attachment {
@@ -139,6 +141,7 @@ const initialState: SessionState = {
   budget: null,
   rollback: null,
   rollbackPending: false,
+  terminalStatus: "",
 };
 
 const MODEL_RATES: Record<string, number> = {
@@ -177,6 +180,7 @@ async function notifyTaskComplete(payload: Record<string, unknown>) {
   let title = "Heliox OS task complete";
   if (status === "error") title = "Heliox OS task failed";
   else if (status === "partial_failure") title = "Heliox OS task completed with issues";
+  else if (status === "blocked_by_critic") title = "Heliox OS task blocked by safety review";
   else if (status === "cancelled") title = "Heliox OS task cancelled";
   else if (dryRun) title = "Heliox OS dry run complete";
 
@@ -476,6 +480,7 @@ function createSession() {
       confirmSubmitting: false,
       confirmError: "",
       streamingText: "",
+      terminalStatus: "",
       messages: [...s.messages, { type: "user", text: input, timestamp: Date.now() }],
     }));
 
@@ -484,8 +489,6 @@ function createSession() {
         input,
         attachments,
       })) as Record<string, unknown>;
-      const isDryRun = Boolean(result.dry_run);
-
       const rawResults = (result.results ?? []) as Array<Record<string, unknown>>;
       const actionResults: ActionResultData[] = rawResults.map((r) => {
         const action = (r.action ?? {}) as Record<string, unknown>;
@@ -506,58 +509,14 @@ function createSession() {
           }
         : undefined;
 
-      if (result.status === "error") {
-        const streamingContent = get(session).streamingText;
-        update((s) => ({
-          ...s,
-          loading: false,
-          phase: "",
-          currentPlan: null,
-          streamingText: "",
-          messages: [
-            ...s.messages,
-            {
-              type: "error" as MessageType,
-              text: streamingContent || String(result.message ?? result.explanation ?? "Unknown error"),
-              timestamp: Date.now(),
-            },
-          ],
-        }));
-      } else if (result.status === "cancelled") {
-        update((s) => ({
-          ...s,
-          loading: false,
-          phase: "",
-          currentPlan: null,
-          confirmRequired: false,
-          confirmPlanId: "",
-          confirmActions: [],
-          confirmReason: "",
-          confirmRiskAssessment: null,
-          confirmSubmitting: false,
-          confirmError: "",
-          streamingText: "",
-          messages: [
-            ...s.messages,
-            {
-              type: "system" as MessageType,
-              text: String(result.message ?? "Action cancelled by user."),
-              timestamp: Date.now(),
-            },
-          ],
-        }));
-      } else {
-        const responseText = isDryRun
-          ? String(result.explanation || "(dry run) No changes were made.")
-          : String(result.explanation ?? "");
-
-        const estimatedTokens = estimateTokens(responseText);
+      const terminal = classifyExecuteResponse(result);
+      const estimatedTokens = estimateTokens(terminal.text);
+      let estimatedCost = 0;
+      if (terminal.messageType === "result") {
         const settingsState = get(settings);
         const model = settingsState?.model?.cloud_model || settingsState?.model?.cloud_provider || "ollama";
-
         const normalizedModel = model.toLowerCase();
         let rate = 0;
-
         if (normalizedModel.includes("gemini")) {
           rate = MODEL_RATES["gemini-1.5-pro"];
         } else if (normalizedModel.includes("gpt-4o")) {
@@ -565,38 +524,36 @@ function createSession() {
         } else if (normalizedModel.includes("claude")) {
           rate = MODEL_RATES["claude-sonnet"];
         }
-        const estimatedCost = Number((estimatedTokens * rate).toFixed(6));
-        const finalText = responseText;
-
-        update((s) => ({
-          ...s,
-          loading: false,
-          phase: "",
-          currentPlan: null,
-          confirmRequired: false,
-          confirmPlanId: "",
-          confirmActions: [],
-          confirmReason: "",
-          confirmRiskAssessment: null,
-          confirmSubmitting: false,
-          confirmError: "",
-          streamingText: "",
-
-          totalTokens: s.totalTokens + estimatedTokens,
-          estimatedCost: s.estimatedCost + estimatedCost,
-
-          messages: [
-            ...s.messages,
-            {
-              type: "result" as MessageType,
-              text: finalText,
-              timestamp: Date.now(),
-              actionResults,
-              verification,
-            },
-          ],
-        }));
+        estimatedCost = Number((estimatedTokens * rate).toFixed(6));
       }
+
+      update((s) => ({
+        ...s,
+        loading: false,
+        phase: "",
+        currentPlan: null,
+        confirmRequired: false,
+        confirmPlanId: "",
+        confirmActions: [],
+        confirmReason: "",
+        confirmRiskAssessment: null,
+        confirmSubmitting: false,
+        confirmError: "",
+        streamingText: "",
+        terminalStatus: terminal.status,
+        totalTokens: s.totalTokens + (terminal.messageType === "result" ? estimatedTokens : 0),
+        estimatedCost: s.estimatedCost + estimatedCost,
+        messages: [
+          ...s.messages,
+          {
+            type: terminal.messageType as MessageType,
+            text: terminal.text,
+            timestamp: Date.now(),
+            actionResults,
+            verification,
+          },
+        ],
+      }));
     } catch (err) {
       update((s) => ({
         ...s,
@@ -610,6 +567,7 @@ function createSession() {
         confirmSubmitting: false,
         confirmError: "",
         streamingText: "",
+        terminalStatus: "error",
         messages: [
           ...s.messages,
           {
@@ -624,10 +582,8 @@ function createSession() {
 
   async function confirm(accepted: boolean, approvedIndices?: number[]) {
     let planId = "";
-    let totalRequired = 0;
     const unsub = subscribe((s) => {
       planId = s.confirmPlanId;
-      totalRequired = s.confirmActions.length;
     });
     unsub();
 
@@ -652,26 +608,16 @@ function createSession() {
         throw new Error(String(result.message ?? "The daemon did not accept this decision."));
       }
 
-      update((s) => {
-        let acknowledgement = "Approval accepted. Execution is continuing.";
-        if (!accepted) {
-          acknowledgement = "Denial accepted. The action will not run.";
-        } else if (approvedIndices !== undefined && approvedIndices.length < totalRequired) {
-          acknowledgement = `Approved ${approvedIndices.length} of ${totalRequired} action(s); the rest will be skipped.`;
-        }
-
-        return {
-          ...s,
-          confirmRequired: false,
-          confirmPlanId: "",
-          confirmActions: [],
-          confirmReason: "",
-          confirmRiskAssessment: null,
-          confirmSubmitting: false,
-          confirmError: "",
-          messages: [...s.messages, { type: "system" as MessageType, text: acknowledgement, timestamp: Date.now() }],
-        };
-      });
+      update((s) => ({
+        ...s,
+        confirmRequired: false,
+        confirmPlanId: "",
+        confirmActions: [],
+        confirmReason: "",
+        confirmRiskAssessment: null,
+        confirmSubmitting: false,
+        confirmError: "",
+      }));
     } catch (err) {
       const message = String(err instanceof Error ? err.message : err);
       update((s) => ({

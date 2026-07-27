@@ -1364,12 +1364,15 @@ class PilotServer:
         last_explanation = ""
         _original_plan = None
         _successful_results: list = []
+        from pilot.response_contract import partial_failure_message, success_message
 
         for attempt in range(1 + self.MAX_RETRIES):
             # ── Cancel Token: check before each planning attempt ──
             if cancel_event.is_set():
                 logger.info("Execution cancelled before attempt %d", attempt + 1)
-                return {"status": "cancelled", "message": "Execution was aborted by user."}
+                message = "Execution was stopped before planning."
+                await _emit_task_complete("cancelled", message)
+                return {"status": "cancelled", "message": message}
 
             plan_phase = ""
             if emit:
@@ -1555,10 +1558,12 @@ class PilotServer:
                             verdict.recommendation,
                             parent_id=critic_phase,
                         )
+                    message = f"Blocked before execution by safety review: {verdict.recommendation}"
+                    await _emit_task_complete("blocked_by_critic", message)
                     return {
                         "status": "blocked_by_critic",
                         "verdict": verdict.to_dict(),
-                        "message": (f"Plan blocked by safety critic: {verdict.recommendation}"),
+                        "message": message,
                         "explanation": plan.explanation,
                     }
 
@@ -1632,13 +1637,14 @@ class PilotServer:
                         )
 
                 if not confirmed:
+                    message = "Cancelled before execution: the plan was denied."
                     await self._record_permission_escalations(
                         plan_id=plan_id,
                         plan=plan,
                         confirmation_decision="denied",
                         critic_verdict=critic_verdict_payload,
                         results=[],
-                        execution_error="Plan was denied by user.",
+                        execution_error=message,
                     )
                     # ── Plan History: user denied ──
                     self._spawn_history_task(
@@ -1655,10 +1661,10 @@ class PilotServer:
                             start_time=_start_time,
                         )
                     )
-                    await _emit_task_complete("cancelled", "Plan was denied by user.")
+                    await _emit_task_complete("cancelled", message)
                     return {
                         "status": "cancelled",
-                        "message": "Plan was denied by user.",
+                        "message": message,
                         "explanation": plan.explanation,
                     }
 
@@ -1809,9 +1815,15 @@ class PilotServer:
                         start_time=_start_time,
                     )
                 )
+                message = (
+                    f"Execution stopped by user after {len(results)} of {len(plan.actions)} actions completed."
+                    if plan.actions
+                    else "Execution stopped by user."
+                )
+                await _emit_task_complete("cancelled", message)
                 return {
                     "status": "cancelled",
-                    "message": "Execution was aborted by user.",
+                    "message": message,
                     "results": [r.model_dump() for r in results],
                 }
 
@@ -1908,12 +1920,14 @@ class PilotServer:
                     )
                 )
 
-                await _emit_task_complete("success", plan.explanation or "Task completed successfully.")
+                message = success_message(plan, results, verification, dry_run=dry_run)
+                await _emit_task_complete("success", message)
                 return {
                     "status": "success",
                     "dry_run": dry_run,
                     "results": [r.model_dump() for r in results],
                     "verification": verification.model_dump(),
+                    "message": message,
                     "explanation": (
                         f"(dry run) {plan.explanation}"
                         if dry_run and plan.explanation
@@ -1988,12 +2002,14 @@ class PilotServer:
             )
         )
 
-        await _emit_task_complete("partial_failure", last_explanation or "Task completed with errors.")
+        message = partial_failure_message(all_results, last_verification)
+        await _emit_task_complete("partial_failure", message)
         return {
             "status": "partial_failure",
             "dry_run": dry_run,
             "results": [r.model_dump() for r in all_results],
             "verification": last_verification.model_dump() if last_verification else {},
+            "message": message,
             "explanation": (
                 f"(dry run) {last_explanation}"
                 if dry_run and last_explanation

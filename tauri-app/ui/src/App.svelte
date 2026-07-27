@@ -422,6 +422,9 @@
           </span>
         {/if}
       </div>
+      {#if msg.text}
+        <p class="result-summary">{msg.text}</p>
+      {/if}
       {#if msg.actionResults && msg.actionResults.length > 0}
         {#each msg.actionResults as ar, i}
           <div class="action-result" class:action-success={ar.success} class:action-failure={!ar.success}>
@@ -444,8 +447,8 @@
             {/if}
           </div>
         {/each}
-      {:else}
-        <span class="msg-text">{msg.text || $_("result.done")}</span>
+      {:else if !msg.text}
+        <span class="msg-text">{$_("result.done")}</span>
       {/if}
       {#if msg.verification && msg.verification.details.length > 0}
         <div class="verification-section">
@@ -1038,6 +1041,12 @@
 
   .result-msg .msg-label {
     color: var(--success);
+  }
+
+  .result-summary {
+    margin: 0;
+    color: var(--text-primary);
+    line-height: 1.5;
   }
 
   .status-badge {

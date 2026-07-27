@@ -9,13 +9,14 @@
    */
 
   import { session } from "../stores/session";
+  import { calculatePipelineProgress, type PipelineStageStatus } from "../utils/pipelineProgress";
   import { onNotification, offNotification } from "../api/daemon";
   import { fade, slide } from "svelte/transition";
   import { onMount, onDestroy } from "svelte";
 
   // ── Pipeline Stage Types ──
 
-  type StageStatus = "idle" | "active" | "success" | "error" | "skipped";
+  type StageStatus = PipelineStageStatus;
 
   interface PipelineStage {
     id: string;
@@ -121,6 +122,20 @@
     });
   }
 
+  function settleUnreachedStages() {
+    const now = Date.now();
+    stages = stages.map((stage) =>
+      stage.status === "idle" || stage.status === "active"
+        ? {
+            ...stage,
+            status: "skipped" as StageStatus,
+            detail: stage.detail || "Not reached",
+            endTime: now,
+          }
+        : stage,
+    );
+  }
+
   // ── Listen to WebSocket Notifications ──
 
   function handleNotification(method: string, params: unknown) {
@@ -190,6 +205,10 @@
         if (phase.includes("retrying")) {
           setStage("verifying", "error", "Mismatch detected — retrying");
           setStage("planning", "active", "Re-planning...");
+        }
+        if (phase === "aborted") {
+          setStage("executing", "error", "Stopped by user");
+          setStage("verifying", "skipped", "Not run");
         }
         break;
       }
@@ -361,12 +380,21 @@
             );
             setStage("reflection", "success", "Performance analyzed");
             setStage("memory_update", "success", "History saved");
+            settleUnreachedStages();
             totalDuration = Date.now() - pipelineStartTime;
           } else if (lastMsg.type === "error") {
             setStage("executing", "error", "Failed");
             setStage("verifying", "error", "N/A");
             setStage("reflection", "success", "Failure recorded");
             setStage("memory_update", "success", "Error logged");
+            settleUnreachedStages();
+            totalDuration = Date.now() - pipelineStartTime;
+          } else if (s.terminalStatus === "cancelled") {
+            setStage("executing", "error", "Cancelled");
+            setStage("verifying", "skipped", "Not run");
+            setStage("reflection", "skipped", "Not run");
+            setStage("memory_update", "success", "Cancellation recorded");
+            settleUnreachedStages();
             totalDuration = Date.now() - pipelineStartTime;
           }
           pipelineStartTime = 0;
@@ -451,9 +479,7 @@
   }
 
   // Computed: progress percentage
-  let progress = $derived(
-    Math.round((stages.filter((s) => s.status === "success" || s.status === "skipped").length / stages.length) * 100),
-  );
+  let progress = $derived(calculatePipelineProgress(stages.map((stage) => stage.status)));
 
   let thoughtGroups = $derived.by(() => {
     const grouped = new Map<string, ThoughtEntry[]>();

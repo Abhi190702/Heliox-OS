@@ -7,10 +7,21 @@ signal cancel_event for the next action boundary.
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
-from pilot.actions import Action, ActionPlan, ActionType, SystemInfoParams
+from pilot.actions import (
+    Action,
+    ActionPlan,
+    ActionResult,
+    ActionType,
+    BrowserParams,
+    PowerParams,
+    SystemInfoParams,
+    VerificationResult,
+)
+from pilot.agents.destructive_critic import CriticVerdict
 from pilot.config import PilotConfig
 from pilot.server import PilotServer
 
@@ -125,16 +136,31 @@ class _FakeWs:
     """Minimal stand-in for ServerConnection -- _handle_execute only calls
     ws.send(json_string); nothing needs to actually go anywhere."""
 
-    def __init__(self):
+    def __init__(self, confirmation: bool | None = None):
         self.sent: list[str] = []
+        self.confirmation = confirmation
+        self.server: PilotServer | None = None
 
     async def send(self, message):
         self.sent.append(message)
+        payload = json.loads(message)
+        if payload.get("method") == "confirm_required" and self.confirmation is not None:
+            assert self.server is not None
+            await self.server._handle_confirm(
+                {
+                    "plan_id": payload["params"]["plan_id"],
+                    "confirmed": self.confirmation,
+                },
+                self,
+            )
 
 
 class _FakeReflector:
     async def get_improvement_context(self, user_input):
         return ""
+
+    async def reflect(self, *args, **kwargs):
+        return None
 
 
 class _FakeMultiAgent:
@@ -143,8 +169,16 @@ class _FakeMultiAgent:
 
 
 class _FakePermissionChecker:
+    def __init__(self, requires_confirmation: bool = False):
+        self.requires_confirmation = requires_confirmation
+
     def plan_requires_confirmation(self, plan):
-        return False
+        return self.requires_confirmation
+
+
+class _FakeMemory:
+    async def record(self, *args, **kwargs):
+        return None
 
 
 def _server_ready_for_handle_execute(executor, plan: ActionPlan | None = None) -> PilotServer:
@@ -156,6 +190,15 @@ def _server_ready_for_handle_execute(executor, plan: ActionPlan | None = None) -
     server._multi_agent = _FakeMultiAgent()
     server._permission_checker = _FakePermissionChecker()
     server._executor = executor
+    server._memory = _FakeMemory()
+    server._orchestrator = None
+    server._destructive_critic = None
+    server.test_broadcasts = []
+
+    async def _capture_broadcast(method, params):
+        server.test_broadcasts.append((method, params))
+
+    server._broadcast_notification = _capture_broadcast
 
     resolved_plan = plan or ActionPlan(
         actions=[
@@ -229,5 +272,138 @@ async def test_handle_execute_returns_clean_response_when_cancelled_mid_flight()
     result = await asyncio.wait_for(handle_task, timeout=10)
 
     assert result["status"] == "cancelled"
+    assert "stopped by user" in result["message"]
     assert executor.cancelled is True
     assert server._active_execution_task is None
+    assert [method for method, _ in server.test_broadcasts].count("task_complete") == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_execute_denial_has_one_truthful_terminal_response_and_does_not_execute():
+    class _ExecutorThatMustNotRun:
+        async def execute(self, plan, **kwargs):
+            raise AssertionError("a denied plan must not reach the executor")
+
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.BROWSER_NAVIGATE,
+                target="https://example.com",
+                parameters=BrowserParams(url="https://example.com"),
+            )
+        ],
+        explanation="Open example.com.",
+    )
+    server = _server_ready_for_handle_execute(_ExecutorThatMustNotRun(), plan)
+    server._permission_checker = _FakePermissionChecker(requires_confirmation=True)
+    ws = _FakeWs(confirmation=False)
+    ws.server = server
+
+    result = await server._handle_execute({"input": "open example.com"}, ws)
+
+    assert result["status"] == "cancelled"
+    assert result["message"] == "Cancelled before execution: the plan was denied."
+    assert sum('"method": "confirm_required"' in message for message in ws.sent) == 1
+    assert [method for method, _ in server.test_broadcasts].count("task_complete") == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_execute_approved_success_reports_verified_outcome():
+    class _Executor:
+        async def execute(self, plan, **kwargs):
+            return [ActionResult(action=plan.actions[0], success=True, output="opened")]
+
+    class _Verifier:
+        async def verify(self, plan, results):
+            return VerificationResult(
+                passed=True,
+                details=["Action 0 (browser_navigate): VERIFIED"],
+                failed_actions=[],
+            )
+
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.BROWSER_NAVIGATE,
+                target="https://example.com",
+                parameters=BrowserParams(url="https://example.com"),
+            )
+        ],
+        explanation="Open example.com.",
+    )
+    server = _server_ready_for_handle_execute(_Executor(), plan)
+    server._permission_checker = _FakePermissionChecker(requires_confirmation=True)
+    server._verifier = _Verifier()
+    ws = _FakeWs(confirmation=True)
+    ws.server = server
+
+    result = await server._handle_execute({"input": "open example.com"}, ws)
+
+    assert result["status"] == "success"
+    assert result["verification"]["passed"] is True
+    assert result["message"] == "Completed and verified 1 action. Open example.com."
+    assert sum('"method": "confirm_required"' in message for message in ws.sent) == 1
+    assert [method for method, _ in server.test_broadcasts].count("task_complete") == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_execute_partial_failure_reports_execution_error_not_plan_intent():
+    class _Executor:
+        async def execute(self, plan, **kwargs):
+            return [ActionResult(action=plan.actions[0], success=False, error="Process exited with code 125")]
+
+    class _Verifier:
+        async def verify(self, plan, results):
+            return VerificationResult(
+                passed=False,
+                details=["Action 0 (system_info): FAILED — Process exited with code 125"],
+                failed_actions=[0],
+            )
+
+    server = _server_ready_for_handle_execute(_Executor())
+    server._verifier = _Verifier()
+    server.MAX_RETRIES = 0
+    ws = _FakeWs()
+
+    result = await server._handle_execute({"input": "run the task"}, ws)
+
+    assert result["status"] == "partial_failure"
+    assert "Process exited with code 125" in result["message"]
+    assert result["message"] != result["explanation"]
+    assert [method for method, _ in server.test_broadcasts].count("task_complete") == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_execute_critic_block_is_terminal_and_never_executes():
+    class _ExecutorThatMustNotRun:
+        async def execute(self, plan, **kwargs):
+            raise AssertionError("a critic-blocked plan must not reach the executor")
+
+    class _BlockingCritic:
+        async def review(self, user_input, plan):
+            return CriticVerdict(
+                verdict="BLOCK",
+                risk_score=1.0,
+                recommendation="Unsafe power operation.",
+            )
+
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.POWER_SHUTDOWN,
+                target="system",
+                parameters=PowerParams(),
+                requires_root=True,
+            )
+        ],
+        explanation="Shut down the computer.",
+    )
+    server = _server_ready_for_handle_execute(_ExecutorThatMustNotRun(), plan)
+    server._destructive_critic = _BlockingCritic()
+    ws = _FakeWs()
+
+    result = await server._handle_execute({"input": "shut down"}, ws)
+
+    assert result["status"] == "blocked_by_critic"
+    assert result["message"] == "Blocked before execution by safety review: Unsafe power operation."
+    assert [method for method, _ in server.test_broadcasts].count("task_complete") == 1
