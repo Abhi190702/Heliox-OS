@@ -157,7 +157,7 @@ fn get_system_stats() -> serde_json::Value {
         .first()
         .map(|c| c.brand().to_string())
         .unwrap_or_default();
-    let total_ram_gb = system.total_memory() / 1024 / 1024;
+    let total_ram_gb = system.total_memory() / 1024 / 1024 / 1024;
     let disks_info = Disks::new_with_refreshed_list();
     let mut disk_size = 0;
     for disk in &disks_info {
@@ -197,6 +197,43 @@ fn get_system_stats() -> serde_json::Value {
     "disk_size": disk_size
     })
 }
+
+#[tauri::command]
+fn system_info() -> serde_json::Value {
+    let mut system = System::new_all();
+    system.refresh_all();
+    let total_memory = system.total_memory();
+    let used_memory = system.used_memory();
+    let memory_percent = if total_memory == 0 {
+        0.0
+    } else {
+        (used_memory as f64 / total_memory as f64) * 100.0
+    };
+    let disks = Disks::new_with_refreshed_list();
+    let disk_total: u64 = disks.iter().map(|disk| disk.total_space()).sum();
+    let disk_used: u64 = disks
+        .iter()
+        .map(|disk| disk.total_space().saturating_sub(disk.available_space()))
+        .sum();
+    let disk_percent = if disk_total == 0 {
+        0.0
+    } else {
+        (disk_used as f64 / disk_total as f64) * 100.0
+    };
+
+    serde_json::json!({
+        "cpu_percent": system.global_cpu_usage(),
+        "memory_percent": memory_percent,
+        "memory_used": used_memory,
+        "memory_total": total_memory,
+        "disk_percent": disk_percent,
+        "disk_used": disk_used,
+        "disk_total": disk_total,
+        "hostname": System::host_name().unwrap_or_else(|| "HELIOX".to_string()),
+        "uptime_seconds": System::uptime(),
+    })
+}
+
 #[tauri::command]
 fn get_terminal_logs() -> Vec<String> {
     let stats = get_system_stats();
@@ -232,10 +269,27 @@ fn get_terminal_logs() -> Vec<String> {
     logs.push("[SUCCESS] Daemon heartbeat stable".to_string());
     logs
 }
+
+#[tauri::command]
+fn get_log_count() -> usize {
+    let log_path = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".local")
+        .join("state")
+        .join("heliox-os")
+        .join("pilot.log");
+    std::fs::read_to_string(log_path)
+        .map(|contents| contents.lines().count())
+        .unwrap_or(0)
+}
+
 #[tauri::command]
 fn get_rss_feed() -> Vec<serde_json::Value> {
     let mut feed = vec![serde_json::json!({
-        "title": "Heliox OS v0.7.1 Active Release (JARVIS Core Engine)",
+        "title": format!(
+            "Heliox OS v{} Active Release (JARVIS Core Engine)",
+            env!("CARGO_PKG_VERSION")
+        ),
         "url": "https://github.com/VyomKulshrestha/Heliox-OS/releases",
         "source": "Current Build"
     })];
@@ -536,6 +590,8 @@ fn main() {
             commands::take_screenshot,
             commands::get_dashboard_status,
             get_system_stats,
+            system_info,
+            get_log_count,
             get_temperature_stats,
             get_terminal_logs,
             get_rss_feed,
@@ -614,5 +670,26 @@ mod startup_tests {
         assert!(!daemon_child_started(&mut child, "test"));
 
         let _ = child.wait();
+    }
+
+    #[test]
+    fn offline_system_info_uses_real_host_units() {
+        let info = system_info();
+        let stats = get_system_stats();
+
+        assert!(info["memory_total"].as_u64().unwrap_or(0) > 1024 * 1024);
+        assert!(info["disk_total"].as_u64().unwrap_or(0) > 1024 * 1024);
+        assert!(!info["hostname"].as_str().unwrap_or_default().is_empty());
+        assert!(stats["total_ram"]
+            .as_u64()
+            .is_some_and(|value| value < 1024));
+    }
+
+    #[test]
+    fn native_release_feed_uses_package_version() {
+        let feed = get_rss_feed();
+        let title = feed[0]["title"].as_str().unwrap_or_default();
+
+        assert!(title.contains(env!("CARGO_PKG_VERSION")));
     }
 }
