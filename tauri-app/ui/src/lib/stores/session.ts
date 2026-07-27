@@ -1,5 +1,5 @@
 import { writable, get } from "svelte/store";
-import { call, connect, isConnected, onNotification, listenToLLMStream } from "../api/daemon";
+import { call, connect, isConnected, onNotification } from "../api/daemon";
 import { settings } from "./settings";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
@@ -403,34 +403,6 @@ function createSession() {
     }, 500);
   }
 
-  // Hooking up text generator stream listener
-  function handleStreamingResponse() {
-    // Inject empty container block for assistant text buffer
-    update((s) => ({
-      ...s,
-      messages: [...s.messages, { type: "assistant", text: "", timestamp: Date.now() }],
-    }));
-
-    listenToLLMStream(
-      (chunk: any) => {
-        const newText = chunk?.result?.explanation || chunk?.explanation || chunk?.result?.text || chunk?.text || "";
-
-        // Append characters to current active assistant index
-        update((s) => {
-          const updatedMessages = [...s.messages];
-          const lastIdx = updatedMessages.length - 1;
-          if (lastIdx >= 0) {
-            updatedMessages[lastIdx].text += newText;
-          }
-          return { ...s, messages: updatedMessages };
-        });
-      },
-      () => {
-        console.log("Stream capture cycle completed cleanly.");
-      },
-    );
-  }
-
   async function sendCommand(input: string, attachments: Attachment[] = []) {
     if (input.startsWith("/git-resolve ") || input.startsWith("git-resolve ")) {
       const filepath = input.replace(/^(\/)?git-resolve\s+/, "").trim();
@@ -506,9 +478,6 @@ function createSession() {
       streamingText: "",
       messages: [...s.messages, { type: "user", text: input, timestamp: Date.now() }],
     }));
-
-    // Trigger instant real-time layout stream hooks before payload dispatch
-    handleStreamingResponse();
 
     try {
       const result = (await call("execute", {
@@ -597,7 +566,7 @@ function createSession() {
           rate = MODEL_RATES["claude-sonnet"];
         }
         const estimatedCost = Number((estimatedTokens * rate).toFixed(6));
-        const finalText = get(session).streamingText || responseText;
+        const finalText = responseText;
 
         update((s) => ({
           ...s,

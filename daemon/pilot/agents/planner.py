@@ -78,7 +78,12 @@ You are a real code-wiz and system administrator: few are as talented as you at 
 You receive natural language requests and output ONLY a JSON action plan.
 Think step by step about what the user wants, then produce ALL the actions needed to fulfill the request end-to-end.
 
-You are NOT just a chatbot — you are a God-tier autonomous Operating System that natively executes and administrates deep system commands.
+You can converse as well as act. For greetings, thanks, capability questions, or
+other requests that need no computer action, respond directly in "explanation"
+and return an empty "actions" array. Never execute code, shell commands, keyboard
+input, notifications, or any other action merely to display a conversational reply.
+
+You are an autonomous Operating System that natively executes and administrates deep system commands.
 When the user asks you to do something, you DO IT by generating the proper action plan without asking for unnecessary permissions unless specifically destructive.
 You are fully capable of managing files, navigating the web, writing and running code, tweaking system settings, taking screenshots, and monitoring processes in real-time. Do not hold back your capabilities!
 
@@ -381,6 +386,55 @@ class Planner:
         import re
 
         text = user_input.strip().lower()
+
+        # --- Conversation that does not require system execution ---
+        # Keep this intentionally exact: "hello heliox, open github" is an
+        # actionable request and must continue through normal planning.
+        normalized = re.sub(r"[!?.,]+$", "", text).strip()
+        greeting_phrases = {
+            "hello",
+            "hello heliox",
+            "hi",
+            "hi heliox",
+            "hey",
+            "hey heliox",
+            "good morning",
+            "good afternoon",
+            "good evening",
+        }
+        if normalized in greeting_phrases:
+            return ActionPlan(
+                actions=[],
+                explanation=(
+                    "Hello! I’m ready. Ask me to inspect your system, manage files or apps, "
+                    "browse the web, or run a multi-step workflow."
+                ),
+                raw_input=user_input,
+            )
+
+        if normalized in {"thanks", "thank you", "thanks heliox", "thank you heliox"}:
+            return ActionPlan(
+                actions=[],
+                explanation="You’re welcome. What would you like to do next?",
+                raw_input=user_input,
+            )
+
+        if normalized in {"how are you", "how are you heliox"}:
+            return ActionPlan(
+                actions=[],
+                explanation="I’m online and ready to help. What would you like me to do?",
+                raw_input=user_input,
+            )
+
+        if normalized in {"what can you do", "what can you do heliox", "help", "help me"}:
+            return ActionPlan(
+                actions=[],
+                explanation=(
+                    "I can inspect system state, manage files and apps, browse and automate web tasks, "
+                    "and run multi-step workflows. Actions that change your system may require confirmation."
+                ),
+                raw_input=user_input,
+            )
 
         # --- "open <url>" ---
         url_match = re.match(
@@ -734,7 +788,7 @@ class Planner:
 
         explanation = data.get("explanation", "")
         raw_actions = data.get("actions", [])
-        if not isinstance(raw_actions, list) or not raw_actions:
+        if not isinstance(raw_actions, list):
             expected = '{"explanation": "...", "actions": [{"action_type": "open_application", "target": "notepad", "parameters": {}}]}'
             return ActionPlan(
                 error="MISSING ACTIONS: The response must contain an 'actions' array.\n\nRaw response:\n"
@@ -742,6 +796,17 @@ class Planner:
                 + "\n\nOutput: "
                 + expected,
                 explanation=explanation,
+                raw_input=user_input,
+            )
+
+        if not raw_actions:
+            if isinstance(explanation, str) and explanation.strip():
+                return ActionPlan(actions=[], explanation=explanation.strip(), raw_input=user_input)
+            return ActionPlan(
+                error=(
+                    "EMPTY RESPONSE: A zero-action response must provide a helpful, non-empty explanation.\n\n"
+                    "Raw response:\n" + clean_raw[:500]
+                ),
                 raw_input=user_input,
             )
 

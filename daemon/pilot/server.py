@@ -1392,13 +1392,14 @@ class PilotServer:
                 except Exception:
                     pass
 
-            async def stream_token(token: str) -> None:
-                await ws.send(_notification("token_stream", {"token": token}))
-
-            stream_callback = stream_token if attempt == 0 else None
-
             plan = await self._planner.plan(
-                user_input, error_context=error_context, screen_context=_screen_ctx, stream_callback=stream_callback
+                user_input,
+                error_context=error_context,
+                screen_context=_screen_ctx,
+                # Planner output is internal JSON, not an assistant response.
+                # Streaming it into chat exposes implementation details and can
+                # replace the final user-facing explanation.
+                stream_callback=None,
             )
             if plan.error:
                 if emit:
@@ -1410,6 +1411,36 @@ class PilotServer:
                 return {"status": "error", "message": plan.error}
 
             last_explanation = plan.explanation
+
+            # A useful conversational response is a valid zero-action plan.
+            # It must bypass checkpoints, previews, permission gates,
+            # execution, and verification: there is nothing to execute.
+            if not plan.actions:
+                if emit:
+                    await emit.phase_complete(
+                        "planning",
+                        PLANNER_GENERATED_PLAN,
+                        {
+                            "action_count": 0,
+                            "explanation": plan.explanation[:120],
+                            "action_types": [],
+                            "conversational": True,
+                        },
+                        parent_id=plan_phase,
+                    )
+
+                if self._memory:
+                    asyncio.create_task(self._memory.record(user_input, plan, []))
+                await _emit_task_complete("success", plan.explanation)
+                return {
+                    "status": "success",
+                    "conversational": True,
+                    "dry_run": False,
+                    "results": [],
+                    "explanation": plan.explanation,
+                    "agent_routing": routing,
+                }
+
             plan_id = str(uuid.uuid4())[:8]
             last_plan_id = plan_id
             if self._checkpoint_store:

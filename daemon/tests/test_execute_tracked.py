@@ -7,10 +7,10 @@ signal cancel_event for the next action boundary.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
 
 import pytest
 
+from pilot.actions import Action, ActionPlan, ActionType, SystemInfoParams
 from pilot.config import PilotConfig
 from pilot.server import PilotServer
 
@@ -147,7 +147,7 @@ class _FakePermissionChecker:
         return False
 
 
-def _server_ready_for_handle_execute(executor) -> PilotServer:
+def _server_ready_for_handle_execute(executor, plan: ActionPlan | None = None) -> PilotServer:
     """Builds a PilotServer with just enough wired up to drive
     _handle_execute's fresh-plan path through _execute_tracked, without
     running the real (heavy, ML-loading) PilotServer.initialize()."""
@@ -157,12 +157,50 @@ def _server_ready_for_handle_execute(executor) -> PilotServer:
     server._permission_checker = _FakePermissionChecker()
     server._executor = executor
 
+    resolved_plan = plan or ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.SYSTEM_INFO,
+                target="system",
+                parameters=SystemInfoParams(),
+            )
+        ],
+        explanation="Mocked plan",
+    )
+
     class _FakePlanner:
         async def plan(self, user_input, error_context="", screen_context="", stream_callback=None):
-            return MagicMock(error=None, actions=[], explanation="Mocked plan")
+            return resolved_plan
 
     server._planner = _FakePlanner()
     return server
+
+
+@pytest.mark.asyncio
+async def test_handle_execute_returns_conversation_without_preview_or_execution():
+    class _ExecutorThatMustNotRun:
+        async def execute(self, plan, **kwargs):
+            raise AssertionError("a zero-action conversation must not reach the executor")
+
+    response = "Hello! I’m ready to help."
+    server = _server_ready_for_handle_execute(
+        _ExecutorThatMustNotRun(),
+        ActionPlan(actions=[], explanation=response, raw_input="Hello Heliox"),
+    )
+    ws = _FakeWs()
+
+    result = await server._handle_execute({"input": "Hello Heliox"}, ws)
+
+    assert result == {
+        "status": "success",
+        "conversational": True,
+        "dry_run": False,
+        "results": [],
+        "explanation": response,
+        "agent_routing": {"assigned_agents": []},
+    }
+    assert not any('"method": "plan_preview"' in message for message in ws.sent)
+    assert not any('"method": "confirm_required"' in message for message in ws.sent)
 
 
 @pytest.mark.asyncio
