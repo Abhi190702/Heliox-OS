@@ -97,6 +97,10 @@
     if (state === "running" || state === "decomposing" || state === "pending") return "state-running";
     return "state-other";
   }
+
+  function canCancel(state: string): boolean {
+    return ["pending", "decomposing", "running", "paused", "waiting_for_trigger"].includes(state);
+  }
 </script>
 
 <div class="workflow-status">
@@ -165,7 +169,9 @@
             {#if wf.state === "paused" || wf.state === "waiting_for_trigger"}
               <button class="btn-save" onclick={() => resume(wf.workflow_id)}>{$_("settings.resume")}</button>
             {/if}
-            <button class="btn-remove" onclick={() => cancel(wf.workflow_id)}>{$_("settings.cancel")}</button>
+            {#if canCancel(wf.state)}
+              <button class="btn-remove" onclick={() => cancel(wf.workflow_id)}>{$_("settings.cancel")}</button>
+            {/if}
           </div>
         </div>
       {/each}
