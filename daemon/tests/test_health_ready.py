@@ -64,15 +64,18 @@ async def daemon_server(server_port, tmp_path, monkeypatch):
     config_dir = tmp_path / "config"
     data_dir = tmp_path / "data"
     state_dir = tmp_path / "state"
+    runtime_dir = tmp_path / "runtime"
     config_dir.mkdir()
     data_dir.mkdir()
     state_dir.mkdir()
+    runtime_dir.mkdir()
 
     monkeypatch.setattr("pilot.config.CONFIG_DIR", config_dir)
     monkeypatch.setattr("pilot.config.CONFIG_FILE", config_dir / "config.toml")
     monkeypatch.setattr("pilot.config.RESTRICTIONS_FILE", config_dir / "restrictions.toml")
     monkeypatch.setattr("pilot.config.DATA_DIR", data_dir)
     monkeypatch.setattr("pilot.config.STATE_DIR", state_dir)
+    monkeypatch.setattr("pilot.config.RUNTIME_DIR", runtime_dir)
     monkeypatch.setattr("pilot.config.DB_FILE", data_dir / "pilot.db")
     monkeypatch.setattr("pilot.config.LOG_FILE", state_dir / "pilot.log")
 
@@ -106,6 +109,8 @@ async def daemon_server(server_port, tmp_path, monkeypatch):
 
         # Cleanup
         await server.stop()
+        assert server._orchestrator is not None
+        assert server._orchestrator._scheduler_task.done()
         await server_task
 
 

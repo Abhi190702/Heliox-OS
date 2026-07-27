@@ -4548,6 +4548,7 @@ def handle_tool(tool_name, params):
             await self._mesh.stop()
         if self._orchestrator:
             await self._orchestrator.stop_all()
+            await self._orchestrator.stop()
         if hasattr(self, "_budget_tracker") and self._budget_tracker:
             await self._budget_tracker.close()
         if self._background:
