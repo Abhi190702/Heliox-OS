@@ -22,6 +22,7 @@ import aiosqlite
 import websockets
 from websockets.asyncio.server import Server, ServerConnection
 
+from pilot import __version__
 from pilot.config import DATA_DIR, DB_FILE, LOG_FILE, PLUGINS_DIR, STATE_DIR, PilotConfig, ensure_dirs
 from pilot.export_logs import export_logs
 from pilot.logger import ColorFormatter
@@ -3048,7 +3049,7 @@ class PilotServer:
         Returns:
             A dict with pong and version.
         """
-        return {"pong": True, "version": "0.7.1"}
+        return {"pong": True, "version": __version__}
 
     async def _handle_cursor_move(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Move the OS mouse cursor to an absolute screen position.

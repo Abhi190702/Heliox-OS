@@ -87,7 +87,7 @@ export async function invoke<T = any>(command: string, args?: any): Promise<T> {
   if (command === "get_rss_feed") {
     return [
       {
-        title: "Heliox OS v0.7.1 Released with JARVIS Autonomy",
+        title: "Heliox OS v0.9.0 Released with JARVIS Autonomy",
         url: "https://github.com/VyomKulshrestha/Heliox-OS/releases",
         source: "GitHub",
       },

@@ -405,7 +405,7 @@ function daemonTokenDevPlugin(): Plugin {
               let feedItems: any[] = [];
               try {
                 const pkgPath = join(process.cwd(), "package.json");
-                let currentVer = "0.7.1";
+                let currentVer = "0.9.0";
                 if (existsSync(pkgPath)) {
                   try {
                     currentVer = JSON.parse(readFileSync(pkgPath, "utf-8")).version || currentVer;
@@ -448,7 +448,7 @@ function daemonTokenDevPlugin(): Plugin {
               } catch (e) {
                 feedItems = [
                   {
-                    title: "Heliox OS v0.7.1 Active - JARVIS Core Running",
+                    title: "Heliox OS v0.9.0 Active - JARVIS Core Running",
                     url: "https://github.com/VyomKulshrestha/Heliox-OS",
                     source: "System",
                   },

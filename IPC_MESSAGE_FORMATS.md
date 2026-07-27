@@ -325,7 +325,7 @@ List all providers with stored keys.
 Check connectivity.
 
 **Params:** `{}`
-**Result:** `{ "pong": true, "version": "0.7.1" }`
+**Result:** `{ "pong": true, "version": "0.9.0" }`
 
 #### `health`
 Check all model backend health.
