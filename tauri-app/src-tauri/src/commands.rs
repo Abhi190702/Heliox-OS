@@ -1,9 +1,64 @@
 use enigo::{Button, Coordinate, Direction, Enigo, Mouse, Settings};
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::sync::Mutex;
 use sysinfo::System;
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::net::TcpStream;
+use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+
+type DaemonSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+async fn connect_authenticated_to(url: &str, auth_token: &str) -> Result<DaemonSocket, String> {
+    if auth_token.is_empty() {
+        return Err("Daemon authentication token is unavailable".to_string());
+    }
+
+    let (mut ws, _) = connect_async(url)
+        .await
+        .map_err(|e| format!("Daemon connection failed: {e}"))?;
+    let auth_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "auth",
+        "params": {"token": auth_token},
+        "id": "native-auth"
+    });
+    ws.send(tokio_tungstenite::tungstenite::Message::Text(
+        auth_request.to_string().into(),
+    ))
+    .await
+    .map_err(|e| format!("Daemon authentication send failed: {e}"))?;
+
+    let response = ws
+        .next()
+        .await
+        .ok_or_else(|| "Daemon closed before authentication completed".to_string())?
+        .map_err(|e| format!("Daemon authentication failed: {e}"))?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(response.to_text().map_err(|e| e.to_string())?)
+            .map_err(|e| format!("Invalid daemon authentication response: {e}"))?;
+    let authenticated = parsed
+        .get("result")
+        .and_then(|result| result.get("status"))
+        .and_then(|status| status.as_str())
+        == Some("authenticated");
+    if !authenticated {
+        let message = parsed
+            .get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(|message| message.as_str())
+            .unwrap_or("Daemon rejected authentication");
+        return Err(message.to_string());
+    }
+
+    Ok(ws)
+}
+
+async fn connect_authenticated() -> Result<DaemonSocket, String> {
+    connect_authenticated_to("ws://127.0.0.1:8785", &get_auth_token()).await
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DaemonStatus {
     pub connected: bool,
@@ -145,12 +200,7 @@ async fn try_ping_daemon(_window: tauri::Window) -> Result<String, String> {
         "id": 1
     });
 
-    // Temporary mock response parsing since ping won't stream chunks
-    let url = "ws://127.0.0.1:8785";
-    use futures_util::{SinkExt, StreamExt};
-    use tokio_tungstenite::connect_async;
-
-    let (mut ws, _) = connect_async(url).await.map_err(|e| e.to_string())?;
+    let mut ws = connect_authenticated().await?;
     let msg = serde_json::to_string(&request).map_err(|e| e.to_string())?;
     ws.send(tokio_tungstenite::tungstenite::Message::Text(msg.into()))
         .await
@@ -172,13 +222,8 @@ async fn try_ping_daemon(_window: tauri::Window) -> Result<String, String> {
 
 // Main streaming loop broadcasting raw frames back to Svelte context
 async fn send_rpc(window: tauri::Window, request: serde_json::Value) -> Result<(), String> {
-    use futures_util::{SinkExt, StreamExt};
-    use tokio_tungstenite::connect_async;
-
-    let url = "ws://127.0.0.1:8785";
-    let (mut ws, _) = connect_async(url)
-        .await
-        .map_err(|e| format!("Conn failed: {}", e))?;
+    let request_id = request.get("id").cloned();
+    let mut ws = connect_authenticated().await?;
 
     let msg = serde_json::to_string(&request).map_err(|e| e.to_string())?;
     ws.send(tokio_tungstenite::tungstenite::Message::Text(msg.into()))
@@ -193,6 +238,13 @@ async fn send_rpc(window: tauri::Window, request: serde_json::Value) -> Result<(
         window
             .emit("llm-chunk", &parsed)
             .map_err(|e| e.to_string())?;
+
+        if request_id
+            .as_ref()
+            .is_some_and(|id| parsed.get("id") == Some(id))
+        {
+            break;
+        }
     }
 
     window
@@ -317,11 +369,7 @@ pub async fn apply_git_conflict_resolution(
         "id": 1
     });
 
-    let url = "ws://127.0.0.1:8785";
-    use futures_util::{SinkExt, StreamExt};
-    use tokio_tungstenite::connect_async;
-
-    let (mut ws, _) = connect_async(url).await.map_err(|e| e.to_string())?;
+    let mut ws = connect_authenticated().await?;
     let msg = serde_json::to_string(&request).map_err(|e| e.to_string())?;
     ws.send(tokio_tungstenite::tungstenite::Message::Text(msg.into()))
         .await
@@ -473,5 +521,56 @@ fn extract_text_from_path(path: &str) -> Result<String, String> {
             Ok(text) => Ok(text),
             Err(e) => Err(format!("Failed to read file: {}", e)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::accept_async;
+
+    #[tokio::test]
+    async fn daemon_bridge_authenticates_before_returning_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            let first = socket.next().await.unwrap().unwrap();
+            let request: serde_json::Value =
+                serde_json::from_str(first.to_text().unwrap()).unwrap();
+
+            assert_eq!(request["method"], "auth");
+            assert_eq!(request["params"]["token"], "test-token");
+            socket
+                .send(tokio_tungstenite::tungstenite::Message::Text(
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "result": {"status": "authenticated"},
+                        "id": "native-auth"
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+        });
+
+        let url = format!("ws://{address}");
+        let socket = connect_authenticated_to(&url, "test-token").await;
+
+        assert!(socket.is_ok());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn daemon_bridge_rejects_missing_auth_token_without_connecting() {
+        let result = connect_authenticated_to("ws://127.0.0.1:1", "").await;
+
+        assert_eq!(
+            result.unwrap_err(),
+            "Daemon authentication token is unavailable"
+        );
     }
 }
