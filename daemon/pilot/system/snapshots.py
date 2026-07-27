@@ -85,7 +85,9 @@ class SnapshotManager:
         else:
             self._backend = SnapshotBackend.NONE
 
-        logger.info("Snapshot backend: %s", self._backend.value)
+        # Status checks construct short-lived managers, so INFO here floods the
+        # daemon log while Settings waits for an unavailable backend to recover.
+        logger.debug("Snapshot backend: %s", self._backend.value)
         return self._backend
 
     async def create_snapshot(self, action_id: str, description: str = "") -> str | None:
