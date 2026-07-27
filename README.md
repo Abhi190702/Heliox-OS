@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="./tauri-app/ui/tests/visual/__snapshots__/chat.spec.ts-snapshots/chat-full-panel-chromium-win32.png" alt="Heliox OS command interface" width="800">
+  <img src="./docs/assets/heliox-command-center-dark.jpg" alt="Heliox OS Command Center in dark mode" width="800">
 </p>
 
 <p align="center">
