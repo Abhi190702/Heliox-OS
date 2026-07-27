@@ -12,10 +12,8 @@
 </p>
 
 <p align="center">
-  <!-- Replace with your actual demo GIF path once recorded -->
-  <img src="https://raw.githubusercontent.com/VyomKulshrestha/Heliox-OS/main/assets/demo.gif" alt="Heliox OS Jarvis Demo" width="800">
+  <img src="./tauri-app/ui/tests/visual/__snapshots__/chat.spec.ts-snapshots/chat-full-panel-chromium-win32.png" alt="Heliox OS command interface" width="800">
 </p>
-
 
 <p align="center">
   <strong>Control your entire computer with natural language, voice, and hand gestures.</strong><br>
@@ -27,12 +25,12 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#-jarvis-mode-new">JARVIS Mode</a> •
-  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#jarvis-autonomy">JARVIS Mode</a> •
+  <a href="#action-catalog">Actions</a> •
   <a href="#architecture">Architecture</a> •
   <a href="#security">Security</a> •
-  <a href="#️-troubleshooting">Troubleshooting</a> •
+  <a href="#troubleshooting">Troubleshooting</a> •
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
@@ -61,26 +59,30 @@ We recommend:
 
 ```text
 heliox-os/
-├── daemon/          Backend AI agent system
-├── tauri-app/       Desktop application
+├── daemon/          Python agent runtime and tests
+├── tauri-app/       Tauri desktop shell and Svelte UI
+├── plugins/         Reviewed marketplace packages and catalog
 ├── schemas/         Shared validation schemas
-├── assets/          Images and media resources
-└── docs/            Project documentation
+├── scripts/         Validation and release utilities
+└── docs/            Operational and contributor guides
+```
+
 ## Why Heliox OS?
 
 Unlike simple command runners, Heliox OS is a **true agentic system** inspired by robust autonomous architectures like OpenClaw, running a continuous ReAct loop with a **modular multi-agent orchestrator**:
 
 1. **Gateway Hub & Memory** — LLM evaluates persistent memory context before reasoning.
 2. **Planner** — Converts natural language into a structured multi-step action plan.
-3. **Agent Orchestrator** — Routes each action to the correct specialist agent (System, Code, Web, Monitor, Communication).
-4. **Specialist Agents** — Five domain experts execute actions via native OS APIs (never flimsy GUI automation).
+3. **Agent Orchestrator** — Routes each action to one of ten specialist roles with source-scoped capability policy.
+4. **Specialist Agents** — Ten domain experts execute through native OS APIs where available, plus explicit browser and input-automation adapters when the task requires them.
 5. **Verifier** — Post-execution verification confirms the action succeeded and feeds results back into the loop.
 6. **Reflector** — Self-improvement engine learns from successes and failures.
 7. **Security** — Five-tier permission system with confirmation gates and rollback support.
 
-## 🤖 JARVIS Autonomy (v0.7.1)
+<a id="jarvis-autonomy"></a>
+## 🤖 JARVIS Autonomy (v0.9.0)
 
-Heliox OS has achieved true proactive autonomy, transitioning from a reactive assistant to an invisible, always-on background intelligence system natively integrated into your OS:
+Heliox OS combines reactive commands with opt-in proactive and background capabilities that run through the same permission and verification pipeline:
 
 - 🧠 **Proactive Suggestion Engine**: Learns your daily workflows and pattern-matches your screen context to silently surface UI action suggestions (e.g., offering to summarize a long thread or launch an IDE when browsing issues) *before* you ask.
 - ⚡ **Fire-and-Forget Autonomous Jobs**: Spawn complex multi-step background tasks that decompose, execute, and verify completely independent of the UI or main event loop.
@@ -103,9 +105,13 @@ Heliox OS integrates a lightweight, dependency-free **Cognitive Engine** (`pilot
 6. **ReAct Cognitive Cost Estimator:** Tasks predict aggregate cognitive demand proactively. If executing a plan risks exceeding mental bandwidth, JARVIS pauses.
 7. **JARVIS Intent Classifier:** Fully integrated native intent fusion classifying spoken commands against current workload intensity.
 
-## 🚀 Cognitive Intelligence Features
+## Experimental Cognitive Library APIs
 
-Heliox OS ships **7 biologically-inspired cognitive intelligence features**, all backed by the lightweight, dependency-free Cognitive Engine (see above) rather than a heavyweight model:
+The repository also contains seven experimental cognitive modules exposed
+through `CognitiveHub`. The daemon initializes this hub, but these examples are
+currently developer-facing APIs rather than independently validated,
+user-visible product features. The production execution path uses the
+lightweight Cognitive Engine integrations listed above.
 
 ### 1. Adaptive Biometric Learning Loop
 Track user's physiological patterns over weeks (time-of-day productivity, stress cycles). Create personalized "cognitive fingerprints" that predict optimal interaction times. Implements a closed-loop feedback system where user responses refine the cognitive-load predictions.
@@ -167,20 +173,19 @@ greeting = persona.get_greeting()  # "Good afternoon! Ready to tackle anything?"
 print(persona.get_ui_config())  # Adapts UI based on state
 ```
 
-### 6. Cross-Device Cognitive Handoff
-If the cognitive engine detects high load on desktop, suggest continuing on mobile with context transfer. Build a "cognitive state cloud" that follows the user across devices.
+### 6. Local Cognitive Handoff Prototype
+The handoff engine can capture cognitive context, register device sessions, and suggest moving a task to another device. Its current `CloudStore` implementation is a local JSON-backed prototype under `~/.cache/heliox/cloud`; it does **not** upload data to a hosted synchronization service.
 
 ```python
 from pilot.cognitive.cognitive_handoff import CognitiveHandoffEngine
 
 handoff = CognitiveHandoffEngine(device_name="desktop")
 handoff.capture_snapshot(attention=0.8, stress=0.6, load=0.7)
-handoff.sync_to_cloud()
 suggestion = handoff.get_handoff_suggestion(load=0.85, stress=0.3)
 ```
 
-### 7. Quantum-Ready Architecture
-Design the cognitive pipeline to be model-agnostic — swap in future models without touching call sites. Create standard cognitive APIs that other developers can build on.
+### 7. Model-Adapter Architecture
+The cognitive pipeline exposes a model-agnostic adapter interface. It ships with a heuristic fallback; additional adapters must be registered by the host application before they can be selected.
 
 ```python
 from pilot.cognitive.quantum_cognitive import create_pipeline, QuantumCognitivePipeline
@@ -189,8 +194,7 @@ pipeline = create_pipeline()
 output = await pipeline.predict("user working on complex task")
 print(output.attention_score, output.stress_level, output.cognitive_load)
 
-# Switch models at runtime
-pipeline.set_active_model("gpt_neuro")  # Future model support
+# A host can register and select another adapter at runtime.
 ```
 
 ### Unified Cognitive Hub
@@ -240,34 +244,41 @@ Heliox OS uses a **modular multi-agent architecture** where specialized agents c
 | 📡 **Communication Agent** | Messaging | Email, Slack, Discord, webhooks, desktop notifications |
 | 📅 **Calendar Agent** | Scheduling | .ics parsing, CalDAV sync, event management |
 | 🔎 **Forensics Agent** | Security | Log parsing, incident reporting, threat containment, PID translation |
+| 🔐 **SSH Agent** | Remote systems | Allowlisted hosts, commands, and scripts |
+| 📰 **RSS Agent** | Feeds | Feed retrieval and release/news summaries |
+| 🔍 **Semantic Search Agent** | Retrieval | Workspace indexing and semantic search |
 
 **How it works:** The Planner generates an action plan → the Orchestrator analyzes each action type → routes to the correct specialist → agents execute in sequence → results merge for verification.
 
 **Dynamic Spawning:** Agents can be created on-demand at runtime via the `agent_spawn` API endpoint.
 
-## 🧪 Tested With 10 Complex Tasks — 80%+ Pass Rate
+## Release Verification
 
-| Task | Type | Status |
-|------|------|--------|
-| Web scrape Wikipedia + word frequency analysis | Web + Code | ✅ |
-| Background CPU trigger with voice alert | System Monitor | ✅ |
-| Screenshot OCR + text reversal + file tree | Vision + Code | ✅ |
-| Multi-page web comparison (Python vs JS) | Web + Analysis | ✅ |
-| Create project scaffold + run unit tests | File + Code | ✅ |
-| REST API fetch + JSON parse + formatted table | API + Code | ✅ |
-| CSV data pipeline + financial analysis | Data + Code | ✅ |
-| And more... | | ✅ |
+The release gate is reproducible; it does not rely on an informal task-pass percentage. The latest local v0.9.0 readiness pass completed:
+
+| Surface | Verification |
+|---------|--------------|
+| Python daemon | Ruff lint and format; 1,167 tests passed, 6 skipped |
+| Svelte UI | Prettier and `svelte-check` with zero warnings; 102 unit tests; production build |
+| Dependencies | `npm audit --audit-level=high` with zero vulnerabilities |
+| Native Tauri bridge | Cargo format, Clippy with warnings denied, and 6 Rust tests |
+| Visual UI | 32 Playwright visual scenarios passed on Windows |
+
+GitHub Actions repeats Python tests on Windows, Ubuntu, and macOS with Python 3.11 and 3.12, runs the frontend gate, compares per-OS visual baselines, and checks the Rust bridge on Linux. Camera, microphone, desktop permissions, model downloads, and OS-specific integrations still require real-device validation; CI cannot prove hardware behavior.
 
 ## 🖥️ Cross-Platform Support
 
 | Platform | Status |
 |----------|--------|
-| Windows 10/11 | ✅ Full support |
-| Ubuntu / Debian | ✅ Full support |
-| macOS | ✅ Full support |
-| Fedora / Arch | ✅ Via dnf/pacman |
+| Windows 10/11 | Primary development and hardware-validation platform |
+| Ubuntu / Debian | Python/UI CI coverage; desktop packages and integrations vary |
+| macOS | Python/UI CI coverage; permissions and hardware must be validated locally |
+| Fedora / Arch | Source installation; package-manager actions use dnf/pacman |
 
-## ⚡ 50+ Action Types
+<a id="action-catalog"></a>
+## Action Catalog
+
+The planner schema currently declares **146 action types**. Availability depends on the operating system, installed optional dependencies, configured credentials, and the active security policy. The groups below are representative, not exhaustive; `daemon/pilot/actions.py` is the source of truth.
 
 ### File Operations
 `file_read` · `file_write` · `file_delete` · `file_move` · `file_copy` · `file_list` · `file_search` · `directory_summary` · `file_permissions`
@@ -337,7 +348,7 @@ Auto-detects: winget, choco, brew, apt, dnf, pacman
 
 ```mermaid
 graph TD
-    User(["User Input: Voice, Text, Gestures"]) --> Gateway
+    User(["User Input: Voice, Text, Gestures, Gaze"]) --> Gateway
 
     subgraph "Frontend Gateway - Tauri + Svelte"
         Gateway["WebSocket Hub"]
@@ -345,12 +356,14 @@ graph TD
         HUD["Ambient System HUD"]
         VC["Voice Controller"]
         GC["Hand Gesture Controller"]
+        GT["On-device Gaze Tracker"]
         RPV["ReAct Pipeline Visualizer"]
         TVS["Thought Visualization 🧠"]
         Gateway --- GUI
         GUI --- HUD
         GUI --- VC
         GUI --- GC
+        GUI --- GT
         GUI --- RPV
         RPV --- TVS
     end
@@ -359,7 +372,7 @@ graph TD
 
     subgraph "Multimodal Fusion"
         Fusion["Intent Fusion Engine"]
-        Fusion --> |"voice + gesture"| FusedIntent["Fused Intent"]
+        Fusion --> |"voice + gesture + coarse gaze"| FusedIntent["Fused Intent"]
     end
 
     FusedIntent --> Daemon
@@ -376,7 +389,8 @@ graph TD
         Router --> Int_LLM("Ollama")
         Planner --> Sandbox["Simulation Sandbox"]
         Sandbox --> |"risk report"| Security["Security Gate"]
-        Security --> Orchestrator["Agent Orchestrator"]
+        Security --> LearnedRisk["Learned Risk World Model"]
+        LearnedRisk --> |"can only add caution"| Orchestrator["Agent Orchestrator"]
     end
 
     subgraph "Multi-Agent System"
@@ -385,13 +399,18 @@ graph TD
         Orchestrator --> WA["Web Agent"]
         Orchestrator --> MA["Monitor Agent"]
         Orchestrator --> COMM["Communication Agent"]
+        Orchestrator --> SSH["SSH Agent"]
+        Orchestrator --> RSS["RSS Agent"]
+        Orchestrator --> CAL["Calendar Agent"]
+        Orchestrator --> FOR["Forensics Agent"]
+        Orchestrator --> SEM["Semantic Search Agent"]
     end
 
     subgraph "Plugin Ecosystem"
-        PluginReg["Plugin Registry"]
+        PluginReg["Reviewed GitHub Marketplace + Local Plugins"]
         PluginReg -->|"tools"| Orchestrator
-        P1["developer-tools"]
-        P2["media-control"]
+        P1["weather"]
+        P2["spotify-control"]
         P3["home-assistant"]
         P1 --- PluginReg
         P2 --- PluginReg
@@ -402,6 +421,11 @@ graph TD
     CA --> Executor
     WA --> Executor
     COMM --> Executor
+    CAL --> Executor
+    FOR --> Executor
+    SEM --> Executor
+    SSH --> Executor
+    RSS --> Executor
     MA --> BG["Background Tasks"]
 
     Executor --> Verifier["Verifier"]
@@ -415,7 +439,7 @@ graph TD
         SubAgent["Subconscious Agent"]
         SubAgent -->|"persona rules"| Planner
         Reflector --> SubAgent
-        SubAgent --> PersonaFile["~/.heliox/persona.md"]
+        SubAgent --> PersonaFile["~/.local/share/heliox-os/persona.md"]
     end
 
     subgraph "Screen Awareness"
@@ -432,25 +456,21 @@ graph TD
     end
 ```
 
-## 🧠 Research-Level AI Architecture
+## Runtime Subsystems
 
-Heliox OS implements **13 research-level features** that push beyond typical AI agents:
+These are implemented runtime paths, not a future roadmap:
 
-| # | Feature | Status | Module |
-|---|---------|--------|--------|
-| 1 | Persistent Long-Term Memory (Vector + Semantic) | ✅ | `memory/store.py` + ChromaDB |
-| 2 | Self-Reflection Loop | ✅ | `agents/reflector.py` |
-| 3 | Tool Discovery / Skill Registry | ✅ | `agents/reflector.py` (skill_registry table) |
-| 4 | Task Decomposition Engine | ✅ | `agents/decomposer.py` |
-| 5 | Autonomous Background Agents | ✅ | `agents/background.py` + `monitor_agent.py` |
-| 6 | Multi-Agent Collaboration | ✅ | `agents/orchestrator.py` (5 specialists) |
-| 7 | Real-Time Reasoning Visualization | ✅ | `reasoning/events.py` + `ReActPipeline.svelte` |
-| 8 | Simulation Sandbox | ✅ | `agents/sandbox.py` |
-| 9 | Self-Improving Prompt System | ✅ | `agents/prompt_improver.py` |
-| 10 | Plugin Ecosystem | ✅ | `plugins/__init__.py` |
-| 11 | Flagship Plugins (Developer, Media, IoT) | ✅ | `plugins/developer/`, `plugins/media/`, `plugins/homeassistant/` |
-| 12 | Subconscious Agent (Persona Learning) | ✅ | `agents/subconscious.py` |
-| 13 | Screen Vision (Continuous Screen Awareness) | ✅ | `agents/screen_vision.py` |
+| Subsystem | Runtime surface |
+|-----------|-----------------|
+| Persistent memory and reflection | `memory/store.py`, `agents/reflector.py`, prompt/skill registries |
+| Planning and orchestration | Dependency-aware decomposition and 10 specialist-agent roles |
+| Reasoning telemetry | Live ReAct events rendered in the desktop UI |
+| Screen, hand, and gaze perception | Screen context plus on-device MediaPipe hand and coarse gaze pipelines |
+| Learned risk world model | A trained MLP predicts action impact beside deterministic safety rules; it can only increase caution |
+| Durable voice/gesture workflows | SQLite-backed multi-step jobs with pause, resume, cancel, and restart recovery |
+| Opt-in autonomous controls | Healing, execution narration, preview-before-action, manual supervision, and gesture cursor |
+| Voice output | Local Kyutai Pocket TTS with automatic OS-native fallback |
+| Extension ecosystem | Signed local plugins and a reviewed, hash-verified GitHub marketplace |
 
 ### 🔧 Task Decomposition Engine
 
@@ -489,19 +509,27 @@ Successful reasoning chains are stored and reused:
 
 ### 🔌 Plugin Ecosystem
 
-Heliox OS ships with **3 flagship plugins** and supports community-built extensions:
+Heliox has two deliberately separate extension paths:
 
-| Plugin | Type | Capabilities |
-|--------|------|--------------|
-| **developer-tools** | Code | Jira tickets, `git clone`, branch, commit, push, GitHub PRs |
-| **media-control** | System | Spotify (play/pause/skip), system volume, YouTube, media keys |
-| **home-assistant** | IoT | Smart lights, switches, thermostats, scenes, device discovery |
+| Path | Current packages | Trust model |
+|------|------------------|-------------|
+| Built-in daemon integrations | Developer tools, media control, Home Assistant | Shipped and reviewed with the application |
+| Public marketplace | `weather`, `spotify-control`, `home-assistant` | Approved GitHub catalog, restricted imports, per-file SHA-256 verification |
 
-Drop custom plugins into `~/.heliox/plugins/` — they're auto-discovered at startup
-after Ed25519 signature verification. Production registries can verify against
-bundled trusted public keys; local plugin packages can include
-`plugin.ed25519.pub` with `plugin.ed25519.sig`. Unsigned, untrusted, or tampered
-plugins are rejected before their manifest or code is loaded.
+Local development plugins live in `~/.config/heliox-os/plugins/`. They are
+auto-discovered at startup only after Ed25519 signature verification. Local
+packages can include `plugin.ed25519.pub` with `plugin.ed25519.sig`; unsigned,
+untrusted, or tampered packages are rejected before their manifest or code is
+loaded.
+
+To publish for everyone, create and test the plugin in the app, add
+`plugins/<plugin-name>/manifest.json` and `plugin.py`, update
+`plugins/registry.json`, run `python scripts/validate_marketplace.py --write`,
+and submit a pull request. Once marketplace CI, maintainer review, and
+CODEOWNER review pass and the pull request is merged to `main`, users can see
+it by pressing **Refresh**. A desktop release is not required. See the
+[Plugin Marketplace guide](docs/PLUGIN_MARKETPLACE.md) for the complete package
+contract and moderation flow.
 
 ```json
 {
@@ -517,7 +545,7 @@ A background agent that runs every 30 minutes to review the day's actions and le
 
 - Clusters behavioral patterns ("always writes Python", "prefers dark mode")
 - Extracts actionable rules with confidence scores
-- Writes a `~/.heliox/persona.md` that is injected into planner context
+- Writes `~/.local/share/heliox-os/persona.md`, which is injected into planner context
 - Supports manual preference setting via `persona_add_preference` API
 - Categories: `preference`, `habit`, `constraint`, `style`
 
@@ -525,12 +553,13 @@ A background agent that runs every 30 minutes to review the day's actions and le
 
 Continuous computer-vision loop that gives the agent awareness of what the user sees:
 
-- Takes screenshots every 2 seconds, hashes for change detection
+- Takes screenshots every 3 seconds by default and hashes them for change detection
 - Detects the active application and window title cross-platform
 - Maintains a rolling context buffer of recent screen states
 - When user says "summarize this" or "close that", the planner already knows the target
 - Optional LLM-powered screen description for advanced awareness
 
+<a id="installation"></a>
 ## 🚀 Installation
 
 ### Option 1: Download Compiled Desktop App (Recommended)
@@ -539,186 +568,33 @@ The easiest way to get started is to download the pre-compiled installer for you
 
 1. Go to the [GitHub Releases page](https://github.com/VyomKulshrestha/Heliox-OS/releases).
 2. Download the installer for your OS:
-   - **Windows**: `Heliox OS_x64-setup.exe`
-   - **macOS (Apple Silicon)**: `Heliox OS_aarch64.dmg`
-   - **macOS (Intel)**: `Heliox OS_x86_64.dmg`
-   - **Linux**: `.AppImage` or `.deb`
+   - **Windows**: `Heliox-OS_0.9.0_x64-setup.exe` or the `.msi`
+   - **macOS (Apple Silicon)**: `Heliox-OS_0.9.0_aarch64.dmg`
+   - **macOS (Intel)**: `Heliox-OS_0.9.0_x64.dmg`
+   - **Linux**: `.AppImage`, `.deb`, or `.rpm`
 3. Install the app.
 4. Open Heliox OS and enter your API Key (e.g., Gemini, OpenAI, Claude, Meta) in the Settings tab.
 
-*Note: The Python backend requires Python 3.11+ installed on your system. You must start the 
-local daemon manually for now.*
-## Windows Troubleshooting
+The desktop app requires Python 3.11+ and starts the local daemon automatically.
+On first launch it may need time to create its environment and load local models;
+the UI keeps reconnecting during that initialization. Browser-only UI development
+still requires a manually started daemon.
+### Windows Optional-Model Troubleshooting
 
-### Missing DLL Errors
+Pocket TTS and the default voice path are CPU-only; CUDA is not required. If an
+optional neural dependency fails with missing runtime DLLs, install the
+[Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+and reinstall the daemon extras from a 64-bit Python 3.11 or 3.12 environment:
 
-**Error Messages:**
-**Root Cause:** PyTorch requires CUDA runtime DLLs in system PATH
-
-**Fix:**
-
-1. Install Visual C++ Redistributable:
-   - Download: https://support.microsoft.com/en-us/help/2977003
-   - Install the **x64** version
-
-2. Reinstall PyTorch matching your CUDA version:
-```bash
-# For CUDA 12.1 (most common)
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-# For CUDA 11.8
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# For CPU only
-pip install torch torchvision torchaudio
+```powershell
+cd daemon
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ".[full,voice]"
 ```
 
-3. Verify installation:
-```bash
-python -c "import torch; print(torch.cuda.is_available())"
-```
-
----
-
-### CUDA Version Mismatch
-
-**Error Messages:**
-CUDA runtime version mismatch
-CUDA version is insufficient for this model
-RuntimeError: CUDA out of memory
-
-**Root Cause:** PyTorch CUDA version doesn't match installed NVIDIA CUDA version
-
-**Fix:**
-
-1. Check your CUDA version:
-```bash
-nvidia-smi
-```
-
-2. Check PyTorch CUDA version:
-```bash
-python -c "import torch; print(torch.version.cuda)"
-```
-
-3. Match your CUDA version using this table:
-
-| NVIDIA CUDA | Installation Command |
-|---|---|
-| 12.4+ | `pip install torch --index-url https://download.pytorch.org/whl/cu124` |
-| 12.1 | `pip install torch --index-url https://download.pytorch.org/whl/cu121` |
-| 11.8 | `pip install torch --index-url https://download.pytorch.org/whl/cu118` |
-| CPU Only | `pip install torch` |
-
-4. Reinstall PyTorch:
-```bash
-pip uninstall torch torchvision torchaudio -y
-pip cache purge
-pip install torch --index-url https://download.pytorch.org/whl/cu121
-```
-
----
-
-### PATH Environment Variable Issues
-
-**Error Messages:**
-CUDA is not available
-Cannot find nvcc compiler
-
-**Fix:**
-
-1. Open Environment Variables:
-   - Press `Win + X` → Click "System"
-   - Click "Advanced system settings"
-   - Click "Environment Variables" button
-
-2. Add CUDA to PATH:
-   - Find **Path** variable and click Edit
-   - Add these two paths:
-     - `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\bin`
-     - `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\libnvvp`
-   - (Replace v12.1 with your CUDA version)
-
-3. Restart terminal and verify:
-```bash
-nvcc --version
-```
-
----
-
-### GPU Out of Memory Errors
-
-**Error Message:**
-RuntimeError: CUDA out of memory. Tried to allocate X.XX GiB
-
-**Solutions:**
-
-1. Reduce batch size in your code:
-```python
-batch_size = 32  # Instead of 64 or 128
-```
-
-2. Clear GPU memory:
-```bash
-python -c "import torch; torch.cuda.empty_cache()"
-```
-
-3. Check GPU memory:
-```bash
-python -c "import torch; print(torch.cuda.get_device_properties(0))"
-```
-
-4. Use CPU if needed:
-```python
-device = "cpu"  # Instead of "cuda"
-```
-
----
-
-### Visual C++ Build Tools Missing
-
-**Error Message:**
-error: Microsoft Visual C++ 14.0+ is required
-
-**Fix:**
-
-1. Download Visual Studio Build Tools:
-   - Go to: https://visualstudio.microsoft.com/downloads/
-   - Click "Build Tools for Visual Studio 2022"
-
-2. Run the installer and select:
-   - ✓ Desktop development with C++
-   - ✓ Windows 11 SDK
-
-3. Complete installation and **restart your computer**
-
----
-
-### Quick Diagnostic
-
-Check your setup with this command:
-```bash
-python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA Available:', torch.cuda.is_available()); print('CUDA Version:', torch.version.cuda if torch.cuda.is_available() else 'N/A')"
-```
-
-**Still having issues?**
-
-Try a clean reinstall:
-```bash
-pip cache purge
-pip install --upgrade pip setuptools wheel
-pip install torch --index-url https://download.pytorch.org/whl/cu121
-```
-
-For more information, see [PyTorch Installation Guide](https://pytorch.org/get-started/locally/)
-
-
-
-
-
-
-
-
+Only install a CUDA-specific PyTorch build when you have deliberately enabled an
+optional GPU-backed model. The core agent, learned risk model, gesture/gaze
+pipeline, and Pocket TTS do not require an NVIDIA GPU.
 
 ### Option 2: Build from Source (For Developers)
 
@@ -731,7 +607,7 @@ If you want to contribute or modify Heliox OS, build it from the source code:
 ```bash
 git clone https://github.com/VyomKulshrestha/Heliox-OS.git
 cd Heliox-OS/daemon
-pip install -e ".[full,dev]"
+pip install -e ".[all,dev]"
 ```
 
 **2. Choose your LLM:**
@@ -747,8 +623,16 @@ python -m pilot.server
 **4. Run the frontend:**
 ```bash
 cd tauri-app/ui
-npm install
+npm ci
 npm run dev
+```
+
+For the native desktop shell, install the Tauri wrapper dependencies and run:
+
+```bash
+cd tauri-app
+npm install
+npm run tauri dev
 ```
 
 ## Example Commands
@@ -768,6 +652,7 @@ npm run dev
 "Install Firefox"
 ```
 
+<a id="security"></a>
 ## 🛡️ Security
 
 > [!WARNING]
@@ -780,9 +665,10 @@ npm run dev
 - **Irreversibility is tracked independently of tier** — actions that can't be undone by a snapshot rollback (external emails/webhooks, SSH commands, power actions, package removal) always require confirmation, even at a lower tier, and are flagged distinctly in the approval dialog
 - A secondary **LLM safety critic** independently reviews Tier 3 (destructive) and Tier 4 (root-critical) plans before the confirmation gate fires — it can block a plan outright or surface warnings alongside the approval dialog. Low-risk Tier 3 plans skip the LLM round-trip via a cheap heuristic pre-check, but the audit trail records when that happened
 - Dangerous shell argument patterns (recursive+force deletes, wildcard/root path targets) are flagged even on already-whitelisted commands
-- **Snapshot-based rollback via Btrfs or Timeshift (Linux)** — snapshots taken before destructive plans can actually be reverted afterward via an in-app "Undo" action (filesystem-wide, not per-action — the UI spells this out before you confirm)
+- **Snapshot-based rollback** — Btrfs/Timeshift on Linux and Windows Restore Points on Windows. Required snapshots fail closed: if the selected backend is unavailable or the Windows daemon is not elevated, the destructive action does not run. Windows controls restore-point retention; Heliox retention settings apply where the backend supports them.
 - **Tamper-evident, HMAC-chained audit log** for every elevated permission decision, viewable and independently verifiable (integrity check) from the Settings panel
 - **Agent Gateway**: source-scoped permission floors for shell/browsing/system-control actions (interactive/autonomous/web-agent/voice/gesture/self-healing, plus one enforced ceiling per specialist agent in the multi-agent orchestrator, each tightenable but never independently widenable by a per-task override), a second tamper-evident audit chain for gateway decisions, and dry-run impact modeling extended to browser and system-control actions — see [SECURITY.md](SECURITY.md) for the full threat model this closes
+- **Learned risk world model**: the bundled MLP predicts action impact from real training samples before execution. Deterministic policy remains authoritative; the model can interrupt or add confirmation, but it cannot remove a rule-based warning or grant permission.
 - **Autonomous Healing Engine (opt-in)**: passively watches CPU/memory/disk and plans a remediation goal through the normal Planner/Executor pipeline when one crosses its threshold — low-tier/reversible plans auto-execute, anything else is proposed and held for explicit confirmation — see [SECURITY.md](SECURITY.md#-autonomous-healing-engine-opt-in)
 - **Pre-execution target assessment**: dry-run plans that click/type/select on the current page get checked against the live DOM before you confirm — a missing, hidden, or ambiguous target raises that action's risk and shows why, instead of the same generic description every browser action used to get — see [SECURITY.md](SECURITY.md#-pre-execution-target-assessment-browser-actions)
 - **Live Execution Narrator (opt-in)**: narrates plan execution as it happens and can pre-emptively pause a plan or browser action flagged as risky, right before it runs, pairing a spoken interjection with a confirmation dialog — see [SECURITY.md](SECURITY.md#-live-execution-narrator-opt-in)
@@ -791,6 +677,7 @@ npm run dev
 - **Mid-flight cancellation**: a Stop button in the chat panel really kills the currently in-flight command — a mid-flight shell subprocess is genuinely killed (`proc.kill()`), and PTY sessions are interrupted on demand — instead of only stopping the next action in the plan — see [SECURITY.md](SECURITY.md#-mid-flight-cancellation)
 - **User Manual Supervision (opt-in)**: watches your own independent screen/keyboard/mouse activity — not anything Heliox executes — to offer cognitive coaching and warn about risky-looking content; the keyboard/mouse hook is a separate, starker opt-in gated behind a one-time "I understand" confirmation, and nothing typed or clicked is ever saved or sent anywhere, only the fact that a risk pattern matched — see [SECURITY.md](SECURITY.md#-user-manual-supervision-opt-in)
 - **Gesture cursor control is off by default** — the continuous gesture-to-cursor bridge drives the real OS mouse cursor and is the one feature in this app that acts without a per-action confirmation gate, so it requires an explicit opt-in in Settings and always exits instantly on an open palm, the panel's stop button, or disabling the toggle
+- **Reviewed plugin marketplace** — the app installs only catalog-approved packages, verifies every declared SHA-256 digest, signs the local installation, and routes planner-triggered plugin actions through the normal permission system
 - Command whitelist with optional unrestricted mode
 - **Encrypted API key storage** via platform keyring (GNOME Keyring / Windows Credential Manager)
 - API keys are NEVER logged, included in plans, or sent to local LLMs
@@ -822,6 +709,7 @@ root_enabled = false
 confirm_tier2 = true
 unrestricted_shell = false
 snapshot_on_destructive = true
+snapshot_backend = "auto"
 
 [server]
 host = "127.0.0.1"
@@ -834,13 +722,29 @@ no_proxy = "localhost,127.0.0.1"
 
 [vision]
 camera_index = 0
+mediapipe_backend = "legacy" # "tasks" enables 3D hand landmarks
+gaze_tracking_enabled = false
+
+[gesture_cursor]
+enabled = false
+
+[gateway]
+enabled = true
+risk_gate_enabled = true
+
+[voice]
+tts_engine = "pocket_tts"    # falls back to the OS voice if unavailable
+
+[screen_vision]
+capture_interval_seconds = 3.0
 ```
+<a id="troubleshooting"></a>
 ## 🛠️ Troubleshooting
 
 ### Frequently Asked Questions (FAQ)
 
 #### Q1: The daemon fails to start — what should I check?
-**A:** First, verify you are using **Python 3.11+**. Check your version with `python --version`. If it still fails, check the logs at `~/.local/state/heliox-os/pilot.log` for specific error messages. Ensure that port `8785` is not being used by another application.
+**A:** First, verify you are using **Python 3.11+**. Check your version with `python --version`. The desktop app starts the daemon and keeps reconnecting while first-run models initialize. If it remains offline, check `~/.local/state/heliox-os/pilot.log` and ensure port `8785` is free.
 
 #### Q2: I get an API key error even though I entered one.
 **A:** Heliox OS stores API keys securely in your system keyring (GNOME Keyring/libsecret on Linux, Credential Manager on Windows) or an encrypted `vault.enc` file. It does **not** use `.env` files. Ensure you've added the key via the Settings tab in the UI. If the issue persists, check if `libsecret-1-dev` is installed (on Linux).
@@ -855,10 +759,10 @@ cloud_provider = "gemini"
 ```
 
 #### Q4: Voice detection isn't working on Linux.
-**A:** Ensure that `portaudio19-dev` and `python3-pyaudio` are installed on your system. You may also need to grant your terminal or the Heliox app permission to access the microphone in your system settings.
+**A:** Install the `voice` extra, ensure PortAudio is available for `sounddevice`, select the correct input in Settings, and grant microphone permission to the terminal or Heliox app. The UI keeps push-to-talk retryable after a denied permission instead of requiring a reload.
 
 #### Q5: Hand gesture control requires a webcam — which ones are supported?
-**A:** Any standard USB or integrated webcam supported by your OS will work. Heliox OS uses OpenCV for vision tasks. If your camera isn't detected, ensure no other application is currently using it. You can specify which camera to use by setting `camera_index` under the `[vision]` section in your `config.toml` (defaults to 0 for the primary camera).
+**A:** Any standard USB or integrated webcam exposed by the browser/WebView media API should work. Hand tracking uses MediaPipe Hands or MediaPipe Tasks; gaze uses MediaPipe FaceLandmarker and remains on-device. If the camera is unavailable, close other camera users, grant camera permission, and set `camera_index` under `[vision]` if the daemon-side vision path needs a non-default device. Gesture and gaze inference share the same camera stream, so enabling gaze must not suppress hand tracking.
 
 #### Q6: Port already in use (8785 or 8786).
 **A:** Heliox OS uses port `8785` for the API and `8786` for mesh networking. If these ports are occupied, you can identify and stop the conflicting process:
@@ -880,28 +784,14 @@ taskkill /PID <PID> /F
 
 ```bash
 cd tauri-app/ui
-npm install
+npm ci
 npm run dev
 ```
 
 Ensure all frontend dependencies are installed successfully before starting the app.
 
-#### Q8: PyTorch installation issues on Windows (Missing DLLs / CUDA).
-**A:** Many Windows users encounter missing DLLs or CUDA version mismatches when installing PyTorch (used by Pocket TTS and other optional features). Follow these steps:
-
-1.  **Missing DLLs (`msvcp140.dll`, `vcruntime140_1.dll`):** Install the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe). This is required for PyTorch's C++ extensions.
-2.  **CUDA Mismatch:** Ensure your PyTorch installation matches your system's CUDA version. Run `nvidia-smi` to check your driver's CUDA version, then reinstall PyTorch if necessary:
-    ```bash
-    # Example: For CUDA 12.1
-    pip install torch --index-url https://download.pytorch.org/whl/cu121
-    # For CPU-only (no GPU)
-    pip install torch --index-url https://download.pytorch.org/whl/cpu
-    ```
-3.  **OSError [WinError 126]:** This usually indicates a missing dependency for `torch` or `torchaudio`. Ensure you are using **Python 3.11+ (64-bit)** and try reinstalling the daemon dependencies:
-    ```bash
-    cd daemon
-    pip install -e ".[full]"
-    ```
+#### Q8: Do Pocket TTS or the learned world model require CUDA?
+**A:** No. Both supported paths are CPU-capable and no NVIDIA GPU is required. If an optional neural package reports missing Windows runtime DLLs, install the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) and reinstall the relevant daemon extra from 64-bit Python. Only use a CUDA-specific build for an optional model you intentionally configured.
 
 ## 📖 Developer Guides & Documentation
 
@@ -910,7 +800,7 @@ To help newcomers and contributors navigate the Heliox-OS codebase, please refer
 - 🔍 **[Forensics Agent Runbook](docs/FORENSICS_RUNBOOK.md)** — Learn about the autonomous threat containment pipeline, the JSON schema for forensics logs, and the Tier 3/4 Security Gate.
 - ⚙️ **[Agent Development Guide](AGENT_DEVELOPMENT_GUIDE.md)** — Step-by-step instructions on designing and registering custom specialist agents.
 - 💬 **[IPC Message Formats](IPC_MESSAGE_FORMATS.md)** — Detailed specification of frontend-to-daemon WebSocket payloads and schemas.
-- 🎛️ **[Gesture Control Guide](GESTURES.md)** — Setup instructions and mapping for OpenCV static and motion gestures.
+- 🎛️ **[Gesture Control Guide](GESTURES.md)** — Setup, privacy behavior, MediaPipe backends, gaze fusion, cursor control, and gesture mappings.
 - 🔒 **[Security Policy](SECURITY.md)** — Overview of permission tiers, encrypted keyring stores, and snapshot rollbacks.
 - ⚡ **[Cache Architecture](CACHE_IMPLEMENTATION.md)** — Internal mechanics of state storage and model response caching.
 
