@@ -160,6 +160,7 @@ jobs:
           fi
 
       - name: Generate missing baseline snapshots
+        if: steps.check_baselines.outputs.exists == 'false'
         run: npx playwright test --update-snapshots --reporter=github
         continue-on-error: true
         env:
