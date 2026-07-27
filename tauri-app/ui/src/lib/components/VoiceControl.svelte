@@ -91,9 +91,12 @@
       if (event.error === "aborted") return;
       console.error("Speech recognition error:", event.error);
       error = `Mic error: ${event.error}`;
-      // On permission or fatal errors, stop retrying completely
+      // Do not retry automatically after a permission error, but keep the
+      // explicit push-to-talk action available. This lets the user grant
+      // microphone access in OS/app settings and retry without reloading.
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        pushToTalkEnabled = false;
+        error = "Microphone access is blocked. Allow it in app or OS settings, then press Push to talk again.";
+        recognition = null;
       }
       isListening = false;
     };
