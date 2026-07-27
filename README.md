@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="./docs/assets/heliox-command-center-dark.jpg" alt="Heliox OS Command Center in dark mode" width="800">
+  <img src="./docs/assets/heliox-command-center-dark.png" alt="Heliox OS Command Center in dark mode" width="900">
 </p>
 
 <p align="center">
