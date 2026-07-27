@@ -79,13 +79,19 @@ jobs:
           fi
 
       - name: Prettier format check
-        run: npx prettier --check "src/**/*.{svelte,ts,js,css}" || echo "Prettier check done"
+        run: npx prettier --check "src/**/*.{svelte,ts,js,css}" "vite.config.ts"
 
       - name: Svelte check (type checking)
-        run: npx svelte-check --tsconfig ./tsconfig.json || echo "Type check done"
+        run: npx svelte-check --tsconfig ./tsconfig.json
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
 
       - name: Static frontend checks
         run: npm run test:static
+
+      - name: Frontend unit tests
+        run: npm run test:unit -- --run
 
       - name: Build check
         run: npx vite build
@@ -245,8 +251,12 @@ jobs:
 
       - name: Cargo fmt check
         working-directory: tauri-app/src-tauri
-        run: cargo fmt -- --check || echo "::warning::Rust formatting issues found. Run 'cargo fmt' locally."
+        run: cargo fmt -- --check
 
       - name: Cargo clippy
         working-directory: tauri-app/src-tauri
-        run: cargo clippy -- -D warnings || echo "::warning::Clippy warnings found."
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Cargo tests
+        working-directory: tauri-app/src-tauri
+        run: cargo test --all-targets
