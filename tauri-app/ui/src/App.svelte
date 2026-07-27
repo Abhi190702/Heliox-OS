@@ -337,8 +337,6 @@
           </div>
           <button class="tab" type="button" onclick={() => session.exportChat("json")}>{$_("app.export_json")}</button>
           <button class="tab" type="button" onclick={() => session.exportChat("csv")}>{$_("app.export_csv")}</button>
-          <button class="tab" type="button" onclick={() => session.exportChat("json")}>Export JSON</button>
-          <button class="tab" type="button" onclick={() => session.exportChat("csv")}>Export CSV</button>
           <button class="tab" type="button" onclick={exportReActTrace} title="Export ReAct reasoning trace to JSON"
             >Export Trace</button
           >
