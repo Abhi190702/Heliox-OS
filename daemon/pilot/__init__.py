@@ -1,3 +1,3 @@
-"""Pilot — AI Command Center daemon for Ubuntu LTS."""
+"""Heliox OS AI Command Center daemon."""
 
-__version__ = "0.1.0"
+__version__ = "0.9.0"
