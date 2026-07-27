@@ -1431,6 +1431,7 @@ class PilotServer:
 
                 if self._memory:
                     asyncio.create_task(self._memory.record(user_input, plan, []))
+                await ws.send(_notification("conversation_response", {"explanation": plan.explanation}))
                 await _emit_task_complete("success", plan.explanation)
                 return {
                     "status": "success",

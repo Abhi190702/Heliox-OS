@@ -199,6 +199,7 @@ async def test_handle_execute_returns_conversation_without_preview_or_execution(
         "explanation": response,
         "agent_routing": {"assigned_agents": []},
     }
+    assert any('"method": "conversation_response"' in message for message in ws.sent)
     assert not any('"method": "plan_preview"' in message for message in ws.sent)
     assert not any('"method": "confirm_required"' in message for message in ws.sent)
 

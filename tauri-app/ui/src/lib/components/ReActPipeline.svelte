@@ -51,6 +51,7 @@
     "action_start",
     "action_complete",
     "confirm_required",
+    "conversation_response",
     "reasoning_event",
   ]);
 
@@ -130,6 +131,13 @@
     }
 
     switch (method) {
+      case "conversation_response": {
+        resetPipeline();
+        isVisible = false;
+        pipelineStartTime = 0;
+        break;
+      }
+
       case "status": {
         const phase = String(p.phase || "");
         isVisible = true;
