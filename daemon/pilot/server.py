@@ -618,31 +618,17 @@ class PilotServer:
         self._orchestrator.register_agent(self._rss_agent)
 
         # Multimodal Fusion Engine — voice + gesture intent fusion
-        from pilot.multimodal.fusion import InputEvent, ModalityType, MultimodalFusionEngine
+        from pilot.multimodal.fusion import MultimodalFusionEngine
 
         self._fusion = MultimodalFusionEngine()
         self._fusion.set_broadcast(self._broadcast_notification)
 
-        # ── Gesture Recognition (Local Backend) ──
-        try:
-            from pilot.system.gesture import start_gesture_listener
-
-            def _on_local_gesture(name: str, conf: float):
-                event = InputEvent(
-                    modality=ModalityType.GESTURE, gesture_name=name, gesture_confidence=conf, gesture_data={}
-                )
-                asyncio.create_task(self._fusion.on_gesture_event(event))
-
-            # DISABLED: The backend gesture listener locks the Windows webcam hardware,
-            # which prevents the frontend Tauri UI (GestureControl.svelte) from accessing it.
-            # We defer gesture recognition exclusively to the rich frontend UI.
-            # asyncio.create_task(
-            #     start_gesture_listener(on_gesture=_on_local_gesture, camera_index=self.config.vision.camera_index)
-            # )
-            # logger.info("Local gesture listener auto-started (camera %s)", self.config.vision.camera_index)
-            logger.info("Local gesture listener disabled in favor of frontend UI MediaPipe engine")
-        except Exception:
-            logger.warning("Local gesture listener init failed (non-critical)", exc_info=True)
+        # The backend gesture listener is intentionally disabled because it
+        # would contend with the frontend MediaPipe engine for the webcam.
+        # Do not import pilot.system.gesture here: importing that disabled
+        # backend eagerly loads MediaPipe/TensorFlow and can delay daemon
+        # readiness by tens of seconds even though no listener is started.
+        logger.info("Local gesture listener disabled in favor of frontend UI MediaPipe engine")
 
         # Reasoning Event Emitter — thought visualization telemetry
         from pilot.reasoning.events import ReasoningEmitter
