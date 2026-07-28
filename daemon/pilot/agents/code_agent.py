@@ -105,7 +105,11 @@ class CodeAgent(BaseAgent):
         )
 
         results = await self._executor.execute(
-            sub_plan, invocation_source=self.get_invocation_source(), scope_override=scope_override
+            sub_plan,
+            initial_last_output=str((context or {}).get("initial_last_output", "")),
+            initial_largest_output=str((context or {}).get("initial_largest_output", "")),
+            invocation_source=self.get_invocation_source(),
+            scope_override=scope_override,
         )
 
         # Auto-debug: if any code execution failed, try to fix and re-run

@@ -1,5 +1,5 @@
 import { writable, get } from "svelte/store";
-import { onNotification, call } from "../api/daemon";
+import { onNotification, offNotification, call } from "../api/daemon";
 import { speakText } from "../utils/tts";
 
 /**
@@ -12,6 +12,9 @@ import { speakText } from "../utils/tts";
  *   `active` (which InterruptDialog.svelte renders off) *and* speaks the
  *   reason, satisfying "always pair voice with a visual modal" from a
  *   single event rather than two separate code paths.
+ * - "companion_plan_intervention"/"companion_interjection": spoken only
+ *   when Heliox actually warns, revises, stops, or acknowledges a live
+ *   correction. Routine CONTINUE reviews stay silent.
  *
  * Consumes notification payloads directly (not a re-fetch-on-notify
  * pattern) since latency matters for a live interruption.
@@ -60,7 +63,7 @@ const DEFAULT_STATE: InterruptState = {
 function createNarration() {
   const store = writable<InterruptState>({ ...DEFAULT_STATE });
 
-  onNotification((method, params) => {
+  const notificationHandler = (method: string, params: unknown) => {
     const p = (params ?? {}) as Record<string, unknown>;
 
     if (method === "execution_narration") {
@@ -83,13 +86,47 @@ function createNarration() {
       return;
     }
 
+    if (method === "companion_plan_intervention") {
+      const decision = String(p.decision ?? "").toUpperCase();
+      if (!["WARN", "REVISE", "STOP"].includes(decision)) return;
+      const reason = String(p.reason ?? "").trim();
+      if (!reason) return;
+      const speech =
+        decision === "REVISE"
+          ? "I found a problem with the plan, so I am correcting it before it runs."
+          : decision === "STOP"
+            ? "I found a serious problem, so I stopped this task."
+            : "I need to flag a concern before I continue.";
+      speakText(speech);
+      return;
+    }
+
+    if (method === "companion_interjection") {
+      const mode = String(p.mode ?? "").toLowerCase();
+      speakText(mode === "stop" ? "Stopping now." : "I heard your correction. I am revising the task now.");
+      return;
+    }
+
     if (method === "execution_interrupt_timeout" || method === "execution_interrupt_denied") {
       const planId = String(p.plan_id ?? "");
       if (get(store).planId === planId) {
         store.set({ ...DEFAULT_STATE });
       }
     }
-  });
+  };
+
+  onNotification(notificationHandler);
+  // Vite keeps the daemon client module alive during browser hot reloads.
+  // Remove this store's old callback before installing the next copy, or one
+  // intervention can be spoken multiple times in local testing.
+  const hot = (
+    import.meta as ImportMeta & {
+      hot?: { dispose(callback: () => void): void };
+    }
+  ).hot;
+  if (hot) {
+    hot.dispose(() => offNotification(notificationHandler));
+  }
 
   async function respond(confirmed: boolean) {
     const current = get(store);

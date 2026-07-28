@@ -38,9 +38,10 @@ def _resolve_dry_run(configured: bool, requested: object = False) -> bool:
 CONFIRM_TIMEOUT_SECONDS = 300
 # These control-plane RPCs must be dispatchable while a normal request is
 # paused. ``execute`` waits for ``confirm`` on the same WebSocket connection,
-# ``abort`` interrupts execution, and speech replacement/stop must interrupt
-# an in-flight utterance. All other RPCs remain sequential per connection.
-OUT_OF_BAND_RPC_METHODS = frozenset({"confirm", "abort", "speak_text", "stop_speech"})
+# ``abort`` interrupts execution, ``interject`` revises it, and speech
+# replacement/stop must interrupt an in-flight utterance. All other RPCs
+# remain sequential per connection.
+OUT_OF_BAND_RPC_METHODS = frozenset({"confirm", "abort", "interject", "speak_text", "stop_speech"})
 
 # ── Plan History DB path (sibling of the main DB) ──
 PLAN_HISTORY_DB_FILE = DATA_DIR / "plan_history.db"
@@ -63,14 +64,22 @@ class JsonRpcRequest:
             A JsonRpcRequest instance.
 
         Raises:
-            ValueError: If the JSON-RPC version is not "2.0".
+            ValueError: If the payload is not a valid JSON-RPC request object.
         """
         data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("Invalid JSON-RPC request: expected an object")
         if data.get("jsonrpc") != "2.0":
             raise ValueError("Invalid JSON-RPC version")
+        method = data.get("method")
+        if not isinstance(method, str) or not method:
+            raise ValueError("Invalid JSON-RPC request: method must be a non-empty string")
+        params = data.get("params", {})
+        if not isinstance(params, dict):
+            raise ValueError("Invalid JSON-RPC request: params must be an object")
         return cls(
-            method=data["method"],
-            params=data.get("params", {}),
+            method=method,
+            params=params,
             id=data.get("id"),
         )
 
@@ -401,7 +410,16 @@ class PilotServer:
         # just signal cancel_event for the next action boundary. Single
         # slot, mirroring _cancel_event's own "one primary interactive
         # session" scope rather than a dict keyed by plan_id. ──
-        self._active_execution_task: asyncio.Task[list[Any]] | None = None
+        self._active_execution_task: asyncio.Task[Any] | None = None
+        # Live interaction companion state. Ordinary execute requests stay
+        # serialized, while an out-of-band interject request can revise or
+        # stop the one active interactive task.
+        self._interactive_request_active = False
+        self._active_plan_id = ""
+        self._live_correction: str | None = None
+        self._execution_companion: Any = None
+        self._recent_companion_context = ""
+        self._tts_warmup_task: asyncio.Task[None] | None = None
         self._rss_agent: Any = None
         # ── LAN Mesh Network ──
         self._mesh: Any = None
@@ -409,6 +427,43 @@ class PilotServer:
         self._threat_bridge: Any = None
         # ── Authenticated WebSocket clients ──
         self._authenticated_clients: set[ServerConnection] = set()
+
+    def _start_tts_warmup(self) -> None:
+        """Warm the selected local voice without blocking daemon startup.
+
+        Replacing the engine or preset cancels the obsolete warmup. Failures
+        stay non-fatal because voice.py will use the OS-native fallback.
+        """
+        if self._tts_warmup_task and not self._tts_warmup_task.done():
+            self._tts_warmup_task.cancel()
+
+        engine = self.config.voice.tts_engine
+        voice = self.config.voice.tts_voice
+        if engine not in {"kokoro_tts", "pocket_tts"}:
+            self._tts_warmup_task = None
+            return
+
+        async def _warm_selected_voice() -> None:
+            display_name = "Kokoro TTS" if engine == "kokoro_tts" else "Pocket TTS"
+            try:
+                if engine == "kokoro_tts":
+                    from pilot.system.kokoro_tts import warmup
+                else:
+                    from pilot.system.pocket_tts import warmup
+
+                logger.info("%s warmup started (voice=%s)", display_name, voice)
+                await warmup(voice)
+                logger.info("%s warmup completed (voice=%s)", display_name, voice)
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                logger.warning(
+                    "%s warmup failed; OS voice fallback remains available",
+                    display_name,
+                    exc_info=True,
+                )
+
+        self._tts_warmup_task = asyncio.create_task(_warm_selected_voice())
 
     async def initialize(self) -> None:
         """Initialize all agent components.
@@ -494,6 +549,9 @@ class PilotServer:
         from pilot.agents.destructive_critic import DestructiveCriticAgent
 
         self._destructive_critic = DestructiveCriticAgent(model_router)
+        from pilot.agents.execution_companion import ExecutionCompanion
+
+        self._execution_companion = ExecutionCompanion(model_router)
 
         # Agent Gateway — source-scoped permission floor (interactive/
         # autonomous/web_agent/voice/gesture), checked alongside
@@ -627,7 +685,8 @@ class PilotServer:
 
             self._subconscious = SubconsciousAgent(model_router)
             await self._subconscious.initialize(str(DB_FILE))
-            logger.info("SubconsciousAgent initialized (idle, use persona_consolidate to trigger)")
+            await self._subconscious.start(interval_minutes=30)
+            logger.info("SubconsciousAgent started (continuous 30-minute consolidation)")
         except Exception:
             logger.warning("SubconsciousAgent init failed (non-critical)", exc_info=True)
 
@@ -846,6 +905,7 @@ class PilotServer:
             "gateway_policy_update": self._handle_gateway_policy_update,
             # ── Cancel Token (Issue #92) ──
             "abort": self._handle_abort,
+            "interject": self._handle_interject,
             "get_config": self._handle_get_config,
             "get_security_status": self._handle_get_security_status,
             "get_snapshot_status": self._handle_get_snapshot_status,
@@ -943,6 +1003,8 @@ class PilotServer:
             "proactive_start": self._handle_proactive_start,
             "proactive_stop": self._handle_proactive_stop,
             "proactive_stats": self._handle_proactive_stats,
+            "proactive_learning_status": self._handle_proactive_learning_status,
+            "proactive_learning_reset": self._handle_proactive_learning_reset,
             "proactive_accept": self._handle_proactive_accept,
             "proactive_dismiss": self._handle_proactive_dismiss,
             "budget_stats": self._handle_budget_stats,
@@ -1200,6 +1262,23 @@ class PilotServer:
     # -- Core execution pipeline --
 
     MAX_RETRIES = 2
+    MAX_LIVE_CORRECTIONS = 5
+
+    async def _await_execution_tracked(self, execution: Any) -> Any:
+        """Track any cancellable interactive phase in the cancellation slot.
+
+        Planning, companion/critic review, execution, and verification can all
+        involve a slow model or subprocess call. Tracking each phase makes a
+        typed stop or correction responsive throughout the task, not only while
+        an action happens to be executing.
+        """
+        task = asyncio.ensure_future(execution)
+        self._active_execution_task = task
+        try:
+            return await task
+        finally:
+            if self._active_execution_task is task:
+                self._active_execution_task = None
 
     async def _execute_tracked(self, plan: ActionPlan, **kwargs: Any) -> list[Any]:
         """Wraps self._executor.execute() in a real asyncio.Task, tracked in
@@ -1216,15 +1295,22 @@ class PilotServer:
         action-command handler, git-conflict-resolution) are single quick
         actions outside the "Stop button" scope and are left untouched.
         """
-        task = asyncio.ensure_future(self._executor.execute(plan, **kwargs))
-        self._active_execution_task = task
-        try:
-            return await task
-        finally:
-            if self._active_execution_task is task:
-                self._active_execution_task = None
+        return await self._await_execution_tracked(self._executor.execute(plan, **kwargs))
 
     async def _handle_execute(self, params: dict[str, Any], ws: ServerConnection) -> dict:
+        """Run one interactive request while exposing an out-of-band control slot."""
+        self._interactive_request_active = True
+        self._active_plan_id = ""
+        self._live_correction = None
+        try:
+            return await self._handle_execute_inner(params, ws)
+        finally:
+            self._interactive_request_active = False
+            self._active_plan_id = ""
+            self._live_correction = None
+            self._cancel_event = None
+
+    async def _handle_execute_inner(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Agentic pipeline: plan -> execute -> verify -> [retry on failure].
 
         If execution fails, the error is fed back to the planner for re-planning
@@ -1233,6 +1319,8 @@ class PilotServer:
         """
         user_input = params.get("input", "")
         attachments = params.get("attachments", [])
+        revision_count = int(params.get("_companion_revision_count", 0))
+        auto_revision_count = int(params.get("_companion_auto_revision_count", 0))
 
         if attachments:
             formatted_attachments = []
@@ -1312,6 +1400,149 @@ class PilotServer:
                 await self._broadcast_notification("task_complete", payload)
             except Exception:
                 pass
+
+        async def _restart_with_live_correction(completed_results: list[Any] | None = None) -> dict | None:
+            """Consume one queued correction and re-enter planning in this RPC.
+
+            The current action is already cancelled by the out-of-band
+            ``interject`` handler. We preserve a compact record of steps that
+            really completed, then ask the planner to revise the remaining
+            work instead of returning a misleading terminal cancellation.
+            """
+            correction = self._live_correction
+            if not correction:
+                return None
+
+            self._live_correction = None
+            if revision_count >= self.MAX_LIVE_CORRECTIONS:
+                message = (
+                    f"Live correction limit reached ({self.MAX_LIVE_CORRECTIONS}). "
+                    "The task was stopped to avoid an endless revision loop."
+                )
+                await self._broadcast_notification(
+                    "companion_revision_rejected",
+                    {"message": message, "revision_count": revision_count},
+                )
+                await _emit_task_complete("cancelled", message)
+                return {"status": "cancelled", "message": message, "results": []}
+
+            completed = completed_results or []
+            completed_lines = [
+                (
+                    f"- {result.action.action_type.value} on "
+                    f"{getattr(result.action, 'target', '') or '(no target)'}: "
+                    f"{'completed' if result.success else 'failed'}"
+                )
+                for result in completed
+            ]
+            completed_context = (
+                "\n".join(completed_lines)
+                if completed_lines
+                else "- No action completed before the correction arrived."
+            )
+            revised_input = (
+                f"{user_input}\n\n"
+                "[LIVE USER CORRECTION]\n"
+                f"{correction}\n\n"
+                "[ALREADY OBSERVED OUTCOMES]\n"
+                f"{completed_context}\n\n"
+                "Revise the plan to honor the live correction. Do not repeat a "
+                "completed action unless the correction explicitly requires it."
+            )
+
+            if self._checkpoint_store and self._active_plan_id:
+                await self._checkpoint_store.mark_status(self._active_plan_id, "superseded")
+
+            await ws.send(_notification("status", {"phase": "revising after your correction"}))
+            await self._broadcast_notification(
+                "companion_revision_started",
+                {
+                    "correction": correction,
+                    "revision": revision_count + 1,
+                    "completed_actions": len(completed),
+                },
+            )
+            return await self._handle_execute_inner(
+                {
+                    "input": revised_input,
+                    "dry_run": dry_run,
+                    "_companion_revision_count": revision_count + 1,
+                    "_companion_auto_revision_count": auto_revision_count,
+                },
+                ws,
+            )
+
+        async def _restart_from_companion_review(review: Any) -> dict:
+            """Re-plan once the independent companion finds concrete drift."""
+            feedback = str(getattr(review, "planner_feedback", "")).strip()
+            reason = str(getattr(review, "reason", "")).strip()
+            limit = max(0, int(self.config.narration.max_auto_revisions))
+            if auto_revision_count >= limit:
+                message = (
+                    f"Interactive companion stopped this task after {limit} automatic "
+                    f"revision attempts: {reason or 'the plan remained misaligned.'}"
+                )
+                await self._broadcast_notification(
+                    "companion_plan_intervention",
+                    {
+                        "decision": "STOP",
+                        "reason": message,
+                        "revision": auto_revision_count,
+                    },
+                )
+                await _emit_task_complete("blocked_by_companion", message)
+                return {"status": "blocked_by_companion", "message": message, "results": []}
+
+            if self._checkpoint_store and self._active_plan_id:
+                await self._checkpoint_store.mark_status(self._active_plan_id, "superseded")
+
+            await ws.send(
+                _notification(
+                    "status",
+                    {"phase": f"companion revising plan ({auto_revision_count + 1}/{limit})"},
+                )
+            )
+            await self._broadcast_notification(
+                "companion_plan_intervention",
+                {
+                    "decision": "REVISE",
+                    "reason": reason,
+                    "planner_feedback": feedback,
+                    "revision": auto_revision_count + 1,
+                },
+            )
+            revised_input = (
+                f"{user_input}\n\n"
+                "[INDEPENDENT COMPANION REVIEW]\n"
+                f"Problem: {reason}\n"
+                f"Required correction: {feedback}\n\n"
+                "Create a smaller corrected plan that still follows the original "
+                "user request. Do not add goals, permissions, or side effects."
+            )
+            return await self._handle_execute_inner(
+                {
+                    "input": revised_input,
+                    "dry_run": dry_run,
+                    "_companion_revision_count": revision_count,
+                    "_companion_auto_revision_count": auto_revision_count + 1,
+                },
+                ws,
+            )
+
+        async def _phase_cancelled(phase: str, completed_results: list[Any] | None = None) -> dict:
+            """Shape task cancellation consistently for every long-running phase."""
+            if self._live_correction:
+                revised = await _restart_with_live_correction(completed_results)
+                if revised is not None:
+                    return revised
+            message = f"Execution stopped by user during {phase}."
+            await ws.send(_notification("status", {"phase": "aborted"}))
+            await _emit_task_complete("cancelled", message)
+            return {
+                "status": "cancelled",
+                "message": message,
+                "results": [result.model_dump() for result in (completed_results or [])],
+            }
 
         emit = self._reasoning
         if emit:
@@ -1394,16 +1625,39 @@ class PilotServer:
                     _screen_ctx = self._screen_vision.get_context_for_planner()
                 except Exception:
                     pass
+            if self._recent_companion_context:
+                _screen_ctx = (f"{_screen_ctx}\n\n[RECENT COMPANION CONTEXT]\n{self._recent_companion_context}").strip()
+            if self._subconscious:
+                try:
+                    persona_context = await self._subconscious.get_persona_context()
+                    if persona_context:
+                        _screen_ctx = (
+                            f"{_screen_ctx}\n\n[LEARNED USER BEHAVIOR]\n"
+                            f"{persona_context}\n"
+                            "Treat these as preferences, never as permission to bypass "
+                            "confirmation, safety policy, or the user's current request."
+                        ).strip()
+                except Exception:
+                    logger.debug("Could not load learned persona context", exc_info=True)
 
-            plan = await self._planner.plan(
-                user_input,
-                error_context=error_context,
-                screen_context=_screen_ctx,
-                # Planner output is internal JSON, not an assistant response.
-                # Streaming it into chat exposes implementation details and can
-                # replace the final user-facing explanation.
-                stream_callback=None,
-            )
+            try:
+                plan = await self._await_execution_tracked(
+                    self._planner.plan(
+                        user_input,
+                        error_context=error_context,
+                        screen_context=_screen_ctx,
+                        # Planner output is internal JSON, not an assistant response.
+                        # Streaming it into chat exposes implementation details and can
+                        # replace the final user-facing explanation.
+                        stream_callback=None,
+                    )
+                )
+            except asyncio.CancelledError:
+                return await _phase_cancelled("planning")
+            if cancel_event.is_set() and self._live_correction:
+                revised = await _restart_with_live_correction()
+                if revised is not None:
+                    return revised
             if plan.error:
                 if emit:
                     await emit.phase_error("planning", PLANNER_ERROR, plan.error, parent_id=plan_phase)
@@ -1447,6 +1701,7 @@ class PilotServer:
 
             plan_id = str(uuid.uuid4())[:8]
             last_plan_id = plan_id
+            self._active_plan_id = plan_id
             if self._checkpoint_store:
                 await self._checkpoint_store.start_plan(plan_id, user_input, plan)
 
@@ -1474,6 +1729,47 @@ class PilotServer:
                     },
                 )
             )
+
+            if self.config.narration.proactive_review_enabled and self._execution_companion and not dry_run:
+                await ws.send(_notification("status", {"phase": "companion reviewing plan"}))
+                try:
+                    companion_review = await self._await_execution_tracked(
+                        self._execution_companion.review(user_input, plan)
+                    )
+                except asyncio.CancelledError:
+                    return await _phase_cancelled("companion review")
+
+                review_payload = {
+                    "plan_id": plan_id,
+                    **companion_review.to_dict(),
+                    "revision": auto_revision_count,
+                }
+                await ws.send(_notification("companion_plan_review", review_payload))
+
+                if companion_review.should_stop:
+                    message = f"Interactive companion stopped this plan: {companion_review.reason}"
+                    await self._broadcast_notification(
+                        "companion_plan_intervention",
+                        {**review_payload, "decision": "STOP", "reason": message},
+                    )
+                    if self._checkpoint_store:
+                        await self._checkpoint_store.mark_status(plan_id, "blocked_by_companion")
+                    await _emit_task_complete("blocked_by_companion", message)
+                    return {
+                        "status": "blocked_by_companion",
+                        "message": message,
+                        "companion_review": companion_review.to_dict(),
+                        "results": [],
+                    }
+
+                if companion_review.should_revise:
+                    return await _restart_from_companion_review(companion_review)
+
+                if companion_review.decision == "WARN":
+                    await self._broadcast_notification(
+                        "companion_plan_intervention",
+                        review_payload,
+                    )
 
             from pilot.actions import PermissionTier
             from pilot.agents.destructive_critic import HEURISTIC_RISK_THRESHOLD, assess_plan_risk
@@ -1522,10 +1818,18 @@ class PilotServer:
                         parent_id=critic_phase,
                     )
 
-                verdict = await self._destructive_critic.review(user_input, plan)
+                try:
+                    verdict = await self._await_execution_tracked(self._destructive_critic.review(user_input, plan))
+                except asyncio.CancelledError:
+                    return await _phase_cancelled("safety review")
                 critic_verdict_payload = verdict.to_dict()
                 critic_verdict_payload["world_model"] = risk_assessment.to_dict()
                 await ws.send(_notification("critic_verdict", critic_verdict_payload))
+
+                if cancel_event.is_set() and self._live_correction:
+                    revised = await _restart_with_live_correction()
+                    if revised is not None:
+                        return revised
 
                 if verdict.is_blocked:
                     await self._record_permission_escalations(
@@ -1637,6 +1941,10 @@ class PilotServer:
                         )
 
                 if not confirmed:
+                    if self._live_correction:
+                        revised = await _restart_with_live_correction()
+                        if revised is not None:
+                            return revised
                     message = "Cancelled before execution: the plan was denied."
                     await self._record_permission_escalations(
                         plan_id=plan_id,
@@ -1698,6 +2006,7 @@ class PilotServer:
             await ws.send(_notification("status", {"phase": "executing"}))
             action_idx = 0
             _total_actions = len(plan.actions)
+            completed_results: list[Any] = []
 
             async def _on_action_start(
                 action: Any, _exec_phase: str = exec_phase, _total: int = _total_actions
@@ -1719,7 +2028,13 @@ class PilotServer:
                         "execution", action_idx, _total, label=action.action_type.value, parent_id=_exec_phase
                     )
 
-            async def _on_action_complete(result: Any, _exec_phase: str = exec_phase, _plan_id: str = plan_id) -> None:
+            async def _on_action_complete(
+                result: Any,
+                _exec_phase: str = exec_phase,
+                _plan_id: str = plan_id,
+                _completed_results: list[Any] = completed_results,
+            ) -> None:
+                _completed_results.append(result)
                 result_payload = result.model_dump()
                 if dry_run:
                     result_payload["dry_run"] = True
@@ -1747,14 +2062,16 @@ class PilotServer:
                                 "orchestration", f"Delegating to {role_name} agent...", parent_id=exec_phase
                             )
 
-                    results = await self._orchestrator.execute_plan(
-                        user_input,
-                        plan,
-                        on_action_start=_on_action_start,
-                        on_action_complete=_on_action_complete,
-                        cancel_event=cancel_event,  # ── Cancel Token (Issue #92) ──
-                        plan_id=plan_id,
-                        critic_already_reviewed=True,
+                    results = await self._await_execution_tracked(
+                        self._orchestrator.execute_plan(
+                            user_input,
+                            plan,
+                            on_action_start=_on_action_start,
+                            on_action_complete=_on_action_complete,
+                            cancel_event=cancel_event,  # ── Cancel Token (Issue #92) ──
+                            plan_id=plan_id,
+                            critic_already_reviewed=True,
+                        )
                     )
                 else:
                     results = await self._execute_tracked(
@@ -1779,7 +2096,7 @@ class PilotServer:
                 # the cancelled await never returns a value). This must be
                 # caught here rather than left to propagate, or it would
                 # escape this RPC handler as an unhandled BaseException. ──
-                results = []
+                results = list(completed_results)
             all_results = results
             if not dry_run:
                 _snapshot_id = next((r.snapshot_id for r in results if getattr(r, "snapshot_id", None)), None)
@@ -1796,6 +2113,10 @@ class PilotServer:
 
             # ── Cancel Token: if aborted mid-execution, return immediately ──
             if cancel_event.is_set():
+                if self._live_correction:
+                    revised = await _restart_with_live_correction(results)
+                    if revised is not None:
+                        return revised
                 logger.info("Execution was cancelled mid-plan after %d result(s)", len(results))
                 await ws.send(_notification("status", {"phase": "aborted"}))
                 if self._checkpoint_store:
@@ -1854,8 +2175,15 @@ class PilotServer:
                     rollback_triggered=False,
                 )
             else:
-                verification = await self._verifier.verify(plan, results)
+                try:
+                    verification = await self._await_execution_tracked(self._verifier.verify(plan, results))
+                except asyncio.CancelledError:
+                    return await _phase_cancelled("verification", results)
             last_verification = verification
+            if cancel_event.is_set() and self._live_correction:
+                revised = await _restart_with_live_correction(results)
+                if revised is not None:
+                    return revised
             if _original_plan is not None and _successful_results:
                 all_results = PlanDiffer.merge_results(_successful_results, results, _original_plan, verification)
 
@@ -1920,7 +2248,37 @@ class PilotServer:
                     )
                 )
 
+                companion_follow_up = None
+                if (
+                    self.config.narration.follow_up_enabled
+                    and self._execution_companion
+                    and hasattr(self._execution_companion, "follow_up")
+                    and not dry_run
+                ):
+                    await ws.send(_notification("status", {"phase": "preparing useful next ideas"}))
+                    try:
+                        companion_follow_up = await self._await_execution_tracked(
+                            self._execution_companion.follow_up(
+                                user_input,
+                                plan,
+                                results,
+                                verification,
+                            )
+                        )
+                    except asyncio.CancelledError:
+                        return await _phase_cancelled("companion follow-up", results)
+                    if cancel_event.is_set() and self._live_correction:
+                        revised = await _restart_with_live_correction(results)
+                        if revised is not None:
+                            return revised
+
                 message = success_message(plan, results, verification, dry_run=dry_run)
+                if companion_follow_up:
+                    self._recent_companion_context = (
+                        f"Previous request: {_sanitize_summary(user_input, limit=300)}\n"
+                        f"Verified result: {_sanitize_summary(message, limit=300)}\n"
+                        f"Companion next ideas: {' | '.join(companion_follow_up.suggestions)}"
+                    )
                 await _emit_task_complete("success", message)
                 return {
                     "status": "success",
@@ -1936,6 +2294,7 @@ class PilotServer:
                         else plan.explanation
                     ),
                     "agent_routing": self._multi_agent.get_routing_summary(user_input),
+                    "companion_follow_up": (companion_follow_up.to_dict() if companion_follow_up else None),
                 }
 
             if emit:
@@ -2537,7 +2896,90 @@ class PilotServer:
 
         return {"status": "ok", "profile": profile_name, "policy": asdict(updated)}
 
-    async def _handle_abort(self, params: dict[str, Any], ws: ServerConnection) -> dict:
+    async def _handle_interject(
+        self,
+        params: dict[str, Any],
+        ws: ServerConnection | None,
+    ) -> dict:
+        """Apply a typed correction to the currently running interactive task.
+
+        This RPC is deliberately out-of-band, like ``confirm`` and ``abort``:
+        it must remain responsive while the ordinary ``execute`` RPC owns the
+        connection's request lock. A correction cancels the current action,
+        then ``_handle_execute_inner`` consumes it and re-plans in the same
+        request. Explicit stop phrases retain normal terminal-abort behavior.
+        """
+        text = str(params.get("input", "")).strip()
+        if not text:
+            return {"status": "error", "message": "A live correction cannot be empty."}
+        if not self._interactive_request_active:
+            return {"status": "no_active_execution", "message": "There is no interactive task to revise."}
+
+        requested_mode = str(params.get("mode", "")).strip().lower()
+        normalized = " ".join(text.lower().split()).rstrip(".!?")
+        stop_phrases = {
+            "abort",
+            "cancel",
+            "cancel it",
+            "cancel this",
+            "cancel this task",
+            "never mind",
+            "nevermind",
+            "stop",
+            "stop it",
+            "stop this",
+            "stop this task",
+        }
+        if requested_mode == "stop" or normalized in stop_phrases:
+            await self._broadcast_notification(
+                "companion_interjection",
+                {"mode": "stop", "message": "Stopping the current task now."},
+            )
+            return await self._handle_abort({}, ws)
+
+        if not self.config.narration.live_corrections_enabled:
+            return {
+                "status": "disabled",
+                "message": "Live corrections are disabled in Interactive Companion settings.",
+            }
+
+        if self._live_correction:
+            self._live_correction = f"{self._live_correction}\nAdditional correction: {text}"
+        else:
+            self._live_correction = text
+
+        if self._cancel_event and not self._cancel_event.is_set():
+            self._cancel_event.set()
+
+        # The primary confirmation wait is not inside _active_execution_task.
+        # Resolve only this interactive plan's confirmation; unrelated
+        # background confirmations must remain untouched.
+        pending = self._pending_confirms.get(self._active_plan_id)
+        if pending is not None:
+            pending.confirmed = False
+            pending.event.set()
+
+        task = self._active_execution_task
+        if task is not None and not task.done():
+            task.cancel()
+
+        from pilot.system.pty_session import PtySessionManager
+
+        PtySessionManager.interrupt_all()
+        await self._broadcast_notification(
+            "companion_interjection",
+            {
+                "mode": "correct",
+                "message": "Correction received. Stopping the current step and revising the plan.",
+            },
+        )
+        return {"status": "revising", "message": "Live correction accepted."}
+
+    async def _handle_abort(
+        self,
+        params: dict[str, Any],
+        ws: ServerConnection | None,
+    ) -> dict:
         """Stop the current execution -- both cooperatively and, where
         possible, by really killing whatever is in flight right now (Issue
         #92, extended for real mid-flight cancellation).
@@ -2720,16 +3162,31 @@ class PilotServer:
                             "message": ("adaptive_calibration.voice_wake_word_enabled must be a boolean"),
                         }
                 if section == "voice" and k == "tts_engine":
-                    if v not in {"pocket_tts", "os_native"}:
+                    if v not in {"kokoro_tts", "pocket_tts", "os_native"}:
                         return {
                             "status": "error",
-                            "message": "voice.tts_engine must be pocket_tts or os_native",
+                            "message": "voice.tts_engine must be kokoro_tts, pocket_tts, or os_native",
                         }
                 if section == "voice" and k == "tts_voice":
-                    if v not in {"alba", "giovanni", "lola"}:
+                    if v not in {
+                        "af_heart",
+                        "af_bella",
+                        "af_nicole",
+                        "af_sarah",
+                        "af_sky",
+                        "am_adam",
+                        "am_michael",
+                        "bf_emma",
+                        "bf_isabella",
+                        "bm_george",
+                        "bm_lewis",
+                        "alba",
+                        "giovanni",
+                        "lola",
+                    }:
                         return {
                             "status": "error",
-                            "message": "voice.tts_voice must be alba, giovanni, or lola",
+                            "message": "voice.tts_voice must be a supported Kokoro or Pocket TTS voice",
                         }
                 if section == "voice" and k == "input_device":
                     if not isinstance(v, str) or not v.strip() or len(v) > 500:
@@ -2742,6 +3199,9 @@ class PilotServer:
                     v = float(v)
                 setattr(target, k, v)
         self.config.save()
+
+        if section == "voice" and ({"tts_engine", "tts_voice"} & values.keys()):
+            self._start_tts_warmup()
 
         if section == "screen_vision" and "capture_interval_seconds" in values and self._screen_vision:
             self._screen_vision.set_interval(self.config.screen_vision.capture_interval_seconds)
@@ -3433,6 +3893,10 @@ class PilotServer:
             "enabled": cfg.enabled,
             "narrate_steps": cfg.narrate_steps,
             "interrupt_on_risk": cfg.interrupt_on_risk,
+            "proactive_review_enabled": cfg.proactive_review_enabled,
+            "live_corrections_enabled": cfg.live_corrections_enabled,
+            "follow_up_enabled": cfg.follow_up_enabled,
+            "max_auto_revisions": cfg.max_auto_revisions,
             "confirm_timeout_seconds": cfg.confirm_timeout_seconds,
         }
 
@@ -3459,6 +3923,14 @@ class PilotServer:
             cfg.narrate_steps = bool(params["narrate_steps"])
         if "interrupt_on_risk" in params:
             cfg.interrupt_on_risk = bool(params["interrupt_on_risk"])
+        if "proactive_review_enabled" in params:
+            cfg.proactive_review_enabled = bool(params["proactive_review_enabled"])
+        if "live_corrections_enabled" in params:
+            cfg.live_corrections_enabled = bool(params["live_corrections_enabled"])
+        if "follow_up_enabled" in params:
+            cfg.follow_up_enabled = bool(params["follow_up_enabled"])
+        if "max_auto_revisions" in params:
+            cfg.max_auto_revisions = max(0, min(5, int(params["max_auto_revisions"])))
         if "confirm_timeout_seconds" in params:
             cfg.confirm_timeout_seconds = float(params["confirm_timeout_seconds"])
 
@@ -3468,6 +3940,10 @@ class PilotServer:
             "enabled": cfg.enabled,
             "narrate_steps": cfg.narrate_steps,
             "interrupt_on_risk": cfg.interrupt_on_risk,
+            "proactive_review_enabled": cfg.proactive_review_enabled,
+            "live_corrections_enabled": cfg.live_corrections_enabled,
+            "follow_up_enabled": cfg.follow_up_enabled,
+            "max_auto_revisions": cfg.max_auto_revisions,
             "confirm_timeout_seconds": cfg.confirm_timeout_seconds,
         }
 
@@ -4574,6 +5050,7 @@ def handle_tool(tool_name, params):
             ping_timeout=300,  # allow up to 5 min for pong (matches LLM timeout)
         )
         logger.info("Pilot daemon ready")
+        self._start_tts_warmup()
 
         # ── Start LAN mesh if enabled ──
         if self._mesh:
@@ -4614,6 +5091,9 @@ def handle_tool(tool_name, params):
             await self._screen_vision.stop()
             if hasattr(self._screen_vision, "close"):
                 await self._screen_vision.close()
+        if self._tts_warmup_task and not self._tts_warmup_task.done():
+            self._tts_warmup_task.cancel()
+            await asyncio.gather(self._tts_warmup_task, return_exceptions=True)
         if hasattr(self, "_prompt_improver") and self._prompt_improver:
             if hasattr(self._prompt_improver, "close"):
                 await self._prompt_improver.close()
@@ -4902,6 +5382,19 @@ def handle_tool(tool_name, params):
         """
         logger.info("Voice command received: '%s'", command_text)
 
+        if self._interactive_request_active:
+            result = await self._handle_interject({"input": command_text}, None)
+            await self._broadcast_notification(
+                "voice_result",
+                {
+                    "command": command_text,
+                    "status": result.get("status", "error"),
+                    "message": result.get("message", ""),
+                    "coordinated_correction": True,
+                },
+            )
+            return
+
         language = getattr(
             self._voice_listener,
             "last_detected_language",
@@ -4927,6 +5420,20 @@ def handle_tool(tool_name, params):
                     screen_ctx = f"User language: {language}"
             else:
                 screen_ctx = f"User language: {language}"
+            if self._recent_companion_context:
+                screen_ctx = f"{screen_ctx}\n\n[RECENT COMPANION CONTEXT]\n{self._recent_companion_context}"
+            if self._subconscious:
+                try:
+                    persona_context = await self._subconscious.get_persona_context()
+                    if persona_context:
+                        screen_ctx = (
+                            f"{screen_ctx}\n\n[LEARNED USER BEHAVIOR]\n"
+                            f"{persona_context}\n"
+                            "Treat these as preferences, never as permission to bypass "
+                            "confirmation, safety policy, or the user's current request."
+                        )
+                except Exception:
+                    logger.debug("Could not load learned persona context for voice", exc_info=True)
 
             # Plan with multilingual context — single call only
             plan = await self._planner.plan(command_text, screen_context=screen_ctx)
@@ -4994,6 +5501,25 @@ def handle_tool(tool_name, params):
 
             result_text = " ".join(output_parts) if output_parts else plan.explanation
             status = "success" if verification.passed else "partial"
+            companion_follow_up = None
+            if (
+                verification.passed
+                and self.config.narration.follow_up_enabled
+                and self._execution_companion
+                and hasattr(self._execution_companion, "follow_up")
+            ):
+                companion_follow_up = await self._execution_companion.follow_up(
+                    command_text,
+                    plan,
+                    results,
+                    verification,
+                )
+                if companion_follow_up:
+                    self._recent_companion_context = (
+                        f"Previous request: {command_text[:300]}\n"
+                        f"Verified result: {result_text[:300]}\n"
+                        f"Companion next ideas: {' | '.join(companion_follow_up.suggestions)}"
+                    )
 
             await self._broadcast_notification(
                 "voice_result",
@@ -5002,10 +5528,13 @@ def handle_tool(tool_name, params):
                     "status": status,
                     "result": result_text[:500],
                     "language": language,
+                    "companion_follow_up": (companion_follow_up.to_dict() if companion_follow_up else None),
                 },
             )
 
             spoken = result_text[:300] if len(result_text) < 300 else result_text[:297] + "..."
+            if companion_follow_up:
+                spoken = f"{spoken} {companion_follow_up.spoken_text()}"
             await self._speak_voice_response(spoken)
 
         except Exception as e:
@@ -5134,15 +5663,22 @@ def handle_tool(tool_name, params):
         if len(text) > 4000:
             return {"status": "error", "message": "text must be 4000 characters or fewer"}
 
-        from pilot.system.voice import speak
-
+        logger.info(
+            "Companion speech started (engine=%s, characters=%d)",
+            self.config.voice.tts_engine,
+            len(text.strip()),
+        )
         try:
-            message = await speak(text.strip())
+            interrupted = await self._speak_voice_response(text.strip())
         except asyncio.CancelledError:
             # A newer utterance or stop_speech intentionally superseded this
             # request. Still answer its JSON-RPC caller so no promise lingers.
             return {"status": "cancelled", "message": "Speech superseded"}
-        return {"status": "spoken", "message": message}
+        if interrupted:
+            logger.info("Companion speech interrupted by user")
+            return {"status": "interrupted", "message": "Speech interrupted by user"}
+        logger.info("Companion speech completed (engine=%s)", self.config.voice.tts_engine)
+        return {"status": "spoken", "message": f"Spoken: {text.strip()[:80]}..."}
 
     async def _handle_stop_speech(self, params: dict, ws: ServerConnection) -> dict:
         """Immediately stop daemon-side TTS playback."""
@@ -5556,6 +6092,35 @@ def handle_tool(tool_name, params):
             return {"running": False, "message": "Proactive engine not initialized"}
         return self._proactive.get_stats()
 
+    async def _handle_proactive_learning_status(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        """Return persisted accept/dismiss learning for proactive patterns."""
+        if not self._proactive:
+            return {
+                "enabled": False,
+                "patterns": {},
+                "message": "Proactive engine not initialized",
+            }
+        return self._proactive.get_learning_status()
+
+    async def _handle_proactive_learning_reset(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        """Forget learned proactive-suggestion preferences."""
+        if not self._proactive:
+            return {
+                "enabled": False,
+                "patterns": {},
+                "message": "Proactive engine not initialized",
+            }
+        self._proactive.reset_learning()
+        return self._proactive.get_learning_status()
+
     async def _handle_proactive_accept(self, params: dict, ws: ServerConnection) -> dict:
         """Accept a proactive suggestion — execute the suggested action.
 
@@ -5569,30 +6134,19 @@ def handle_tool(tool_name, params):
         if not self._proactive:
             return {"error": "Proactive engine not initialized"}
 
+        if not self._autonomous:
+            return {
+                "status": "error",
+                "message": ("The guarded autonomous executor is unavailable, so this suggestion was not executed."),
+            }
+
         suggestion_id = params.get("suggestion_id", "")
         action_command = await self._proactive.accept_suggestion(suggestion_id)
         if not action_command:
             return {"error": f"Suggestion not found: {suggestion_id}"}
 
-        if self._autonomous:
-            job = await self._autonomous.submit(action_command, source="proactive")
-            return {"status": "executing", "action": action_command, "job": job.to_dict()}
-        else:
-            screen_ctx = ""
-            if self._screen_vision:
-                try:
-                    screen_ctx = self._screen_vision.get_context_for_planner()
-                except Exception:
-                    pass
-            plan = await self._planner.plan(action_command, screen_context=screen_ctx)
-            if plan.error:
-                return {"error": plan.error}
-            results = await self._executor.execute(plan)
-            return {
-                "status": "completed",
-                "action": action_command,
-                "results": [{"success": r.success, "output": r.output[:200]} for r in results],
-            }
+        job = await self._autonomous.submit(action_command, source="proactive")
+        return {"status": "executing", "action": action_command, "job": job.to_dict()}
 
     async def _handle_proactive_dismiss(self, params: dict, ws: ServerConnection) -> dict:
         """Dismiss a proactive suggestion.

@@ -6,6 +6,10 @@ def test_default_is_disabled():
     assert config.narration.enabled is False
     assert config.narration.narrate_steps is True
     assert config.narration.interrupt_on_risk is True
+    assert config.narration.proactive_review_enabled is True
+    assert config.narration.live_corrections_enabled is True
+    assert config.narration.follow_up_enabled is True
+    assert config.narration.max_auto_revisions == 2
     assert config.narration.confirm_timeout_seconds == 120.0
 
 
@@ -18,6 +22,10 @@ def test_narration_section_merges_scalars():
                 "enabled": True,
                 "narrate_steps": False,
                 "interrupt_on_risk": False,
+                "proactive_review_enabled": False,
+                "live_corrections_enabled": False,
+                "follow_up_enabled": False,
+                "max_auto_revisions": 4,
                 "confirm_timeout_seconds": 30.0,
             }
         },
@@ -25,6 +33,10 @@ def test_narration_section_merges_scalars():
     assert merged.narration.enabled is True
     assert merged.narration.narrate_steps is False
     assert merged.narration.interrupt_on_risk is False
+    assert merged.narration.proactive_review_enabled is False
+    assert merged.narration.live_corrections_enabled is False
+    assert merged.narration.follow_up_enabled is False
+    assert merged.narration.max_auto_revisions == 4
     assert merged.narration.confirm_timeout_seconds == 30.0
 
 

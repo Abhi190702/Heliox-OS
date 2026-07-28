@@ -119,6 +119,20 @@ async def _speak_impl(
         logger.debug(f"Failed to modulate TTS rate by cognitive load: {e}")
 
     config = PilotConfig.load()
+    if config.voice.tts_engine == "kokoro_tts":
+        try:
+            from pilot.system.kokoro_tts import synthesize_and_play, synthesize_to_file
+
+            if output_file:
+                await synthesize_to_file(text, config.voice.tts_voice, output_file)
+                return f"Speech saved to {output_file}"
+            await synthesize_and_play(text, config.voice.tts_voice)
+            return f"Spoken: {text[:80]}..."
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("Kokoro TTS failed (%s), falling back to OS-native TTS", e, exc_info=True)
+
     if config.voice.tts_engine == "pocket_tts":
         try:
             from pilot.system.pocket_tts import synthesize_and_play, synthesize_to_file

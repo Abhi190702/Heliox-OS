@@ -1,0 +1,106 @@
+from __future__ import annotations
+
+import pytest
+
+from pilot.actions import Action, ActionPlan, ActionResult, ActionType, SystemInfoParams, VerificationResult
+from pilot.agents.execution_companion import CompanionFollowUp, CompanionReview, ExecutionCompanion
+
+
+class _Model:
+    def __init__(self, response: str = "", error: Exception | None = None) -> None:
+        self.response = response
+        self.error = error
+        self.calls: list[tuple[str, dict]] = []
+
+    async def generate(self, prompt: str, **kwargs):
+        self.calls.append((prompt, kwargs))
+        if self.error:
+            raise self.error
+        return self.response
+
+
+def _plan() -> ActionPlan:
+    return ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.SYSTEM_INFO,
+                target="system",
+                parameters=SystemInfoParams(categories=["os"]),
+            )
+        ],
+        explanation="Read the operating-system version.",
+    )
+
+
+@pytest.mark.asyncio
+async def test_review_returns_structured_revision_with_safe_structural_values():
+    model = _Model(
+        '{"decision":"REVISE","reason":"The second step is unnecessary.",'
+        '"planner_feedback":"Use only the direct system-info action."}'
+    )
+    companion = ExecutionCompanion(model)
+
+    review = await companion.review("Show the OS version.", _plan())
+
+    assert review == CompanionReview(
+        decision="REVISE",
+        reason="The second step is unnecessary.",
+        planner_feedback="Use only the direct system-info action.",
+    )
+    prompt, kwargs = model.calls[0]
+    assert "parameter_keys=['categories']" in prompt
+    assert "safe_parameters={'categories': ['os']}" in prompt
+    assert kwargs["json_mode"] is True
+
+
+@pytest.mark.asyncio
+async def test_review_failure_keeps_existing_safety_pipeline_authoritative():
+    companion = ExecutionCompanion(_Model(error=RuntimeError("offline")))
+
+    review = await companion.review("Show the OS version.", _plan())
+
+    assert review.decision == "CONTINUE"
+    assert review.issues == ["review_unavailable"]
+
+
+def test_revision_without_feedback_is_downgraded_to_warning():
+    review = ExecutionCompanion._parse('{"decision":"REVISE","reason":"This could be simpler.","planner_feedback":""}')
+
+    assert review.decision == "WARN"
+
+
+@pytest.mark.asyncio
+async def test_follow_up_is_grounded_and_excludes_raw_tool_output():
+    model = _Model(
+        '{"message":"The OS version is confirmed.",'
+        '"suggestions":["Compare compatibility with your target app","Save a short system report"]}'
+    )
+    companion = ExecutionCompanion(model)
+    plan = _plan()
+    result = ActionResult(action=plan.actions[0], success=True, output="PRIVATE RAW SYSTEM OUTPUT")
+    verification = VerificationResult(passed=True, details=["verified"])
+
+    follow_up = await companion.follow_up("Show the OS version.", plan, [result], verification)
+
+    assert follow_up == CompanionFollowUp(
+        message="The OS version is confirmed.",
+        suggestions=["Compare compatibility with your target app", "Save a short system report"],
+    )
+    prompt, kwargs = model.calls[0]
+    assert "PRIVATE RAW SYSTEM OUTPUT" not in prompt
+    assert "system_info: succeeded" in prompt
+    assert kwargs["json_mode"] is True
+
+
+@pytest.mark.asyncio
+async def test_follow_up_requires_a_message_and_specific_ideas():
+    companion = ExecutionCompanion(_Model('{"message":"Done.","suggestions":[]}'))
+
+    follow_up = await companion.follow_up(
+        "Show the OS version.",
+        _plan(),
+        [],
+        VerificationResult(passed=True, details=["verified"]),
+    )
+
+    assert follow_up is None

@@ -7,8 +7,8 @@ def test_defaults():
     assert config.voice.vad_silence_ms == 700.0
     assert config.voice.vad_max_utterance_seconds == 20.0
     assert config.voice.barge_in_enabled is True
-    assert config.voice.tts_engine == "pocket_tts"
-    assert config.voice.tts_voice == "alba"
+    assert config.voice.tts_engine == "kokoro_tts"
+    assert config.voice.tts_voice == "af_heart"
 
 
 def test_voice_section_merges_vad_and_barge_in_settings():

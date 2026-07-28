@@ -101,7 +101,11 @@ class CommunicationAgent(BaseAgent):
         )
 
         results = await self._executor.execute(
-            sub_plan, invocation_source=self.get_invocation_source(), scope_override=scope_override
+            sub_plan,
+            initial_last_output=str((context or {}).get("initial_last_output", "")),
+            initial_largest_output=str((context or {}).get("initial_largest_output", "")),
+            invocation_source=self.get_invocation_source(),
+            scope_override=scope_override,
         )
         duration_ms = int((time.time() - start) * 1000)
         self._record_task(duration_ms, all(r.success for r in results))

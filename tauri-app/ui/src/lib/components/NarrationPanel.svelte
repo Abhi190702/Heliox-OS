@@ -6,12 +6,23 @@
   let enabled = $state(false);
   let narrateSteps = $state(true);
   let interruptOnRisk = $state(true);
+  let proactiveReviewEnabled = $state(true);
+  let liveCorrectionsEnabled = $state(true);
+  let followUpEnabled = $state(true);
   let confirmTimeoutSeconds = $state(120);
   let loading = $state(true);
   let saving = $state(false);
   let saved = $state(false);
+  let learnedPatternCount = $state(0);
+  let suggestionShownCount = $state(0);
+  let suggestionAcceptedCount = $state(0);
+  let suggestionDismissedCount = $state(0);
+  let resettingLearning = $state(false);
 
-  onMount(loadStatus);
+  onMount(() => {
+    void loadStatus();
+    void loadLearningStatus();
+  });
 
   async function loadStatus() {
     try {
@@ -19,11 +30,17 @@
         enabled: boolean;
         narrate_steps: boolean;
         interrupt_on_risk: boolean;
+        proactive_review_enabled: boolean;
+        live_corrections_enabled: boolean;
+        follow_up_enabled: boolean;
         confirm_timeout_seconds: number;
       };
       enabled = result.enabled ?? false;
       narrateSteps = result.narrate_steps ?? true;
       interruptOnRisk = result.interrupt_on_risk ?? true;
+      proactiveReviewEnabled = result.proactive_review_enabled ?? true;
+      liveCorrectionsEnabled = result.live_corrections_enabled ?? true;
+      followUpEnabled = result.follow_up_enabled ?? true;
       confirmTimeoutSeconds = result.confirm_timeout_seconds ?? 120;
     } catch {
       /* daemon unreachable -- keep last known state */
@@ -40,12 +57,40 @@
         enabled,
         narrate_steps: narrateSteps,
         interrupt_on_risk: interruptOnRisk,
+        proactive_review_enabled: proactiveReviewEnabled,
+        live_corrections_enabled: liveCorrectionsEnabled,
+        follow_up_enabled: followUpEnabled,
         confirm_timeout_seconds: confirmTimeoutSeconds,
       });
       saved = true;
       setTimeout(() => (saved = false), 2500);
     } finally {
       saving = false;
+    }
+  }
+
+  async function loadLearningStatus() {
+    try {
+      const result = (await call("proactive_learning_status")) as {
+        patterns?: Record<string, { shown?: number; accepted?: number; dismissed?: number }>;
+      };
+      const patterns = Object.values(result.patterns ?? {});
+      learnedPatternCount = patterns.length;
+      suggestionShownCount = patterns.reduce((sum, pattern) => sum + Number(pattern.shown ?? 0), 0);
+      suggestionAcceptedCount = patterns.reduce((sum, pattern) => sum + Number(pattern.accepted ?? 0), 0);
+      suggestionDismissedCount = patterns.reduce((sum, pattern) => sum + Number(pattern.dismissed ?? 0), 0);
+    } catch {
+      /* daemon unreachable -- leave learning counters unchanged */
+    }
+  }
+
+  async function resetLearning() {
+    resettingLearning = true;
+    try {
+      await call("proactive_learning_reset");
+      await loadLearningStatus();
+    } finally {
+      resettingLearning = false;
     }
   }
 </script>
@@ -101,6 +146,51 @@
 
     <div class="setting-row">
       <div class="setting-info">
+        <span class="setting-label">{$_("settings.narration_proactive_review")}</span>
+        <span class="setting-desc">{$_("settings.narration_proactive_review_desc")}</span>
+      </div>
+      <button
+        class="toggle toggle-sm"
+        class:active={proactiveReviewEnabled}
+        onclick={() => (proactiveReviewEnabled = !proactiveReviewEnabled)}
+        aria-label="Toggle proactive companion review"
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">{$_("settings.narration_live_corrections")}</span>
+        <span class="setting-desc">{$_("settings.narration_live_corrections_desc")}</span>
+      </div>
+      <button
+        class="toggle toggle-sm"
+        class:active={liveCorrectionsEnabled}
+        onclick={() => (liveCorrectionsEnabled = !liveCorrectionsEnabled)}
+        aria-label="Toggle live task corrections"
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">{$_("settings.narration_follow_up")}</span>
+        <span class="setting-desc">{$_("settings.narration_follow_up_desc")}</span>
+      </div>
+      <button
+        class="toggle toggle-sm"
+        class:active={followUpEnabled}
+        onclick={() => (followUpEnabled = !followUpEnabled)}
+        aria-label="Toggle grounded companion follow-ups"
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
         <span class="setting-label">{$_("settings.narration_timeout")}</span>
         <span class="setting-desc">{$_("settings.narration_timeout_desc")}</span>
       </div>
@@ -113,6 +203,25 @@
         max="600"
         step="10"
       />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">{$_("settings.adaptive_learning")}</span>
+        <span class="setting-desc">
+          {$_("settings.adaptive_learning_desc", {
+            values: {
+              patterns: learnedPatternCount,
+              shown: suggestionShownCount,
+              accepted: suggestionAcceptedCount,
+              dismissed: suggestionDismissedCount,
+            },
+          })}
+        </span>
+      </div>
+      <button class="btn-reset" onclick={resetLearning} disabled={resettingLearning || learnedPatternCount === 0}>
+        {resettingLearning ? $_("settings.resetting") : $_("settings.reset_learning")}
+      </button>
     </div>
 
     <div class="narration-actions">
@@ -260,5 +369,25 @@
     color: var(--text-secondary);
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
+  }
+
+  .btn-reset {
+    flex-shrink: 0;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+
+  .btn-reset:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--accent);
+  }
+
+  .btn-reset:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 </style>

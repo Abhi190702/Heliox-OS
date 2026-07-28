@@ -54,6 +54,19 @@ def _generate(text: str, voice: str) -> tuple[Any, int]:
     return audio.numpy(), model.sample_rate
 
 
+def _warmup_sync(voice: str) -> None:
+    """Load model weights and the selected reusable voice state without
+    synthesizing audio, so the first real intervention does not pay the full
+    cold-start cost."""
+    model = _get_model()
+    _get_voice_state(model, voice)
+
+
+async def warmup(voice: str) -> None:
+    """Preload the selected Pocket TTS model and voice off the event loop."""
+    await asyncio.to_thread(_warmup_sync, voice)
+
+
 async def synthesize(text: str, voice: str) -> tuple[Any, int]:
     """Generates audio for `text` spoken in `voice`, returning (PCM numpy
     array, sample_rate). Raises ImportError if pocket_tts isn't installed,

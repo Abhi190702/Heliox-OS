@@ -1,20 +1,24 @@
-"""
-Generates the Python preamble injected before LLM-generated code.
-Uses chr() for all special characters to avoid escape sequence issues.
-Includes smart paragraph detection that filters out Wikipedia navigation junk.
+"""Generate the Python preamble injected before LLM-generated code.
+
+The previous output is embedded in the staged script so the same code works
+inside Docker, restricted subprocesses, and direct execution. A host temp-file
+path cannot be opened from an isolated container.
 """
 
+import base64
 
-def build_preamble(data_file_path: str) -> str:
+
+def build_preamble(previous_output: str) -> str:
     """Build a comprehensive preamble that sets up PREV_OUTPUT, PARAGRAPHS, etc."""
+    encoded_output = base64.b64encode(previous_output.encode("utf-8")).decode("ascii")
     L = []
     L.append("# === Auto-injected by Pilot ===")
+    L.append("import base64 as _base64")
     L.append("import re as _re")
     L.append("import json as _json")
     L.append("import os as _os")
     L.append("")
-    L.append(f"with open(r'{data_file_path}', 'r', encoding='utf-8') as _f:")
-    L.append("    PREV_OUTPUT = _f.read()")
+    L.append(f"PREV_OUTPUT = _base64.b64decode('{encoded_output}').decode('utf-8')")
     L.append("")
     L.append("EXTRACTED_TEXT = PREV_OUTPUT")
     L.append("")

@@ -84,7 +84,8 @@ Unlike simple command runners, Heliox OS is a **true agentic system** inspired b
 
 Heliox OS combines reactive commands with opt-in proactive and background capabilities that run through the same permission and verification pipeline:
 
-- 🧠 **Proactive Suggestion Engine**: Learns your daily workflows and pattern-matches your screen context to silently surface UI action suggestions (e.g., offering to summarize a long thread or launch an IDE when browsing issues) *before* you ask.
+- 🧠 **Adaptive Proactive Suggestions**: Pattern-matches local screen context and surfaces visible, optional help before you ask. Accept/dismiss feedback persists on-device, tunes each pattern's timing and priority, and temporarily suppresses repeatedly rejected suggestions. Acceptance still enters the guarded autonomous permission and verification pipeline.
+- 🤝 **Interactive Execution Companion**: Independently reviews proposed plans, can warn, revise, or stop work that drifts from the request, accepts typed or spoken corrections while a task is running, and offers grounded next ideas after verified results.
 - ⚡ **Fire-and-Forget Autonomous Jobs**: Spawn complex multi-step background tasks that decompose, execute, and verify completely independent of the UI or main event loop.
 - 👁️ **Always-On Screen Awareness**: Automatically bootstrapped computer vision that tracks your contextual state cross-platform, natively bridging exactly what you see into the LLM planner. 
 - 🎤 **Continuous Voice Listener**: Real-time push-free 'Hey Heliox' ambient wake-word dispatch for frictionless task execution. Endpoints on natural speech start/silence (VAD) instead of a fixed recording window, and supports barge-in — start talking and Heliox stops mid-sentence to listen, instead of talking over you.
@@ -545,9 +546,10 @@ A background agent that runs every 30 minutes to review the day's actions and le
 
 - Clusters behavioral patterns ("always writes Python", "prefers dark mode")
 - Extracts actionable rules with confidence scores
-- Writes `~/.local/share/heliox-os/persona.md`, which is injected into planner context
+- Writes `~/.local/share/heliox-os/persona.md` and injects high-confidence rules into both typed and voice planning
 - Supports manual preference setting via `persona_add_preference` API
 - Categories: `preference`, `habit`, `constraint`, `style`
+- Learned rules are advisory preferences only; they cannot grant permission, remove a safety warning, or override the current request
 
 ### 👁️ Screen Vision Agent
 
@@ -581,7 +583,7 @@ the UI keeps reconnecting during that initialization. Browser-only UI developmen
 still requires a manually started daemon.
 ### Windows Optional-Model Troubleshooting
 
-Pocket TTS and the default voice path are CPU-only; CUDA is not required. If an
+Kokoro TTS, Pocket TTS, and the default voice path are CPU-only; CUDA is not required. If an
 optional neural dependency fails with missing runtime DLLs, install the
 [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
 and reinstall the daemon extras from a 64-bit Python 3.11 or 3.12 environment:
@@ -594,7 +596,7 @@ python -m pip install -e ".[full,voice]"
 
 Only install a CUDA-specific PyTorch build when you have deliberately enabled an
 optional GPU-backed model. The core agent, learned risk model, gesture/gaze
-pipeline, and Pocket TTS do not require an NVIDIA GPU.
+pipeline, Kokoro TTS, and Pocket TTS do not require an NVIDIA GPU.
 
 ### Option 2: Build from Source (For Developers)
 
@@ -671,9 +673,9 @@ npm run tauri dev
 - **Learned risk world model**: the bundled MLP predicts action impact from real training samples before execution. Deterministic policy remains authoritative; the model can interrupt or add confirmation, but it cannot remove a rule-based warning or grant permission.
 - **Autonomous Healing Engine (opt-in)**: passively watches CPU/memory/disk and plans a remediation goal through the normal Planner/Executor pipeline when one crosses its threshold — low-tier/reversible plans auto-execute, anything else is proposed and held for explicit confirmation — see [SECURITY.md](SECURITY.md#-autonomous-healing-engine-opt-in)
 - **Pre-execution target assessment**: dry-run plans that click/type/select on the current page get checked against the live DOM before you confirm — a missing, hidden, or ambiguous target raises that action's risk and shows why, instead of the same generic description every browser action used to get — see [SECURITY.md](SECURITY.md#-pre-execution-target-assessment-browser-actions)
-- **Live Execution Narrator (opt-in)**: narrates plan execution as it happens and can pre-emptively pause a plan or browser action flagged as risky, right before it runs, pairing a spoken interjection with a confirmation dialog — see [SECURITY.md](SECURITY.md#-live-execution-narrator-opt-in)
+- **Interactive Execution Companion**: reviews every proposed plan independently, can warn/revise/stop work that drifts from the request, accepts typed or spoken live corrections during planning/execution/verification, and supplies grounded next ideas only after a verified result. Optional step narration remains user-controlled.
 - **Simulate before executing (opt-in, autonomous tasks only)**: before an unattended background task commits to an action, pause and show a real screenshot with the target UI element highlighted — plus, for browser actions, a real measured before/after DOM diff from an isolated dry-run tab — and wait for you to confirm or stop; never a generated image — see [SECURITY.md](SECURITY.md#-simulate-before-executing-autonomous-background-tasks-opt-in)
-- **Kyutai Pocket TTS**: the default daemon-side voice — a free, open-source, CPU-only local speech model (no API key, no per-request cost), replacing platform-native TTS as the default while still falling back to it automatically if the optional `pocket-tts` package isn't installed — see [SECURITY.md](SECURITY.md#-kyutai-pocket-tts-default-daemon-side-voice)
+- **Natural local speech**: Kokoro is the default daemon-side voice, with selectable presets, coordinated single-channel playback, and speech-start barge-in. Pocket TTS remains selectable, and both neural engines fall back to the platform voice when unavailable.
 - **Mid-flight cancellation**: a Stop button in the chat panel really kills the currently in-flight command — a mid-flight shell subprocess is genuinely killed (`proc.kill()`), and PTY sessions are interrupted on demand — instead of only stopping the next action in the plan — see [SECURITY.md](SECURITY.md#-mid-flight-cancellation)
 - **User Manual Supervision (opt-in)**: watches your own independent screen/keyboard/mouse activity — not anything Heliox executes — to offer cognitive coaching and warn about risky-looking content; the keyboard/mouse hook is a separate, starker opt-in gated behind a one-time "I understand" confirmation, and nothing typed or clicked is ever saved or sent anywhere, only the fact that a risk pattern matched — see [SECURITY.md](SECURITY.md#-user-manual-supervision-opt-in)
 - **Gesture cursor control is off by default** — the continuous gesture-to-cursor bridge drives the real OS mouse cursor and is the one feature in this app that acts without a per-action confirmation gate, so it requires an explicit opt-in in Settings and always exits instantly on an open palm, the panel's stop button, or disabling the toggle
@@ -733,7 +735,7 @@ enabled = true
 risk_gate_enabled = true
 
 [voice]
-tts_engine = "pocket_tts"    # falls back to the OS voice if unavailable
+tts_engine = "kokoro_tts"    # natural local voice; falls back to the OS voice if unavailable
 
 [screen_vision]
 capture_interval_seconds = 3.0

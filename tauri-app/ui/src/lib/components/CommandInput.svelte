@@ -106,7 +106,7 @@
       type="text"
       bind:value={input}
       maxlength="20000"
-      placeholder="Tell Heliox OS what to do..."
+      placeholder={$session.loading ? "Correct or stop the running task..." : "Tell Heliox OS what to do..."}
       onkeydown={handleKeydown}
       autocomplete="off"
       spellcheck="false"
@@ -118,10 +118,10 @@
     <button
       type="submit"
       class="send-btn"
-      title="Send"
+      title={$session.loading ? "Interject into the running task" : "Send"}
       disabled={(!input.trim() && attachments.length === 0) || input.length >= MAX_CHARS}
     >
-      Send
+      {$session.loading ? "Correct" : "Send"}
     </button>
   </div>
 </form>

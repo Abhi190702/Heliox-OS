@@ -104,3 +104,48 @@ async def test_voice_scope_override_is_never_wider_than_voice_profile():
 
     override = server._orchestrator.execute_plan.call_args.kwargs["scope_override"]
     assert override.allow_root is False
+
+
+@pytest.mark.asyncio
+async def test_voice_planner_receives_learned_persona_as_advisory_context():
+    plan = _plan()
+    server = _bare_server(plan)
+    server._planner = AsyncMock()
+    server._planner.plan.return_value = plan
+    server._executor = AsyncMock()
+    server._executor.execute.return_value = [
+        ActionResult(action=plan.actions[0], success=True, output="ok"),
+    ]
+    server._subconscious = AsyncMock()
+    server._subconscious.get_persona_context.return_value = (
+        "User persona (learned preferences):\n  - [style] Prefer concise summaries"
+    )
+
+    with patch("pilot.system.voice.speak", new=AsyncMock(return_value="")):
+        await server._voice_command_dispatch("read my notes")
+
+    context = server._planner.plan.call_args.kwargs["screen_context"]
+    assert "[LEARNED USER BEHAVIOR]" in context
+    assert "Prefer concise summaries" in context
+    assert "never as permission to bypass" in context
+
+
+@pytest.mark.asyncio
+async def test_voice_command_becomes_live_correction_during_active_task():
+    server = PilotServer(PilotConfig())
+    server._interactive_request_active = True
+    server._handle_interject = AsyncMock(
+        return_value={"status": "revising", "message": "Applying correction"},
+    )
+    server._broadcast_notification = AsyncMock()
+    server._planner = AsyncMock()
+
+    await server._voice_command_dispatch("use the other folder instead")
+
+    server._handle_interject.assert_awaited_once_with(
+        {"input": "use the other folder instead"},
+        None,
+    )
+    server._planner.plan.assert_not_called()
+    payload = server._broadcast_notification.call_args.args[1]
+    assert payload["coordinated_correction"] is True

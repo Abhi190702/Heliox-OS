@@ -6,7 +6,7 @@ import pytest
 import websockets
 
 from pilot.config import PilotConfig, _merge_config
-from pilot.server import PilotServer
+from pilot.server import JsonRpcRequest, PilotServer
 
 
 @pytest.fixture
@@ -127,8 +127,13 @@ async def test_ipc_parse_error(daemon_server):
 
         response = json.loads(await ws.recv())
         assert response["id"] is None
-        assert response["error"]["code"] == -32700
+        assert response["error"]["code"] == -32700, response
         assert "Parse error" in response["error"]["message"]
+
+
+def test_json_rpc_parser_rejects_non_object_payload():
+    with pytest.raises(ValueError, match="expected an object"):
+        JsonRpcRequest.parse("[]")
 
 
 @pytest.mark.asyncio

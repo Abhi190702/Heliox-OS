@@ -31,6 +31,19 @@ async def test_superseded_speech_still_returns_a_terminal_rpc_response(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_barge_in_returns_interrupted_terminal_status():
+    server = PilotServer(PilotConfig())
+    server._speak_voice_response = AsyncMock(return_value=True)
+
+    result = await server._handle_speak_text({"text": "hello"}, MagicMock())
+
+    assert result == {
+        "status": "interrupted",
+        "message": "Speech interrupted by user",
+    }
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("text", ["", " ", None, 42])
 async def test_speak_text_rejects_invalid_text(text):
     server = PilotServer(PilotConfig())

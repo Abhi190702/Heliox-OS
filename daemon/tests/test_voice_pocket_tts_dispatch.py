@@ -26,6 +26,53 @@ def _config_with(tts_engine: str = "pocket_tts", tts_voice: str = "alba") -> Pil
 
 
 @pytest.mark.asyncio
+async def test_kokoro_engine_uses_selected_natural_voice(monkeypatch):
+    monkeypatch.setattr(PilotConfig, "load", lambda: _config_with("kokoro_tts", "af_heart"))
+
+    with patch("pilot.system.kokoro_tts.synthesize_and_play", new=AsyncMock()) as mock_synth:
+        result = await voice._speak_impl("hello world")
+
+    mock_synth.assert_awaited_once_with("hello world", "af_heart")
+    assert result == "Spoken: hello world..."
+
+
+@pytest.mark.asyncio
+async def test_kokoro_failure_falls_back_to_os_native(monkeypatch):
+    monkeypatch.setattr(PilotConfig, "load", lambda: _config_with("kokoro_tts", "af_heart"))
+    monkeypatch.setattr(voice, "CURRENT_PLATFORM", Platform.WINDOWS)
+
+    with (
+        patch(
+            "pilot.system.kokoro_tts.synthesize_and_play",
+            new=AsyncMock(side_effect=RuntimeError("model failed to load")),
+        ),
+        patch.object(voice, "_tts_windows", new=AsyncMock(return_value="os-native result")) as mock_os_tts,
+    ):
+        result = await voice._speak_impl("hello")
+
+    mock_os_tts.assert_awaited_once()
+    assert result == "os-native result"
+
+
+@pytest.mark.asyncio
+async def test_kokoro_cancellation_does_not_start_fallback(monkeypatch):
+    monkeypatch.setattr(PilotConfig, "load", lambda: _config_with("kokoro_tts", "af_heart"))
+    monkeypatch.setattr(voice, "CURRENT_PLATFORM", Platform.WINDOWS)
+
+    with (
+        patch(
+            "pilot.system.kokoro_tts.synthesize_and_play",
+            new=AsyncMock(side_effect=asyncio.CancelledError()),
+        ),
+        patch.object(voice, "_tts_windows", new=AsyncMock(return_value="os-native result")) as mock_os_tts,
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await voice._speak_impl("hello")
+
+    mock_os_tts.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_default_engine_uses_pocket_tts(monkeypatch):
     monkeypatch.setattr(PilotConfig, "load", lambda: _config_with())
 

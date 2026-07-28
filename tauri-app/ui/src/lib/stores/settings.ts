@@ -117,8 +117,8 @@ const defaultSettings: PilotSettings = {
   },
   voice: {
     input_device: "auto",
-    tts_engine: "pocket_tts",
-    tts_voice: "alba",
+    tts_engine: "kokoro_tts",
+    tts_voice: "af_heart",
   },
   restrictions: {
     protected_folders: [],

@@ -61,6 +61,16 @@ describe("configured text-to-speech", () => {
     expect(speechSynthesisMock.speak.mock.calls[0][0].text).toBe("fallback");
   });
 
+  it("does not restart speech in the browser after intentional barge-in", async () => {
+    callMock.mockResolvedValue({ status: "interrupted" });
+    const onEnd = vi.fn();
+
+    speakText("stop when I speak", { onEnd });
+    await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
+
+    expect(speechSynthesisMock.speak).not.toHaveBeenCalled();
+  });
+
   it("stops browser and daemon playback", () => {
     callMock.mockResolvedValue({ status: "stopped" });
 

@@ -1,6 +1,6 @@
 import { writable, get } from "svelte/store";
 import { call, connect, isConnected, onNotification } from "../api/daemon";
-import { classifyExecuteResponse } from "../utils/executeResponse";
+import { classifyExecuteResponse, normalizeActionResult } from "../utils/executeResponse";
 import { settings } from "./settings";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
@@ -83,6 +83,15 @@ export interface RollbackAvailable {
   snapshotId: string;
 }
 
+export interface ProactiveSuggestion {
+  suggestionId: string;
+  title: string;
+  description: string;
+  triggerReason: string;
+  priority: string;
+  learnedRelevance: number;
+}
+
 interface SessionState {
   daemonConnected: boolean;
   loading: boolean;
@@ -103,6 +112,8 @@ interface SessionState {
   budget: BudgetInfo | null;
   rollback: RollbackAvailable | null;
   rollbackPending: boolean;
+  proactiveSuggestion: ProactiveSuggestion | null;
+  proactiveSuggestionPending: boolean;
   terminalStatus: string;
 }
 
@@ -112,19 +123,31 @@ export interface Attachment {
   content: string;
 }
 
+function loadPersistedMessages(): Message[] {
+  if (typeof localStorage === "undefined") return [];
+  const stored = localStorage.getItem("heliox_session_history");
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((message) => {
+      if (!message || typeof message !== "object" || !Array.isArray(message.actionResults)) {
+        return message;
+      }
+      return {
+        ...message,
+        actionResults: message.actionResults.map((result: ActionResultData) => normalizeActionResult(result)),
+      };
+    }) as Message[];
+  } catch {
+    return [];
+  }
+}
+
 const initialState: SessionState = {
   daemonConnected: false,
   loading: false,
-  messages:
-    typeof localStorage !== "undefined" && localStorage.getItem("heliox_session_history")
-      ? (() => {
-          try {
-            return JSON.parse(localStorage.getItem("heliox_session_history") || "[]");
-          } catch (e) {
-            return [];
-          }
-        })()
-      : [],
+  messages: loadPersistedMessages(),
   currentPlan: null,
   confirmRequired: false,
   confirmPlanId: "",
@@ -141,6 +164,8 @@ const initialState: SessionState = {
   budget: null,
   rollback: null,
   rollbackPending: false,
+  proactiveSuggestion: null,
+  proactiveSuggestionPending: false,
   terminalStatus: "",
 };
 
@@ -387,6 +412,76 @@ function createSession() {
         }));
         break;
 
+      case "companion_interjection":
+        update((s) => ({
+          ...s,
+          phase: String(p.mode ?? "") === "stop" ? "stopping" : "applying your correction",
+        }));
+        break;
+
+      case "companion_revision_started":
+        update((s) => ({
+          ...s,
+          phase: `revising plan (revision ${Number(p.revision ?? 1)})`,
+          currentPlan: null,
+          liveActions: [],
+        }));
+        break;
+
+      case "companion_revision_rejected":
+        update((s) => ({
+          ...s,
+          messages: [
+            ...s.messages,
+            {
+              type: "error" as MessageType,
+              text: String(p.message ?? "The live correction could not be applied."),
+              timestamp: Date.now(),
+            },
+          ],
+        }));
+        break;
+
+      case "companion_plan_intervention": {
+        const decision = String(p.decision ?? "WARN").toUpperCase();
+        const reason = String(p.reason ?? "The companion found a problem with the proposed plan.");
+        update((s) => ({
+          ...s,
+          phase:
+            decision === "REVISE"
+              ? "companion revising plan"
+              : decision === "STOP"
+                ? "companion stopped plan"
+                : s.phase,
+          currentPlan: decision === "REVISE" ? null : s.currentPlan,
+          liveActions: decision === "REVISE" ? [] : s.liveActions,
+          messages: [
+            ...s.messages,
+            {
+              type: decision === "STOP" ? ("error" as MessageType) : ("system" as MessageType),
+              text: `Companion ${decision.toLowerCase()}: ${reason}`,
+              timestamp: Date.now(),
+            },
+          ],
+        }));
+        break;
+      }
+
+      case "proactive_suggestion":
+        update((s) => ({
+          ...s,
+          proactiveSuggestion: {
+            suggestionId: String(p.suggestion_id ?? ""),
+            title: String(p.title ?? "Heliox has a suggestion"),
+            description: String(p.description ?? ""),
+            triggerReason: String(p.trigger_reason ?? ""),
+            priority: String(p.priority ?? "low"),
+            learnedRelevance: Number(p.learned_relevance ?? 0.5),
+          },
+          proactiveSuggestionPending: false,
+        }));
+        break;
+
       case "daemon_speech":
         // The daemon already spoke this out loud via its own OS-level TTS
         // (pilot.system.voice.speak(), e.g. the cognitive-stress-gate phrase
@@ -408,6 +503,40 @@ function createSession() {
   }
 
   async function sendCommand(input: string, attachments: Attachment[] = []) {
+    const current = get({ subscribe });
+    if (current.loading) {
+      const attachmentContext = attachments
+        .map((attachment) => `[Attached File: ${attachment.name}]\n${attachment.content}`)
+        .join("\n\n");
+      const correction = [input.trim(), attachmentContext].filter(Boolean).join("\n\n");
+      if (!correction) return;
+
+      update((s) => ({
+        ...s,
+        phase: "sending live correction",
+        messages: [...s.messages, { type: "user", text: input || "Attached live correction", timestamp: Date.now() }],
+      }));
+
+      try {
+        const result = (await call("interject", { input: correction })) as {
+          status: string;
+          message?: string;
+        };
+        if (result.status === "revising") {
+          update((s) => ({ ...s, phase: "stopping current step and revising" }));
+        } else if (result.status === "aborted") {
+          update((s) => ({ ...s, phase: "stopping" }));
+        } else if (result.status !== "no_active_execution") {
+          addSystemMessage(result.message ?? "The live correction was not accepted.");
+        } else {
+          addSystemMessage("That task had just finished. Send the message again to start a new task.");
+        }
+      } catch (err) {
+        addSystemMessage(`Live correction failed: ${String(err instanceof Error ? err.message : err)}`);
+      }
+      return;
+    }
+
     if (input.startsWith("/git-resolve ") || input.startsWith("git-resolve ")) {
       const filepath = input.replace(/^(\/)?git-resolve\s+/, "").trim();
       update((s) => ({
@@ -492,13 +621,13 @@ function createSession() {
       const rawResults = (result.results ?? []) as Array<Record<string, unknown>>;
       const actionResults: ActionResultData[] = rawResults.map((r) => {
         const action = (r.action ?? {}) as Record<string, unknown>;
-        return {
+        return normalizeActionResult({
           action_type: String(action.action_type ?? "unknown"),
           target: String(action.target ?? ""),
           success: Boolean(r.success),
           output: String(r.output ?? ""),
           error: r.error ? String(r.error) : null,
-        };
+        });
       });
 
       const rawVerification = result.verification as Record<string, unknown> | undefined;
@@ -741,6 +870,52 @@ function createSession() {
     update((s) => ({ ...s, budget: null }));
   }
 
+  async function acceptProactiveSuggestion() {
+    const current = get({ subscribe });
+    const suggestionId = current.proactiveSuggestion?.suggestionId;
+    if (!suggestionId || current.proactiveSuggestionPending) return;
+
+    update((s) => ({ ...s, proactiveSuggestionPending: true }));
+    try {
+      const result = (await call("proactive_accept", {
+        suggestion_id: suggestionId,
+      })) as { status?: string; message?: string; error?: string };
+      if (result.status === "executing") {
+        update((s) => ({
+          ...s,
+          proactiveSuggestion: null,
+          proactiveSuggestionPending: false,
+        }));
+        addSystemMessage("Suggestion accepted. Heliox started it through the guarded task pipeline.");
+      } else {
+        update((s) => ({ ...s, proactiveSuggestionPending: false }));
+        addSystemMessage(result.message ?? result.error ?? "The suggestion could not be started.");
+      }
+    } catch (err) {
+      update((s) => ({ ...s, proactiveSuggestionPending: false }));
+      addSystemMessage(`Suggestion failed: ${String(err instanceof Error ? err.message : err)}`);
+    }
+  }
+
+  async function dismissProactiveSuggestion() {
+    const current = get({ subscribe });
+    const suggestionId = current.proactiveSuggestion?.suggestionId;
+    if (!suggestionId || current.proactiveSuggestionPending) return;
+
+    update((s) => ({ ...s, proactiveSuggestionPending: true }));
+    try {
+      await call("proactive_dismiss", { suggestion_id: suggestionId });
+      update((s) => ({
+        ...s,
+        proactiveSuggestion: null,
+        proactiveSuggestionPending: false,
+      }));
+    } catch (err) {
+      update((s) => ({ ...s, proactiveSuggestionPending: false }));
+      addSystemMessage(`Could not dismiss suggestion: ${String(err instanceof Error ? err.message : err)}`);
+    }
+  }
+
   return {
     subscribe,
     sendCommand,
@@ -754,6 +929,8 @@ function createSession() {
     clearMessages,
     resetUsage,
     acknowledgeBudgetEvent,
+    acceptProactiveSuggestion,
+    dismissProactiveSuggestion,
   };
 }
 

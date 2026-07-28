@@ -143,15 +143,12 @@ class VoiceConfig:
     # UX improvement (doesn't expand what the system can do, unlike e.g.
     # gesture_cursor), so on by default like adaptive_calibration.
     barge_in_enabled: bool = True
-    # Kyutai Pocket TTS (CPU-only, cross-platform local model) vs. the
-    # existing OS-native TTS (Windows SAPI/macOS say/Linux espeak). Defaults
-    # to "pocket_tts", but this is a safe default even when the optional
-    # `pocket-tts` package isn't installed: voice.py's _speak_impl falls
-    # back to os_native automatically on ImportError or any other failure,
-    # so no network call or extra cost is incurred unless a user has
-    # actually opted into the `pilot-daemon[voice]` extra.
-    tts_engine: str = "pocket_tts"  # "pocket_tts" | "os_native"
-    tts_voice: str = "alba"  # built-in Pocket TTS voice preset; ignored when tts_engine == "os_native"
+    # Local model-backed speech or the existing OS-native TTS (Windows
+    # SAPI/macOS say/Linux espeak). Kokoro is the more natural built-in
+    # option; Pocket remains available for existing installations. Both
+    # model engines fall back to os_native on import/model/audio failure.
+    tts_engine: str = "kokoro_tts"  # "kokoro_tts" | "pocket_tts" | "os_native"
+    tts_voice: str = "af_heart"  # model voice preset; ignored when tts_engine == "os_native"
 
 
 @dataclass
@@ -346,6 +343,12 @@ class NarrationConfig:
     enabled: bool = False
     narrate_steps: bool = True
     interrupt_on_risk: bool = True
+    proactive_review_enabled: bool = True
+    # Direct user corrections are out-of-band: they can stop an in-flight
+    # action and revise the plan even when spoken narration is disabled.
+    live_corrections_enabled: bool = True
+    follow_up_enabled: bool = True
+    max_auto_revisions: int = 2
     confirm_timeout_seconds: float = 120.0
 
 
@@ -669,6 +672,10 @@ def _validate_config_types(raw: dict) -> None:
             "enabled": bool,
             "narrate_steps": bool,
             "interrupt_on_risk": bool,
+            "proactive_review_enabled": bool,
+            "live_corrections_enabled": bool,
+            "follow_up_enabled": bool,
+            "max_auto_revisions": int,
             "confirm_timeout_seconds": (int, float),
         },
         "supervision": {
@@ -897,6 +904,14 @@ def _merge_config(config: PilotConfig, raw: dict[str, Any]) -> PilotConfig:
             config.narration.narrate_steps = bool(n_raw["narrate_steps"])
         if "interrupt_on_risk" in n_raw:
             config.narration.interrupt_on_risk = bool(n_raw["interrupt_on_risk"])
+        if "proactive_review_enabled" in n_raw:
+            config.narration.proactive_review_enabled = bool(n_raw["proactive_review_enabled"])
+        if "live_corrections_enabled" in n_raw:
+            config.narration.live_corrections_enabled = bool(n_raw["live_corrections_enabled"])
+        if "follow_up_enabled" in n_raw:
+            config.narration.follow_up_enabled = bool(n_raw["follow_up_enabled"])
+        if "max_auto_revisions" in n_raw:
+            config.narration.max_auto_revisions = int(n_raw["max_auto_revisions"])
         if "confirm_timeout_seconds" in n_raw:
             config.narration.confirm_timeout_seconds = float(n_raw["confirm_timeout_seconds"])
 

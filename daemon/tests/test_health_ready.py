@@ -83,6 +83,7 @@ async def daemon_server(server_port, tmp_path, monkeypatch):
     config.server.host = "127.0.0.1"
     config.server.port = server_port
     config.server.auth_token = "test-token"
+    config.voice.tts_engine = "os_native"
 
     # Mock heavy subsystems to avoid requiring a real LLM or OCR.
     # CodeAgent is patched to prevent an AttributeError on ActionType.CALENDAR_FETCH

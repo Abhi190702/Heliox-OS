@@ -74,6 +74,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger("pilot.agents.executor")
 
 _EXIT_CODE_PATTERN = re.compile(r"\[EXIT CODE:\s*(-?\d+)\]")
+_SWALLOWED_EXCEPTION_PATTERN = re.compile(
+    r"^\s*(?:an\s+)?unexpected\s+error\s+(?:occurred|occured)\s*:",
+    re.IGNORECASE,
+)
 
 
 def _code_execution_error(output: str) -> str | None:
@@ -84,6 +88,8 @@ def _code_execution_error(output: str) -> str | None:
         return f"Code execution exited with code {match.group(1)}. {text[:800]}"
     if text.upper().startswith("ERROR:"):
         return text[:800]
+    if _SWALLOWED_EXCEPTION_PATTERN.match(text):
+        return f"Code execution reported an exception. {text[:800]}"
     return None
 
 
@@ -424,6 +430,7 @@ class Executor:
         cancel_event: asyncio.Event | None = None,
         plan_id: str | None = None,
         initial_last_output: str = "",
+        initial_largest_output: str | None = None,
         orchestrator: Any = None,
         invocation_source: InvocationSource = InvocationSource.INTERACTIVE,
         scope_override: TaskScopeOverride | None = None,
@@ -433,7 +440,7 @@ class Executor:
         plan_id = plan_id or str(uuid.uuid4())[:8]
         results: list[ActionResult] = []
         self._last_output = initial_last_output
-        self._largest_output = initial_last_output
+        self._largest_output = initial_last_output if initial_largest_output is None else initial_largest_output
 
         if self._gateway is not None:
             gateway_decision = await self._gateway.authorize(
@@ -1902,8 +1909,6 @@ class Executor:
         return await self._skill_registry.run(p.skill_id.strip(), p.arguments, ctx)
 
     async def _exec_code_execute(self, action: Action) -> str:
-        import tempfile
-
         from pilot.system.code_exec import execute_code
         from pilot.system.sandbox_exec import SandboxConfig
 
@@ -1924,30 +1929,33 @@ class Executor:
             firecracker_fallback=getattr(self._config.security, "sandbox_firecracker_fallback", True),
         )
 
-        # If there's previous output available, inject it as Python variables
+        runtime_preamble = ""
+
+        # Python plans are promised PREV_OUTPUT and its derived helpers. Always
+        # define them, even for the first action, and embed the data into the
+        # staged script so isolated sandboxes can read it.
         if p.language.lower().strip() in ("python", "py", "python3"):
             best_text = self._largest_output or self._last_output or ""
+            normalized = best_text.replace("\r\n", "\n").replace("\r", "\n")
 
-            if best_text:
-                # Normalize line endings
-                normalized = best_text.replace("\r\n", "\n").replace("\r", "\n")
+            from pilot.agents._code_preamble import build_preamble
 
-                # Write in binary mode to avoid Windows \r issues
-                data_file = tempfile.NamedTemporaryFile(mode="wb", suffix=".txt", delete=False, prefix="pilot_data_")
-                data_file.write(normalized.encode("utf-8"))
-                data_file.close()
+            runtime_preamble = build_preamble(normalized)
+            code = runtime_preamble + code
 
-                # Build preamble using helper module
-                from pilot.agents._code_preamble import build_preamble
-
-                preamble = build_preamble(data_file.name)
-                code = preamble + code
-
-                para_count = len([p for p in normalized.split("\n\n") if p.strip() and len(p.strip()) > 30])
-                logger.info(
-                    "Code execute: injected PREV_OUTPUT (%d chars), ~%d paragraphs", len(normalized), para_count
-                )
-                logger.debug("LLM generated code:\n%s", p.code[:500] if p.code else "(empty)")
+            para_count = len(
+                [
+                    paragraph
+                    for paragraph in normalized.split("\n\n")
+                    if paragraph.strip() and len(paragraph.strip()) > 30
+                ]
+            )
+            logger.info(
+                "Code execute: injected PREV_OUTPUT (%d chars), ~%d paragraphs",
+                len(normalized),
+                para_count,
+            )
+            logger.debug("LLM generated code:\n%s", p.code[:500] if p.code else "(empty)")
 
             # --- Sanitize code before execution ---
             from pilot.agents.code_sanitizer import sanitize_python_code
@@ -1993,6 +2001,8 @@ class Executor:
                 if p.language.lower().strip() in ("python", "py", "python3"):
                     from pilot.agents.code_sanitizer import sanitize_python_code
 
+                    if "# === Auto-injected by Pilot ===" not in fixed_code:
+                        fixed_code = runtime_preamble + fixed_code
                     fixed_code = sanitize_python_code(fixed_code)
 
                 logger.info("Auto-fix: retrying with LLM-fixed code (%d chars)", len(fixed_code))

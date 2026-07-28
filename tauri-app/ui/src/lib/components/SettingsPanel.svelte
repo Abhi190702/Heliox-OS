@@ -349,6 +349,19 @@
   }
 
   const pocketTtsVoices = ["alba", "giovanni", "lola"];
+  const kokoroTtsVoices = [
+    "af_heart",
+    "af_bella",
+    "af_nicole",
+    "af_sarah",
+    "af_sky",
+    "am_adam",
+    "am_michael",
+    "bf_emma",
+    "bf_isabella",
+    "bm_george",
+    "bm_lewis",
+  ];
 
   async function refreshAudioInputDevices() {
     try {
@@ -386,11 +399,18 @@
 
   async function updateTtsEngine(e: Event) {
     const val = (e.target as HTMLInputElement).value;
+    const ttsVoice =
+      val === "kokoro_tts" ? "af_heart" : val === "pocket_tts" ? "alba" : ($settings.voice?.tts_voice ?? "af_heart");
     speechSaving = true;
-    const synced = await settings.updateSection("voice", { tts_engine: val }, { requireDaemon: true });
+    const synced = await settings.updateSection(
+      "voice",
+      { tts_engine: val, tts_voice: ttsVoice },
+      { requireDaemon: true },
+    );
     speechSaving = false;
+    const engineName = val === "kokoro_tts" ? "Kokoro TTS" : val === "pocket_tts" ? "Pocket TTS" : "OS Voice";
     speechToast = synced
-      ? `Speech engine changed to ${val === "pocket_tts" ? "Pocket TTS" : "OS Voice"}.`
+      ? `Speech engine changed to ${engineName}.`
       : "Speech engine was not changed because the daemon could not confirm it.";
     setTimeout(() => (speechToast = ""), 5000);
   }
@@ -401,7 +421,7 @@
     const synced = await settings.updateSection("voice", { tts_voice: val }, { requireDaemon: true });
     speechSaving = false;
     speechToast = synced
-      ? `Pocket TTS voice changed to ${val}.`
+      ? `TTS voice changed to ${val}.`
       : "Speech voice was not changed because the daemon could not confirm it.";
     setTimeout(() => (speechToast = ""), 5000);
   }
@@ -1331,10 +1351,11 @@
       </div>
       <select
         class="input-md"
-        value={$settings.voice?.tts_engine ?? "pocket_tts"}
+        value={$settings.voice?.tts_engine ?? "kokoro_tts"}
         onchange={updateTtsEngine}
         disabled={speechSaving || speechTesting}
       >
+        <option value="kokoro_tts">Kokoro TTS (Natural)</option>
         <option value="pocket_tts">Pocket TTS</option>
         <option value="os_native">OS Voice</option>
       </select>
@@ -1347,11 +1368,11 @@
       </div>
       <select
         class="input-md"
-        value={$settings.voice?.tts_voice ?? "alba"}
+        value={$settings.voice?.tts_voice ?? "af_heart"}
         onchange={updateTtsVoice}
         disabled={$settings.voice?.tts_engine === "os_native" || speechSaving || speechTesting}
       >
-        {#each pocketTtsVoices as voiceOption}
+        {#each $settings.voice?.tts_engine === "kokoro_tts" ? kokoroTtsVoices : pocketTtsVoices as voiceOption}
           <option value={voiceOption}>{voiceOption}</option>
         {/each}
       </select>

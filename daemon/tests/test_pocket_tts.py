@@ -89,6 +89,19 @@ async def test_synthesize_returns_numpy_audio_and_sample_rate():
 
 
 @pytest.mark.asyncio
+async def test_warmup_loads_model_and_voice_without_generating_audio():
+    model = _fake_model(sample_rate=24000)
+    fake_module = _fake_pocket_tts_module(model)
+
+    with patch.dict(sys.modules, {"pocket_tts": fake_module}):
+        await pocket_tts.warmup("alba")
+
+    fake_module.TTSModel.load_model.assert_called_once()
+    model.get_state_for_audio_prompt.assert_called_once_with("alba")
+    model.generate_audio.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_synthesize_propagates_import_error_when_package_missing():
     with patch.dict(sys.modules, {"pocket_tts": None}), pytest.raises(ImportError):
         await pocket_tts.synthesize("hello", "alba")

@@ -24,10 +24,14 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
+
+from pilot.config import DATA_DIR
 
 if TYPE_CHECKING:
     from pilot.agents.screen_vision import ScreenContext, ScreenVisionAgent
@@ -44,6 +48,8 @@ class Suggestion:
     description: str
     action_command: str  # The command to execute if accepted
     trigger_reason: str
+    pattern_id: str = ""
+    learned_relevance: float = 0.5
     priority: str = "low"  # low, medium, high
     timestamp: float = field(default_factory=time.time)
     dismissed: bool = False
@@ -56,6 +62,8 @@ class Suggestion:
             "description": self.description,
             "action_command": self.action_command,
             "trigger_reason": self.trigger_reason,
+            "pattern_id": self.pattern_id,
+            "learned_relevance": round(self.learned_relevance, 3),
             "priority": self.priority,
             "timestamp": self.timestamp,
         }
@@ -148,7 +156,11 @@ _PATTERNS: list[dict[str, Any]] = [
 class ProactiveSuggestionEngine:
     """Watches screen context and generates proactive suggestions."""
 
-    def __init__(self, screen_vision: ScreenVisionAgent | None = None) -> None:
+    def __init__(
+        self,
+        screen_vision: ScreenVisionAgent | None = None,
+        feedback_path: Path | None = None,
+    ) -> None:
         self._screen_vision = screen_vision
         self._broadcast: Callable[[str, Any], Coroutine[Any, Any, None]] | None = None
         self._running = False
@@ -159,6 +171,8 @@ class ProactiveSuggestionEngine:
         self._suggestion_history: list[Suggestion] = []
         self._app_dwell_tracker: dict[str, float] = {}  # app_name → first_seen_time
         self._enabled = True
+        self._feedback_path = feedback_path or (DATA_DIR / "proactive_feedback.json")
+        self._feedback: dict[str, dict[str, float | int]] = self._load_feedback()
 
     def set_broadcast(self, fn: Callable[[str, Any], Coroutine[Any, Any, None]]) -> None:
         self._broadcast = fn
@@ -196,6 +210,7 @@ class ProactiveSuggestionEngine:
                 s.accepted = True
                 self._pending_suggestions.remove(s)
                 self._suggestion_history.append(s)
+                self._record_feedback(s.pattern_id, "accepted")
                 return s.action_command
         return None
 
@@ -206,6 +221,7 @@ class ProactiveSuggestionEngine:
                 s.dismissed = True
                 self._pending_suggestions.remove(s)
                 self._suggestion_history.append(s)
+                self._record_feedback(s.pattern_id, "dismissed")
                 return True
         return False
 
@@ -229,6 +245,12 @@ class ProactiveSuggestionEngine:
 
     async def _check_patterns(self, current: Any) -> None:
         """Check all patterns against the current screen state."""
+        # Keep one visible decision at a time. Generating more while the user
+        # considers the current card would create hidden pending items and
+        # corrupt accept/dismiss learning.
+        if self._pending_suggestions:
+            return
+
         now = time.time()
         app_lower = current.active_app.lower()
         title_lower = current.active_window_title.lower()
@@ -244,6 +266,18 @@ class ProactiveSuggestionEngine:
         dwell_seconds = now - self._app_dwell_tracker.get(dwell_key, now)
 
         for pattern in _PATTERNS:
+            learned = self._feedback.get(pattern["id"], {})
+            accepted = int(learned.get("accepted", 0))
+            dismissed = int(learned.get("dismissed", 0))
+            shown = int(learned.get("shown", 0))
+            last_feedback = float(learned.get("last_feedback", 0.0))
+            learned_relevance = (accepted + 1) / (shown + 2)
+
+            # Repeated rejection suppresses this pattern for a week. A future
+            # accepted suggestion lifts suppression automatically.
+            if dismissed >= 3 and accepted == 0 and now - last_feedback < 7 * 24 * 60 * 60:
+                continue
+
             # Check cooldown
             last_triggered = self._cooldowns.get(pattern["id"], 0)
             if now - last_triggered < pattern.get("cooldown_seconds", 300):
@@ -262,7 +296,9 @@ class ProactiveSuggestionEngine:
                     continue
 
             # Check dwell time
-            min_dwell = pattern.get("min_dwell_seconds", 0)
+            base_dwell = float(pattern.get("min_dwell_seconds", 0))
+            dwell_multiplier = max(0.65, min(1.75, 1.45 - learned_relevance))
+            min_dwell = base_dwell * dwell_multiplier
             if dwell_seconds < min_dwell:
                 continue
 
@@ -273,7 +309,9 @@ class ProactiveSuggestionEngine:
                 description=pattern["description"],
                 action_command=pattern["action"],
                 trigger_reason=f"Detected {app_lower} with context: {title_lower[:60]}",
-                priority=pattern.get("priority", "low"),
+                pattern_id=pattern["id"],
+                learned_relevance=learned_relevance,
+                priority=("high" if accepted >= dismissed + 2 else pattern.get("priority", "low")),
             )
 
             # Mark cooldown
@@ -281,6 +319,7 @@ class ProactiveSuggestionEngine:
 
             # Add to pending
             self._pending_suggestions.append(suggestion)
+            self._record_feedback(pattern["id"], "shown")
 
             # Broadcast to UI
             if self._broadcast:
@@ -308,4 +347,62 @@ class ProactiveSuggestionEngine:
             "history_count": len(self._suggestion_history),
             "pending": [s.to_dict() for s in self._pending_suggestions],
             "check_interval": self._check_interval,
+            "learning": self.get_learning_status(),
         }
+
+    def get_learning_status(self) -> dict[str, Any]:
+        return {
+            "enabled": True,
+            "patterns": {
+                pattern_id: {
+                    "shown": int(values.get("shown", 0)),
+                    "accepted": int(values.get("accepted", 0)),
+                    "dismissed": int(values.get("dismissed", 0)),
+                    "learned_relevance": round(
+                        (int(values.get("accepted", 0)) + 1) / (int(values.get("shown", 0)) + 2),
+                        3,
+                    ),
+                }
+                for pattern_id, values in sorted(self._feedback.items())
+            },
+        }
+
+    def reset_learning(self) -> None:
+        self._feedback = {}
+        try:
+            self._feedback_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove proactive learning file", exc_info=True)
+
+    def _load_feedback(self) -> dict[str, dict[str, float | int]]:
+        try:
+            raw = json.loads(self._feedback_path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                return {str(key): value for key, value in raw.items() if isinstance(value, dict)}
+        except (OSError, ValueError):
+            pass
+        return {}
+
+    def _record_feedback(self, pattern_id: str, event: str) -> None:
+        if not pattern_id or event not in {"shown", "accepted", "dismissed"}:
+            return
+        values = self._feedback.setdefault(
+            pattern_id,
+            {"shown": 0, "accepted": 0, "dismissed": 0, "last_feedback": 0.0},
+        )
+        values[event] = int(values.get(event, 0)) + 1
+        if event != "shown":
+            values["last_feedback"] = time.time()
+        self._save_feedback()
+
+    def _save_feedback(self) -> None:
+        try:
+            self._feedback_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self._feedback_path.with_suffix(".tmp")
+            temporary.write_text(
+                json.dumps(self._feedback, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            temporary.replace(self._feedback_path)
+        except OSError:
+            logger.warning("Could not persist proactive learning feedback", exc_info=True)

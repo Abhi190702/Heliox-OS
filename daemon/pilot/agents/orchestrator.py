@@ -354,6 +354,8 @@ class AgentOrchestrator:
             )
         # Process actions in order, grouping consecutive same-agent actions
         action_order = self._build_execution_order(plan, routing)
+        prior_last_output = ""
+        prior_largest_output = ""
 
         for batch in action_order:
             # â”€â”€ Cancellation check â”€â”€
@@ -419,7 +421,15 @@ class AgentOrchestrator:
             # the agent's LLM calls, we halt the plan cleanly instead of
             # letting the exception escape and leave the task in limbo.
             try:
-                results = await agent.handle_task(user_input, sub_plan, scope_override=scope_override)
+                results = await agent.handle_task(
+                    user_input,
+                    sub_plan,
+                    context={
+                        "initial_last_output": prior_last_output,
+                        "initial_largest_output": prior_largest_output,
+                    },
+                    scope_override=scope_override,
+                )
             except (
                 ActionBudgetExceededError,
                 TaskBudgetExceededError,
@@ -458,6 +468,10 @@ class AgentOrchestrator:
             # Map results back to original indices and update breaker state
             for idx, result in zip(indices, results):
                 all_results[idx] = result
+                if result.success:
+                    prior_last_output = result.output or ""
+                    if len(prior_last_output) > len(prior_largest_output):
+                        prior_largest_output = prior_last_output
                 if self._circuit_breaker:
                     if result.success:
                         self._circuit_breaker.record_success()

@@ -15,6 +15,7 @@
   import { speakText as ttsSpeak, stopSpeech } from "../utils/tts";
   import { call, offNotification, onNotification } from "../api/daemon";
   import { onDestroy } from "svelte";
+  import { get } from "svelte/store";
 
   // ── State ──
   let isListening = $state(false);
@@ -42,6 +43,12 @@
     rec.interimResults = true;
     rec.lang = "en-US";
     rec.maxAlternatives = 1;
+    rec.onspeechstart = () => {
+      // Human speech always owns the audio channel. This stops narration or
+      // a task response before the recognized phrase is routed as a live
+      // correction, preventing Heliox from talking over the user.
+      stopSpeaking();
+    };
 
     rec.onresult = (event: any) => {
       let interim = "";
@@ -124,6 +131,7 @@
     }
     if (!recognition) return;
 
+    stopSpeaking();
     wakeWordActive = continuous;
     error = "";
     transcript = "";
@@ -208,8 +216,21 @@
       stopListening();
     }
 
-    // Send the command via the session store
+    const wasTaskRunning = get(session).loading;
+
+    // The session store routes speech to the same out-of-band correction
+    // channel as typed input whenever a task is active.
     await session.sendCommand(text);
+
+    // The original voice command already owns the one final-response
+    // subscription. A spoken correction gets an immediate companion
+    // acknowledgment from the narration channel but must not install a
+    // second subscriber, or the final result would be spoken twice.
+    if (wasTaskRunning) {
+      transcript = "";
+      interimTranscript = "";
+      return;
+    }
 
     // Speak the response if voice is enabled
     // Wait for the response, then use the configured daemon TTS engine.

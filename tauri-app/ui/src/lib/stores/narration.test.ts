@@ -12,6 +12,7 @@ vi.mock("../api/daemon", () => ({
   onNotification: (handler: NotificationHandler) => {
     capturedHandler = handler;
   },
+  offNotification: vi.fn(),
   call: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -40,6 +41,37 @@ describe("narration store", () => {
     capturedHandler!("execution_narration", { text: "Starting: notify (Narrator Test)" });
 
     expect(speakText).toHaveBeenCalledWith("Starting: notify (Narrator Test)");
+  });
+
+  it("speaks only material companion interventions", async () => {
+    const { narration: _narration } = await import("./narration");
+    const { speakText } = await import("../utils/tts");
+
+    capturedHandler!("companion_plan_intervention", {
+      decision: "REVISE",
+      reason: "The proposed code step is unnecessary.",
+    });
+
+    expect(speakText).toHaveBeenCalledWith("I found a problem with the plan, so I am correcting it before it runs.");
+
+    vi.mocked(speakText).mockClear();
+    capturedHandler!("companion_plan_intervention", {
+      decision: "CONTINUE",
+      reason: "The plan is aligned.",
+    });
+    expect(speakText).not.toHaveBeenCalled();
+  });
+
+  it("speaks acknowledgement of a live user correction", async () => {
+    const { narration: _narration } = await import("./narration");
+    const { speakText } = await import("../utils/tts");
+
+    capturedHandler!("companion_interjection", {
+      mode: "correct",
+      message: "Correction received. Stopping the current step and revising the plan.",
+    });
+
+    expect(speakText).toHaveBeenCalledWith("I heard your correction. I am revising the task now.");
   });
 
   it("parses a plain risk interrupt with no preview payload", async () => {

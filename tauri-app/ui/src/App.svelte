@@ -270,6 +270,43 @@
         <InterruptDialog />
         <SupervisionAlertDialog />
 
+        {#if $session.proactiveSuggestion}
+          <aside
+            class="proactive-card"
+            class:high-priority={$session.proactiveSuggestion.priority === "high"}
+            aria-live="polite"
+          >
+            <div class="proactive-copy">
+              <span class="proactive-eyebrow">{$_("companion.suggestion_label")}</span>
+              <strong>{$session.proactiveSuggestion.title}</strong>
+              <span>{$session.proactiveSuggestion.description}</span>
+              <small>
+                {$_("companion.learned_relevance", {
+                  values: {
+                    percent: Math.round($session.proactiveSuggestion.learnedRelevance * 100),
+                  },
+                })}
+              </small>
+            </div>
+            <div class="proactive-actions">
+              <button
+                class="proactive-dismiss"
+                disabled={$session.proactiveSuggestionPending}
+                onclick={() => session.dismissProactiveSuggestion()}
+              >
+                {$_("companion.dismiss")}
+              </button>
+              <button
+                class="proactive-accept"
+                disabled={$session.proactiveSuggestionPending}
+                onclick={() => session.acceptProactiveSuggestion()}
+              >
+                {$session.proactiveSuggestionPending ? $_("companion.starting") : $_("companion.accept")}
+              </button>
+            </div>
+          </aside>
+        {/if}
+
         <div class="results">
           {#if $session.messages.length === 0 && !$session.loading}
             <div class="empty-state">
@@ -706,6 +743,79 @@
     display: flex;
     flex-direction: column;
     position: relative;
+  }
+
+  .proactive-card {
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 8px 12px 0;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
+    border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border));
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  }
+
+  .proactive-card.high-priority {
+    border-color: var(--warning);
+  }
+
+  .proactive-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .proactive-copy strong {
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+
+  .proactive-copy small,
+  .proactive-eyebrow {
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+
+  .proactive-eyebrow {
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .proactive-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 6px;
+  }
+
+  .proactive-actions button {
+    padding: 6px 12px;
+    font-size: 11px;
+    border-radius: var(--radius-sm);
+  }
+
+  .proactive-dismiss {
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+  }
+
+  .proactive-accept {
+    color: white;
+    background: var(--accent);
+  }
+
+  .proactive-actions button:disabled {
+    cursor: wait;
+    opacity: 0.55;
   }
 
   .empty-state {

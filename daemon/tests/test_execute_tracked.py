@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -22,6 +23,7 @@ from pilot.actions import (
     VerificationResult,
 )
 from pilot.agents.destructive_critic import CriticVerdict
+from pilot.agents.execution_companion import CompanionReview
 from pilot.config import PilotConfig
 from pilot.server import PilotServer
 
@@ -407,3 +409,248 @@ async def test_handle_execute_critic_block_is_terminal_and_never_executes():
     assert result["status"] == "blocked_by_critic"
     assert result["message"] == "Blocked before execution by safety review: Unsafe power operation."
     assert [method for method, _ in server.test_broadcasts].count("task_complete") == 1
+
+
+@pytest.mark.asyncio
+async def test_live_correction_cancels_current_step_and_replans_in_same_request():
+    class _CorrectableExecutor:
+        def __init__(self):
+            self.calls = 0
+            self.first_started = asyncio.Event()
+            self.first_cancelled = False
+
+        async def execute(self, plan, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                self.first_started.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    self.first_cancelled = True
+                    raise
+            return [ActionResult(action=plan.actions[0], success=True, output="revised")]
+
+    class _Verifier:
+        async def verify(self, plan, results):
+            return VerificationResult(passed=True, details=["Revised action verified"], failed_actions=[])
+
+    executor = _CorrectableExecutor()
+    server = _server_ready_for_handle_execute(executor)
+    server._verifier = _Verifier()
+    planned_inputs: list[str] = []
+    original_planner = server._planner
+
+    class _RecordingPlanner:
+        async def plan(self, user_input, error_context="", screen_context="", stream_callback=None):
+            planned_inputs.append(user_input)
+            return await original_planner.plan(user_input, error_context, screen_context, stream_callback)
+
+    server._planner = _RecordingPlanner()
+    ws = _FakeWs()
+
+    running = asyncio.create_task(server._handle_execute({"input": "show system information"}, ws))
+    await executor.first_started.wait()
+
+    with patch("pilot.system.pty_session.PtySessionManager.interrupt_all"):
+        response = await server._handle_interject(
+            {"input": "Also include only the operating-system version."},
+            MagicMock(),
+        )
+
+    result = await asyncio.wait_for(running, timeout=10)
+
+    assert response["status"] == "revising"
+    assert result["status"] == "success"
+    assert executor.first_cancelled is True
+    assert executor.calls == 2
+    assert len(planned_inputs) == 2
+    assert "[LIVE USER CORRECTION]" in planned_inputs[1]
+    assert "operating-system version" in planned_inputs[1]
+    assert any(method == "companion_revision_started" for method, _ in server.test_broadcasts)
+    assert [method for method, _ in server.test_broadcasts].count("task_complete") == 1
+    assert server._interactive_request_active is False
+
+
+@pytest.mark.asyncio
+async def test_live_correction_reports_no_active_task_instead_of_queueing_work():
+    server = _server()
+
+    result = await server._handle_interject({"input": "change the target"}, MagicMock())
+
+    assert result["status"] == "no_active_execution"
+
+
+@pytest.mark.asyncio
+async def test_live_correction_also_cancels_the_orchestrated_execution_path():
+    class _ExecutorThatMustNotRun:
+        async def execute(self, plan, **kwargs):
+            raise AssertionError("the fake orchestrator owns this test path")
+
+    class _CorrectableOrchestrator:
+        def __init__(self):
+            self.calls = 0
+            self.first_started = asyncio.Event()
+            self.first_cancelled = False
+
+        def get_routing_summary(self, plan):
+            return {"assigned_agents": [], "is_multi_agent": False}
+
+        async def execute_plan(self, user_input, plan, on_action_complete=None, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                self.first_started.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    self.first_cancelled = True
+                    raise
+            result = ActionResult(action=plan.actions[0], success=True, output="orchestrated revision")
+            if on_action_complete:
+                await on_action_complete(result)
+            return [result]
+
+    class _Verifier:
+        async def verify(self, plan, results):
+            return VerificationResult(passed=True, details=["Orchestrated revision verified"], failed_actions=[])
+
+    orchestrator = _CorrectableOrchestrator()
+    server = _server_ready_for_handle_execute(_ExecutorThatMustNotRun())
+    server._orchestrator = orchestrator
+    server._verifier = _Verifier()
+    ws = _FakeWs()
+
+    running = asyncio.create_task(server._handle_execute({"input": "inspect the system"}, ws))
+    await orchestrator.first_started.wait()
+    assert server._active_execution_task is not None
+
+    with patch("pilot.system.pty_session.PtySessionManager.interrupt_all"):
+        response = await server._handle_interject({"input": "only inspect storage"}, MagicMock())
+
+    result = await asyncio.wait_for(running, timeout=10)
+
+    assert response["status"] == "revising"
+    assert result["status"] == "success"
+    assert orchestrator.first_cancelled is True
+    assert orchestrator.calls == 2
+    assert server._active_execution_task is None
+
+
+@pytest.mark.asyncio
+async def test_explicit_stop_interjection_uses_terminal_abort_not_replanning():
+    server = _server()
+    server._interactive_request_active = True
+    server._cancel_event = asyncio.Event()
+
+    async def _never_ends():
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(_never_ends())
+    server._active_execution_task = task
+    broadcasts: list[tuple[str, dict]] = []
+
+    async def _broadcast(method, params):
+        broadcasts.append((method, params))
+
+    server._broadcast_notification = _broadcast
+    with patch("pilot.system.pty_session.PtySessionManager.interrupt_all"):
+        result = await server._handle_interject({"input": "stop this task"}, MagicMock())
+
+    assert result["status"] == "aborted"
+    assert server._live_correction is None
+    assert server._cancel_event.is_set()
+    assert broadcasts[-1][1]["mode"] == "stop"
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_explicit_stop_interrupts_planning_without_waiting_for_model():
+    class _ExecutorThatMustNotRun:
+        async def execute(self, plan, **kwargs):
+            raise AssertionError("stopped planning must not reach execution")
+
+    class _SlowPlanner:
+        def __init__(self):
+            self.started = asyncio.Event()
+            self.cancelled = False
+
+        async def plan(self, *args, **kwargs):
+            self.started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    server = _server_ready_for_handle_execute(_ExecutorThatMustNotRun())
+    planner = _SlowPlanner()
+    server._planner = planner
+    ws = _FakeWs()
+    running = asyncio.create_task(server._handle_execute({"input": "inspect everything"}, ws))
+    await planner.started.wait()
+
+    with patch("pilot.system.pty_session.PtySessionManager.interrupt_all"):
+        stop_response = await server._handle_interject({"input": "stop"}, MagicMock())
+
+    result = await asyncio.wait_for(running, timeout=1)
+
+    assert stop_response["status"] == "aborted"
+    assert result["status"] == "cancelled"
+    assert result["message"] == "Execution stopped by user during planning."
+    assert planner.cancelled is True
+    assert server._active_execution_task is None
+
+
+@pytest.mark.asyncio
+async def test_proactive_companion_revises_plan_before_any_action_runs():
+    class _Executor:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, plan, **kwargs):
+            self.calls += 1
+            return [ActionResult(action=plan.actions[0], success=True, output="Windows 11")]
+
+    class _Verifier:
+        async def verify(self, plan, results):
+            return VerificationResult(passed=True, details=["OS result verified"], failed_actions=[])
+
+    class _Companion:
+        def __init__(self):
+            self.calls = 0
+
+        async def review(self, user_input, plan):
+            self.calls += 1
+            if self.calls == 1:
+                return CompanionReview(
+                    decision="REVISE",
+                    reason="The plan does more work than the request needs.",
+                    planner_feedback="Use one direct system-info action and report its output.",
+                )
+            return CompanionReview(decision="CONTINUE", reason="The revised plan is minimal.")
+
+    executor = _Executor()
+    server = _server_ready_for_handle_execute(executor)
+    server._verifier = _Verifier()
+    companion = _Companion()
+    server._execution_companion = companion
+    planned_inputs: list[str] = []
+    original_planner = server._planner
+
+    class _RecordingPlanner:
+        async def plan(self, user_input, error_context="", screen_context="", stream_callback=None):
+            planned_inputs.append(user_input)
+            return await original_planner.plan(user_input, error_context, screen_context, stream_callback)
+
+    server._planner = _RecordingPlanner()
+    ws = _FakeWs()
+
+    result = await server._handle_execute({"input": "show the OS version"}, ws)
+
+    assert result["status"] == "success"
+    assert companion.calls == 2
+    assert executor.calls == 1
+    assert len(planned_inputs) == 2
+    assert "[INDEPENDENT COMPANION REVIEW]" in planned_inputs[1]
+    assert "Use one direct system-info action" in planned_inputs[1]
+    assert any(method == "companion_plan_intervention" for method, _ in server.test_broadcasts)

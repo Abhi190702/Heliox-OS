@@ -126,8 +126,8 @@ async def test_voice_calibration_update_requires_boolean():
 @pytest.mark.parametrize(
     ("values", "message"),
     [
-        ({"tts_engine": "cloud"}, "tts_engine must be pocket_tts or os_native"),
-        ({"tts_voice": "unknown"}, "tts_voice must be alba, giovanni, or lola"),
+        ({"tts_engine": "cloud"}, "tts_engine must be kokoro_tts, pocket_tts, or os_native"),
+        ({"tts_voice": "unknown"}, "tts_voice must be a supported Kokoro or Pocket TTS voice"),
         ({"input_device": ""}, "input_device must be a valid microphone identifier"),
     ],
 )

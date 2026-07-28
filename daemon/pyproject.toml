@@ -88,11 +88,11 @@ supervision = [
     "pynput>=1.7",
 ]
 
-# Voice: local speech-to-text (openai-whisper) and text-to-speech (Kyutai
-# Pocket TTS, see pilot.system.pocket_tts), both CPU-only and free. Ships
+# Voice: local speech-to-text (openai-whisper) and text-to-speech (Kokoro
+# or Kyutai Pocket TTS), CPU-only and free. Ships
 # by default for real end users (see main.rs's setup_venv_in_background,
 # which installs "pilot-daemon[voice]") -- config.voice.tts_engine still
-# lets the user choose Pocket TTS vs. their OS's built-in voice in
+# lets the user choose Kokoro, Pocket TTS, or their OS's built-in voice in
 # Settings, but the underlying package is present either way so that
 # choice actually works out of the box, not just as a config default that
 # silently no-ops without a separate manual pip install. sounddevice is
@@ -102,6 +102,8 @@ supervision = [
 # (and to Windows Speech Recognition for STT) still applies on any
 # platform where these fail to install or load.
 voice = [
+    "kokoro>=0.9.4",
+    "soundfile>=0.12",
     "pocket-tts>=1.0",
     "sounddevice>=0.4",
     "soundcard>=0.4.3; sys_platform == 'win32'",
