@@ -181,10 +181,16 @@ class GitHubMarketplace:
         repo_root: Path,
         plugins_dir: Path,
         registry_url: str | None = None,
+        bundled_catalog_dir: Path | None = None,
     ) -> None:
         self.repo_root = repo_root
         self.plugins_dir = plugins_dir
-        self.local_registry_path = repo_root / "plugins" / "registry.json"
+        repository_catalog = repo_root / "plugins"
+        packaged_catalog = bundled_catalog_dir or Path(__file__).parent / "marketplace_catalog"
+        self.local_catalog_dir = (
+            repository_catalog if (repository_catalog / "registry.json").is_file() else packaged_catalog
+        )
+        self.local_registry_path = self.local_catalog_dir / "registry.json"
         self.registry_url = (
             registry_url or os.environ.get(MARKETPLACE_REGISTRY_ENV, "").strip() or DEFAULT_MARKETPLACE_REGISTRY_URL
         )
@@ -254,7 +260,8 @@ class GitHubMarketplace:
     ) -> None:
         package = plugin["package"]
         if catalog.source == "bundled":
-            source_root = self.repo_root / package["path"]
+            package_parts = PurePosixPath(package["path"]).parts
+            source_root = self.local_catalog_dir.joinpath(*package_parts[1:])
             for file_entry in package["files"]:
                 source = source_root / Path(file_entry["path"])
                 if not source.is_file():

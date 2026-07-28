@@ -56,3 +56,15 @@ def test_release_flow_has_no_certificate_or_notarization_gate():
     for token in forbidden:
         assert token not in release_text
         assert token not in runbook_text
+
+
+def test_end_user_all_extra_contains_both_local_voice_engines():
+    project = check_release._toml(ROOT / "daemon" / "pyproject.toml")
+    extras = project["project"]["optional-dependencies"]
+    voice = extras["voice"]
+    all_extra = extras["all"]
+
+    assert any(requirement.startswith("kokoro") for requirement in voice)
+    assert any(requirement.startswith("pocket-tts") for requirement in voice)
+    assert any(requirement.startswith("sounddevice") for requirement in voice)
+    assert any("pilot-daemon[" in requirement and "voice" in requirement for requirement in all_extra)

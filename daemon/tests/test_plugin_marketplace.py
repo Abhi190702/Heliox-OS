@@ -83,6 +83,29 @@ def test_install_accepts_only_approved_verified_package(tmp_path, monkeypatch):
         marketplace.install("unreviewed-plugin")
 
 
+def test_installed_wheel_layout_supports_offline_catalog_and_install(tmp_path, monkeypatch):
+    bundled_catalog = tmp_path / "site-packages" / "pilot" / "plugins" / "marketplace_catalog"
+    shutil.copytree(REPO_ROOT / "plugins", bundled_catalog)
+    marketplace = GitHubMarketplace(
+        repo_root=tmp_path / "python-runtime",
+        plugins_dir=tmp_path / "installed",
+        bundled_catalog_dir=bundled_catalog,
+    )
+
+    def fail_remote(_url: str):
+        raise OSError("offline")
+
+    monkeypatch.setattr(marketplace, "_fetch_json", fail_remote)
+
+    catalog = marketplace.load_catalog()
+    result = marketplace.install("weather")
+
+    assert catalog.source == "bundled"
+    assert result["success"] is True
+    assert result["source"] == "bundled"
+    assert (tmp_path / "installed" / "weather" / "plugin.py").is_file()
+
+
 def test_hash_mismatch_does_not_leave_partial_install(tmp_path, monkeypatch):
     repo_root = tmp_path / "repo"
     shutil.copytree(REPO_ROOT / "plugins", repo_root / "plugins")

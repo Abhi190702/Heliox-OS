@@ -91,8 +91,10 @@ For each platform:
 6. test a non-destructive command, an approved command, a denied command, and a
    failed command;
 7. test microphone input, camera gaze plus gesture coexistence, cursor mode,
-   Pocket TTS, and the learned risk interruption path on real hardware; and
-8. uninstall the application and confirm no running daemon remains.
+   Kokoro TTS, Pocket TTS, and the learned risk interruption path on real hardware; and
+8. disconnect the network and confirm the bundled marketplace catalog can
+   install one of its bundled plugins; and
+9. uninstall the application and confirm no running daemon remains.
 
 Record the OS version and result for every row. CI cannot substitute for this
 hardware and first-run validation.

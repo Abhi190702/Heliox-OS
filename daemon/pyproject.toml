@@ -91,7 +91,7 @@ supervision = [
 # Voice: local speech-to-text (openai-whisper) and text-to-speech (Kokoro
 # or Kyutai Pocket TTS), CPU-only and free. Ships
 # by default for real end users (see main.rs's setup_venv_in_background,
-# which installs "pilot-daemon[voice]") -- config.voice.tts_engine still
+# which installs "pilot-daemon[all]") -- config.voice.tts_engine still
 # lets the user choose Kokoro, Pocket TTS, or their OS's built-in voice in
 # Settings, but the underlying package is present either way so that
 # choice actually works out of the box, not just as a config default that
@@ -126,6 +126,9 @@ pilot-daemon = "pilot.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pilot"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"../plugins" = "pilot/plugins/marketplace_catalog"
 
 [tool.hatch.metadata]
 allow-direct-references = true
