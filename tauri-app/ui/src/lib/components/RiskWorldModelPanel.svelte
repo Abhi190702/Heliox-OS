@@ -9,6 +9,7 @@
     reasons: string[];
     worst_action_type: string | null;
     prediction_sources: string[];
+    prediction_confidence: number | null;
   }
 
   let enabled = $state(false);
@@ -16,6 +17,9 @@
   let weightsLoaded = $state(false);
   let modelVersion = $state("unknown");
   let trainingSamples = $state(0);
+  let validationSamples = $state(0);
+  let calibrated = $state(false);
+  let validationMae = $state<{ disk_delta: number; process_delta: number } | null>(null);
   let embeddingSize = $state(0);
   let actionTypes = $state<string[]>([]);
   let lastEvaluation = $state<LastEvaluation | null>(null);
@@ -32,6 +36,9 @@
     weights_loaded: boolean;
     model_version: string;
     training_samples: number;
+    validation_samples: number;
+    calibrated: boolean;
+    validation_mae: { disk_delta: number; process_delta: number } | null;
     embedding_size: number;
     learnable_action_types: string[];
     last_evaluation: LastEvaluation | null;
@@ -41,6 +48,9 @@
     weightsLoaded = result.weights_loaded ?? false;
     modelVersion = result.model_version ?? "unknown";
     trainingSamples = result.training_samples ?? 0;
+    validationSamples = result.validation_samples ?? 0;
+    calibrated = result.calibrated ?? false;
+    validationMae = result.validation_mae ?? null;
     embeddingSize = result.embedding_size ?? 0;
     actionTypes = result.learnable_action_types ?? [];
     lastEvaluation = result.last_evaluation ?? null;
@@ -65,6 +75,9 @@
         weights_loaded: boolean;
         model_version: string;
         training_samples: number;
+        validation_samples: number;
+        calibrated: boolean;
+        validation_mae: { disk_delta: number; process_delta: number } | null;
         embedding_size: number;
         learnable_action_types: string[];
         last_evaluation: LastEvaluation | null;
@@ -92,6 +105,9 @@
         weights_loaded: boolean;
         model_version: string;
         training_samples: number;
+        validation_samples: number;
+        calibrated: boolean;
+        validation_mae: { disk_delta: number; process_delta: number } | null;
         embedding_size: number;
         learnable_action_types: string[];
         last_evaluation: LastEvaluation | null;
@@ -111,6 +127,10 @@
 
   function formatScore(score: number): string {
     return `${Math.round(score * 100)}%`;
+  }
+
+  function formatMae(value: number): string {
+    return value < 0.0001 ? value.toExponential(2) : value.toFixed(5);
   }
 </script>
 
@@ -165,11 +185,24 @@
         <span class="status-label">Coverage</span>
         <strong>{actionTypes.length} action types / {embeddingSize} inputs</strong>
       </div>
+      <div class="status-card">
+        <span class="status-label">Validation</span>
+        <strong class:ready={validationSamples > 0}>{validationSamples.toLocaleString()} held-out samples</strong>
+      </div>
+      <div class="status-card">
+        <span class="status-label">Calibration</span>
+        <strong class:ready={calibrated}>{calibrated ? "Active" : "Unavailable"}</strong>
+      </div>
     </div>
 
     <div class="model-meta">
       <span>Model</span>
       <code>{modelVersion}</code>
+      {#if validationMae}
+        <span>
+          Held-out MAE: disk {formatMae(validationMae.disk_delta)} · process {formatMae(validationMae.process_delta)}
+        </span>
+      {/if}
     </div>
 
     <div class="evaluation">
@@ -183,6 +216,9 @@
           <span>{lastEvaluation.action_count} actions</span>
           <span>{lastEvaluation.worst_action_type ?? "no action"}</span>
           <span>{lastEvaluation.prediction_sources.join(" + ") || "rule"}</span>
+          {#if lastEvaluation.prediction_confidence != null}
+            <span>{formatScore(lastEvaluation.prediction_confidence)} model confidence</span>
+          {/if}
         </div>
         {#if lastEvaluation.reasons.length}
           <ul>
@@ -255,7 +291,7 @@
 
   .status-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
     padding: 12px 14px;
   }
@@ -284,6 +320,7 @@
 
   .model-meta {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
     padding: 0 14px 10px;

@@ -8,6 +8,7 @@ import contextlib
 import csv
 import json
 import logging
+import math
 import secrets
 import signal
 import sys
@@ -5246,6 +5247,31 @@ def handle_tool(tool_name, params):
         """
         if not self._cognitive_engine:
             return {"error": "Cognitive engine not initialized"}
+
+        input_dynamics = params.get("input_dynamics")
+        if input_dynamics is not None:
+            if not isinstance(input_dynamics, dict):
+                return {"error": "input_dynamics must be an object"}
+
+            def bounded_metric(name: str, maximum: float) -> float:
+                try:
+                    value = float(input_dynamics.get(name, 0.0))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{name} must be numeric") from exc
+                if not math.isfinite(value):
+                    raise ValueError(f"{name} must be finite")
+                return max(0.0, min(value, maximum))
+
+            try:
+                self._cognitive_engine.record_input_dynamics(
+                    keystroke_rate_per_min=bounded_metric("keystroke_rate_per_min", 1200.0),
+                    click_rate_per_min=bounded_metric("click_rate_per_min", 600.0),
+                    pointer_move_rate_per_min=bounded_metric("pointer_move_rate_per_min", 1200.0),
+                    idle_seconds=bounded_metric("idle_seconds", 3600.0),
+                )
+            except ValueError as exc:
+                return {"error": str(exc)}
+
         state = await self._cognitive_engine.predict_cognitive_state(
             stimulus_description=params.get("stimulus", ""),
         )

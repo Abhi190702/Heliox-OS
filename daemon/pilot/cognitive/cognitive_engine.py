@@ -99,6 +99,8 @@ class CognitiveSnapshot:
             "cognitive_load": round(self.cognitive_load, 3),
             "dominant_modality": self.dominant_modality,
             "confidence": round(self.confidence, 3),
+            "estimate_kind": "behavioral",
+            "signal_sources": int(self.raw_activations.get("signal_sources", 0)),
         }
 
 
@@ -220,7 +222,13 @@ class CognitiveEngine:
         if len(self._interaction_history) > self._max_history:
             self._interaction_history = self._interaction_history[-self._max_history :]
 
-    def record_input_dynamics(self, keystroke_rate_per_min: float, click_rate_per_min: float) -> None:
+    def record_input_dynamics(
+        self,
+        keystroke_rate_per_min: float,
+        click_rate_per_min: float,
+        pointer_move_rate_per_min: float = 0.0,
+        idle_seconds: float = 0.0,
+    ) -> None:
         """Feed a real keyboard/mouse cadence sample (e.g. from
         `InputSupervisionHook.snapshot()`) — an independent, objective
         engagement signal rather than the engine's own prior output."""
@@ -229,6 +237,8 @@ class CognitiveEngine:
                 "timestamp": time.time(),
                 "keystroke_rate": max(0.0, keystroke_rate_per_min),
                 "click_rate": max(0.0, click_rate_per_min),
+                "pointer_move_rate": max(0.0, pointer_move_rate_per_min),
+                "idle_seconds": max(0.0, idle_seconds),
             }
         )
         if len(self._input_dynamics_history) > self._max_dynamics_history:
@@ -315,6 +325,8 @@ class CognitiveEngine:
         dynamics_weight = 0.0
         weighted_keystroke = 0.0
         weighted_click = 0.0
+        weighted_pointer_move = 0.0
+        weighted_idle_seconds = 0.0
         for d in self._input_dynamics_history:
             w = self._decay_weight(now - d["timestamp"])
             if w <= 0.0:
@@ -322,6 +334,8 @@ class CognitiveEngine:
             dynamics_weight += w
             weighted_keystroke += w * d["keystroke_rate"]
             weighted_click += w * d["click_rate"]
+            weighted_pointer_move += w * d.get("pointer_move_rate", 0.0)
+            weighted_idle_seconds += w * d.get("idle_seconds", 0.0)
 
         gaze_weight = 0.0
         weighted_distraction = 0.0
@@ -344,9 +358,18 @@ class CognitiveEngine:
         event_freq_load = min(1.0, (event_weight / self._DECAY_TAU_S) * 4.0)
         keystroke_rate = weighted_keystroke / dynamics_weight if dynamics_weight > 0 else 0.0
         click_rate = weighted_click / dynamics_weight if dynamics_weight > 0 else 0.0
-        # Ceilings (60 keys/min, 10 clicks/min) match neural_bridge.py's
-        # InputDynamicsMonitor engagement-score normalization.
-        dynamics_load = min(1.0, (keystroke_rate / 60.0) * 0.7 + (click_rate / 10.0) * 0.3)
+        pointer_move_rate = weighted_pointer_move / dynamics_weight if dynamics_weight > 0 else 0.0
+        idle_seconds = weighted_idle_seconds / dynamics_weight if dynamics_weight > 0 else 0.0
+        keyboard_engagement = min(1.0, keystroke_rate / 60.0)
+        click_engagement = min(1.0, click_rate / 10.0)
+        pointer_engagement = min(1.0, pointer_move_rate / 120.0)
+        engagement = keyboard_engagement * 0.55 + click_engagement * 0.3 + pointer_engagement * 0.15
+        dynamics_load = min(
+            1.0,
+            min(1.0, keystroke_rate / 80.0) * 0.6
+            + min(1.0, click_rate / 15.0) * 0.3
+            + min(1.0, pointer_move_rate / 240.0) * 0.1,
+        )
 
         if event_weight > 1e-6 and dynamics_weight > 1e-6:
             load = event_freq_load * 0.5 + dynamics_load * 0.5
@@ -357,24 +380,36 @@ class CognitiveEngine:
 
         avg_intensity = weighted_intensity / event_weight if event_weight > 1e-6 else 0.0
         gaze_distraction = weighted_distraction / gaze_weight if gaze_weight > 1e-6 else 0.0
-        stress = min(1.0, avg_intensity * 0.65 + text_stress + gaze_distraction * 0.15)
+        overload_stress = max(0.0, load - 0.75) * 0.25
+        stress = min(
+            0.95,
+            0.18 + avg_intensity * 0.45 + text_stress + gaze_distraction * 0.12 + overload_stress,
+        )
 
         diversity = len(event_type_weight)
-        attention = 1.0 - max(0, diversity - 1) * 0.12 - gaze_distraction * 0.25 + text_attention
-        attention = max(0.15, min(1.0, attention))
+        idle_penalty = min(0.35, (idle_seconds / 30.0) * 0.35)
+        attention = (
+            0.45
+            + engagement * 0.4
+            - max(0, diversity - 1) * 0.08
+            - gaze_distraction * 0.35
+            - idle_penalty
+            + text_attention
+        )
+        attention = max(0.1, min(0.95, attention))
 
         dominant = max(modality_weight, key=modality_weight.get) if modality_weight else "visual"
 
         # Confidence reflects how much real, recent data actually backs this
-        # estimate (more signal streams + more recent samples = higher, but
-        # still capped well below what a real trained model would report).
+        # estimate. It remains capped because this is a behavioural estimate,
+        # not a clinical or camera-derived measurement of mental state.
         richness = (
-            min(1.0, event_weight / 3.0) * 0.45
-            + min(1.0, dynamics_weight / 3.0) * 0.25
-            + min(1.0, gaze_weight / 3.0) * 0.1
-            + (0.15 if stimulus_description else 0.0)
+            min(1.0, event_weight / 3.0) * 0.3
+            + min(1.0, dynamics_weight / 3.0) * 0.35
+            + min(1.0, gaze_weight / 3.0) * 0.2
+            + (0.1 if stimulus_description else 0.0)
         )
-        confidence = round(min(0.6, 0.2 + richness * 0.4), 3)
+        confidence = round(min(0.85, 0.2 + richness * 0.65), 3)
 
         return CognitiveSnapshot(
             attention_score=attention,
@@ -387,7 +422,17 @@ class CognitiveEngine:
                 "dynamics_weight": round(dynamics_weight, 3),
                 "keystroke_rate": round(keystroke_rate, 1),
                 "click_rate": round(click_rate, 1),
+                "pointer_move_rate": round(pointer_move_rate, 1),
+                "idle_seconds": round(idle_seconds, 1),
                 "gaze_distraction": round(gaze_distraction, 3),
+                "signal_sources": sum(
+                    (
+                        event_weight > 1e-6,
+                        dynamics_weight > 1e-6,
+                        gaze_weight > 1e-6,
+                        bool(stimulus_description),
+                    )
+                ),
             },
         )
 

@@ -52,11 +52,21 @@ class RiskGate:
 
     def status(self, enabled: bool) -> dict[str, object]:
         """Return user-safe runtime/model metadata for Settings."""
+        validation_mae = self._transition.validation_mae
+        baseline_mae = self._transition.baseline_mae
         return {
             "enabled": enabled,
             "weights_loaded": self.available,
             "model_version": self._transition.model_version,
             "training_samples": self._transition.training_samples,
+            "validation_samples": self._transition.validation_samples,
+            "calibrated": self._transition.is_calibrated,
+            "validation_mae": (
+                {"disk_delta": validation_mae[0], "process_delta": validation_mae[1]} if validation_mae else None
+            ),
+            "baseline_mae": (
+                {"disk_delta": baseline_mae[0], "process_delta": baseline_mae[1]} if baseline_mae else None
+            ),
             "embedding_size": EMBEDDING_SIZE,
             "learnable_action_types": sorted(action_type.value for action_type in LEARNABLE_ACTION_TYPES),
             "last_evaluation": self._last_evaluation,
@@ -73,6 +83,7 @@ class RiskGate:
                 "reasons": [],
                 "worst_action_type": None,
                 "prediction_sources": [],
+                "prediction_confidence": None,
             }
             return 0.0, []
 
@@ -88,6 +99,7 @@ class RiskGate:
         worst_reasons: list[str] = []
         worst_action_type: str | None = None
         worst_sources: list[str] = []
+        worst_prediction_confidence: float | None = None
         for action in plan.actions:
             learned_or_rule = self._transition.predict(simulated, action)
             deterministic = self._transition.predict_rule(simulated, action)
@@ -109,6 +121,9 @@ class RiskGate:
                     worst_reasons = reasons
                     worst_action_type = action.action_type.value
                     worst_sources = sorted({candidate.source for candidate in candidates})
+                    worst_prediction_confidence = (
+                        learned_or_rule.confidence if learned_or_rule.source != "rule" else None
+                    )
 
             simulated = replace(
                 simulated,
@@ -126,6 +141,7 @@ class RiskGate:
             "reasons": worst_reasons,
             "worst_action_type": worst_action_type,
             "prediction_sources": worst_sources,
+            "prediction_confidence": worst_prediction_confidence,
         }
         return worst_risk, worst_reasons
 

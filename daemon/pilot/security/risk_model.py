@@ -82,7 +82,7 @@ LEARNABLE_ACTION_TYPE_ORDER = tuple(sorted(LEARNABLE_ACTION_TYPES, key=lambda ac
 IDX_ACTION_TYPE_BASE = IDX_FAMILY_BASE + len(FAMILY_ORDER)
 EMBEDDING_SIZE = IDX_ACTION_TYPE_BASE + len(LEARNABLE_ACTION_TYPE_ORDER)
 
-MODEL_VERSION = "risk-mlp-v2-action-types"
+MODEL_VERSION = "risk-mlp-v3-calibrated"
 
 
 @dataclass(frozen=True)
@@ -92,7 +92,8 @@ class PredictedOutcome:
 
     disk_usage_after: float
     proc_count_delta_normalized: float
-    source: str  # "learned" | "rule" — for audit/debugging, not a risk signal itself
+    source: str  # "learned_calibrated" | "learned" | "rule"
+    confidence: float = 1.0
 
 
 def encode(snapshot: OsSnapshot, action: Action) -> np.ndarray:
@@ -127,6 +128,7 @@ def _rule_based_outcome(snapshot: OsSnapshot, action: Action) -> PredictedOutcom
         disk_usage_after=min(1.0, max(0.0, snapshot.disk_usage_fraction + disk_delta)),
         proc_count_delta_normalized=proc_delta,
         source="rule",
+        confidence=1.0,
     )
 
 
@@ -143,6 +145,13 @@ class RiskTransitionModel:
         self._w1 = self._b1 = self._w2 = self._b2 = None
         self._model_version = "rule-fallback"
         self._training_samples = 0
+        self._validation_samples = 0
+        self._validation_mae: np.ndarray | None = None
+        self._baseline_mae: np.ndarray | None = None
+        self._action_medians: np.ndarray | None = None
+        self._calibration_alpha: np.ndarray | None = None
+        self._feature_mean: np.ndarray | None = None
+        self._feature_scale: np.ndarray | None = None
         self._weights_path = weights_path or _default_weights_path()
         self._try_load()
 
@@ -163,6 +172,26 @@ class RiskTransitionModel:
                 str(data["model_version"].item()) if "model_version" in data.files else "legacy-learned-model"
             )
             self._training_samples = int(data["training_samples"].item()) if "training_samples" in data.files else 0
+            self._validation_samples = (
+                int(data["validation_samples"].item()) if "validation_samples" in data.files else 0
+            )
+            self._validation_mae = data["validation_mae"] if "validation_mae" in data.files else None
+            self._baseline_mae = data["baseline_mae"] if "baseline_mae" in data.files else None
+            self._action_medians = data["action_medians"] if "action_medians" in data.files else None
+            self._calibration_alpha = data["calibration_alpha"] if "calibration_alpha" in data.files else None
+            self._feature_mean = data["feature_mean"] if "feature_mean" in data.files else None
+            self._feature_scale = data["feature_scale"] if "feature_scale" in data.files else None
+
+            expected_calibration_shape = (len(LEARNABLE_ACTION_TYPE_ORDER), 2)
+            calibration_shapes_valid = (
+                self._action_medians is not None
+                and self._action_medians.shape == expected_calibration_shape
+                and self._calibration_alpha is not None
+                and self._calibration_alpha.shape == expected_calibration_shape
+            )
+            if not calibration_shapes_valid:
+                self._action_medians = None
+                self._calibration_alpha = None
             self._loaded = True
             logger.info("Loaded learned risk transition model from %s", self._weights_path)
         except FileNotFoundError:
@@ -182,6 +211,51 @@ class RiskTransitionModel:
     def training_samples(self) -> int:
         return self._training_samples
 
+    @property
+    def validation_samples(self) -> int:
+        return self._validation_samples
+
+    @property
+    def is_calibrated(self) -> bool:
+        return self._action_medians is not None and self._calibration_alpha is not None
+
+    @property
+    def validation_mae(self) -> tuple[float, float] | None:
+        if self._validation_mae is None or self._validation_mae.shape != (2,):
+            return None
+        return float(self._validation_mae[0]), float(self._validation_mae[1])
+
+    @property
+    def baseline_mae(self) -> tuple[float, float] | None:
+        if self._baseline_mae is None or self._baseline_mae.shape != (2,):
+            return None
+        return float(self._baseline_mae[0]), float(self._baseline_mae[1])
+
+    def _prediction_confidence(self, x: np.ndarray) -> float:
+        """Report empirical support without treating a prediction as certain."""
+        quality = 0.5
+        validation_mae = self.validation_mae
+        baseline_mae = self.baseline_mae
+        if validation_mae and baseline_mae:
+            relative_quality = [
+                1.0 - min(1.0, error / max(baseline, 1e-12))
+                for error, baseline in zip(validation_mae, baseline_mae, strict=True)
+            ]
+            quality = float(np.mean(relative_quality))
+
+        support = 1.0
+        if (
+            self._feature_mean is not None
+            and self._feature_scale is not None
+            and self._feature_mean.shape == (3,)
+            and self._feature_scale.shape == (3,)
+        ):
+            z = np.abs((x[:3] - self._feature_mean) / np.maximum(self._feature_scale, 1e-4))
+            excess = float(np.mean(np.maximum(0.0, z - 3.0)))
+            support = float(np.exp(-0.2 * excess))
+
+        return float(np.clip(quality * support, 0.1, 0.99))
+
     def predict_rule(self, snapshot: OsSnapshot, action: Action) -> PredictedOutcome:
         """Return the deterministic baseline even when learned weights exist.
 
@@ -197,10 +271,23 @@ class RiskTransitionModel:
         x = encode(snapshot, action)
         hidden = np.tanh(x @ self._w1 + self._b1)
         out = hidden @ self._w2 + self._b2  # [disk_delta, proc_delta_normalized]
+        source = "learned"
+
+        if self.is_calibrated:
+            action_index = LEARNABLE_ACTION_TYPE_ORDER.index(action.action_type)
+            alpha = self._calibration_alpha[action_index]
+            median = self._action_medians[action_index]
+            out = alpha * out + (1.0 - alpha) * median
+            source = "learned_calibrated"
 
         disk_after = float(np.clip(snapshot.disk_usage_fraction + out[0], 0.0, 1.0))
         proc_delta = float(out[1])
-        return PredictedOutcome(disk_usage_after=disk_after, proc_count_delta_normalized=proc_delta, source="learned")
+        return PredictedOutcome(
+            disk_usage_after=disk_after,
+            proc_count_delta_normalized=proc_delta,
+            source=source,
+            confidence=self._prediction_confidence(x),
+        )
 
 
 def _default_weights_path() -> str:

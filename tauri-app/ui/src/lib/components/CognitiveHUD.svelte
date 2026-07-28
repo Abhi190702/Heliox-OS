@@ -5,13 +5,46 @@
   let stress = $state(0);
   let load = $state(0);
   let modality = $state("VISUAL");
+  let confidence = $state(0);
+  let signalSources = $state(0);
   let connected = $state(false);
+  let hasSample = false;
 
-  // Track basic user activity to feed real stimuli to the cognitive engine
-  let currentStimulus = "User is passively observing the dashboard";
+  let sampleWindowStarted = performance.now();
+  let lastActivityAt = Date.now();
+  let keystrokes = 0;
+  let clicks = 0;
+  let pointerMoves = 0;
+  let lastPointerSampleAt = 0;
 
-  function updateStimulus(activity: string) {
-    currentStimulus = activity;
+  function recordActivity(kind: "keyboard" | "click" | "pointer") {
+    lastActivityAt = Date.now();
+    if (kind === "keyboard") keystrokes += 1;
+    if (kind === "click") clicks += 1;
+    if (kind === "pointer") {
+      const now = performance.now();
+      if (now - lastPointerSampleAt >= 250) {
+        pointerMoves += 1;
+        lastPointerSampleAt = now;
+      }
+    }
+  }
+
+  function collectInputDynamics() {
+    const now = performance.now();
+    const elapsedMs = Math.max(1000, now - sampleWindowStarted);
+    const rateMultiplier = 60_000 / elapsedMs;
+    const sample = {
+      keystroke_rate_per_min: keystrokes * rateMultiplier,
+      click_rate_per_min: clicks * rateMultiplier,
+      pointer_move_rate_per_min: pointerMoves * rateMultiplier,
+      idle_seconds: Math.max(0, (Date.now() - lastActivityAt) / 1000),
+    };
+    sampleWindowStarted = now;
+    keystrokes = 0;
+    clicks = 0;
+    pointerMoves = 0;
+    return sample;
   }
 
   async function fetchCognitiveState() {
@@ -20,12 +53,18 @@
       return;
     }
     try {
-      const state: any = await call("cognitive_state", { stimulus: currentStimulus });
+      const state: any = await call("cognitive_state", {
+        input_dynamics: collectInputDynamics(),
+      });
       if (state && !state.error) {
-        attention = state.attention_score || 0;
-        stress = state.stress_level || 0;
-        load = state.cognitive_load || 0;
+        const blend = hasSample ? 0.35 : 1;
+        attention = attention * (1 - blend) + Number(state.attention_score ?? 0.5) * blend;
+        stress = stress * (1 - blend) + Number(state.stress_level ?? 0.3) * blend;
+        load = load * (1 - blend) + Number(state.cognitive_load ?? 0.4) * blend;
+        confidence = Number(state.confidence ?? 0);
+        signalSources = Number(state.signal_sources ?? 0);
         modality = (state.dominant_modality || "VISUAL").toUpperCase();
+        hasSample = true;
         connected = true;
       } else {
         connected = false;
@@ -39,25 +78,18 @@
     fetchCognitiveState();
     const interval = setInterval(fetchCognitiveState, 2000);
 
-    const onMouseMove = () => updateStimulus("User is actively moving the mouse and exploring the interface");
-    const onKeyPress = () => updateStimulus("User is actively typing on the keyboard");
-    const onClick = () => updateStimulus("User is clicking and interacting with the system");
+    const onMouseMove = () => recordActivity("pointer");
+    const onKeyPress = () => recordActivity("keyboard");
+    const onClick = () => recordActivity("click");
 
-    window.addEventListener("mousemove", onMouseMove, { once: true });
-    window.addEventListener("keypress", onKeyPress);
+    window.addEventListener("pointermove", onMouseMove, { passive: true });
+    window.addEventListener("keydown", onKeyPress);
     window.addEventListener("click", onClick);
-
-    // Reset to passive if idle for 5 seconds
-    const idleInterval = setInterval(() => {
-      updateStimulus("User is passively observing the dashboard");
-      window.addEventListener("mousemove", onMouseMove, { once: true });
-    }, 5000);
 
     return () => {
       clearInterval(interval);
-      clearInterval(idleInterval);
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("keypress", onKeyPress);
+      window.removeEventListener("pointermove", onMouseMove);
+      window.removeEventListener("keydown", onKeyPress);
       window.removeEventListener("click", onClick);
     };
   });
@@ -87,7 +119,12 @@
       <span class="cognitive-dot"></span>
       COGNITIVE STATE
     </div>
-    <div class="modality">{modality}</div>
+    <div class="estimate-meta">
+      <div class="modality">{modality}</div>
+      <div class="confidence" title="Confidence based on the amount and freshness of local behavioural signals">
+        {Math.round(confidence * 100)}% CONF
+      </div>
+    </div>
   </div>
 
   <div class="metrics">
@@ -133,6 +170,11 @@
         ></div>
       </div>
     </div>
+  </div>
+
+  <div class="estimate-note">
+    {signalSources > 0 ? `${signalSources} live signal source${signalSources === 1 ? "" : "s"}` : "Collecting signals"}
+    · behavioural estimate, not a medical measurement
   </div>
 
   {#if !connected}
@@ -209,6 +251,22 @@
     letter-spacing: 1px;
   }
 
+  .estimate-meta {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+  }
+
+  .confidence {
+    padding: 2px 6px;
+    font-size: 8px;
+    font-weight: 700;
+    color: rgba(0, 200, 255, 0.85);
+    background: rgba(0, 200, 255, 0.08);
+    border-radius: 4px;
+    letter-spacing: 0.7px;
+  }
+
   .metrics {
     display: flex;
     flex-direction: column;
@@ -253,6 +311,13 @@
     transition:
       width 1s cubic-bezier(0.4, 0, 0.2, 1),
       background 1s;
+  }
+
+  .estimate-note {
+    margin-top: 9px;
+    font-size: 8px;
+    line-height: 1.35;
+    color: rgba(200, 200, 220, 0.48);
   }
 
   .overlay {

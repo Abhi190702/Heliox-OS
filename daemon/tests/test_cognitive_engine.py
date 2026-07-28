@@ -99,10 +99,39 @@ class TestInputDynamics:
     @pytest.mark.asyncio
     async def test_negative_rates_are_clamped_to_zero(self):
         engine = CognitiveEngine()
-        engine.record_input_dynamics(keystroke_rate_per_min=-5.0, click_rate_per_min=-1.0)
+        engine.record_input_dynamics(
+            keystroke_rate_per_min=-5.0,
+            click_rate_per_min=-1.0,
+            pointer_move_rate_per_min=-10.0,
+            idle_seconds=-2.0,
+        )
 
         assert engine._input_dynamics_history[-1]["keystroke_rate"] == 0.0
         assert engine._input_dynamics_history[-1]["click_rate"] == 0.0
+        assert engine._input_dynamics_history[-1]["pointer_move_rate"] == 0.0
+        assert engine._input_dynamics_history[-1]["idle_seconds"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_real_activity_is_neutral_not_perfect_attention(self):
+        engine = CognitiveEngine()
+        engine.record_input_dynamics(30.0, 4.0, 60.0, 0.0)
+
+        snap = await engine.predict_cognitive_state()
+
+        assert 0.45 < snap.attention_score < 0.95
+        assert snap.raw_activations["pointer_move_rate"] == pytest.approx(60.0, abs=0.5)
+
+    @pytest.mark.asyncio
+    async def test_idle_time_reduces_attention(self):
+        active = CognitiveEngine()
+        active.record_input_dynamics(20.0, 2.0, 30.0, 0.0)
+        idle = CognitiveEngine()
+        idle.record_input_dynamics(20.0, 2.0, 30.0, 30.0)
+
+        active_snap = await active.predict_cognitive_state()
+        idle_snap = await idle.predict_cognitive_state()
+
+        assert idle_snap.attention_score < active_snap.attention_score
 
     def test_history_is_bounded(self):
         engine = CognitiveEngine()
@@ -199,7 +228,7 @@ class TestConfidenceScaling:
 
         snap = await engine.predict_cognitive_state(stimulus_description="critical urgent error")
 
-        assert snap.confidence <= 0.6
+        assert snap.confidence <= 0.85
 
 
 class TestIntentAffinityJaccard:

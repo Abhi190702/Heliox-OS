@@ -12,7 +12,7 @@ from pilot.security.risk_model import (
     encode,
 )
 from pilot.security.risk_observation import OsSnapshot
-from scripts.train_risk_gate import load_dataset
+from scripts.train_risk_gate import load_action_types, load_dataset, stratified_temporal_split
 
 
 def _snapshot(**overrides) -> OsSnapshot:
@@ -83,6 +83,23 @@ def test_training_loader_upgrades_legacy_embeddings_with_recorded_action_type(tm
     assert Y[0, 1] == pytest.approx(1.0 / 300.0)
 
 
+def test_training_split_holds_out_each_action_temporally():
+    action_types = load_action_types("scripts/risk_dataset.jsonl")
+
+    train, calibration, validation = stratified_temporal_split(action_types, 0.15)
+
+    assert len(train) == 25_200
+    assert len(calibration) == 5_400
+    assert len(validation) == 5_400
+    assert set(train).isdisjoint(calibration)
+    assert set(train).isdisjoint(validation)
+    assert set(calibration).isdisjoint(validation)
+    for action_type in LEARNABLE_ACTION_TYPE_ORDER:
+        assert action_type.value in action_types[train]
+        assert action_type.value in action_types[calibration]
+        assert action_type.value in action_types[validation]
+
+
 class TestRiskTransitionModel:
     def test_shipped_v2_weights_load_and_separate_opposite_process_actions(self):
         model = RiskTransitionModel()
@@ -91,12 +108,30 @@ class TestRiskTransitionModel:
         stop = model.predict(_snapshot(), _action(ActionType.SERVICE_STOP))
 
         assert model.is_loaded is True
-        assert model.model_version == "risk-mlp-v2-action-types"
+        assert model.model_version == "risk-mlp-v3-calibrated"
         assert model.training_samples == 36_000
-        assert start.source == "learned"
-        assert stop.source == "learned"
+        assert model.validation_samples == 5_400
+        assert model.is_calibrated is True
+        assert model.validation_mae is not None
+        assert start.source == "learned_calibrated"
+        assert stop.source == "learned_calibrated"
         assert start.proc_count_delta_normalized > 0
         assert stop.proc_count_delta_normalized < 0
+        assert 0.0 < start.confidence < 1.0
+
+    def test_confidence_drops_outside_observed_os_state_distribution(self):
+        model = RiskTransitionModel()
+
+        supported = model.predict(
+            _snapshot(proc_count=300, disk_usage_fraction=0.866, memory_usage_fraction=0.831),
+            _action(ActionType.CODE_EXECUTE),
+        )
+        out_of_distribution = model.predict(
+            _snapshot(proc_count=5, disk_usage_fraction=0.05, memory_usage_fraction=0.05),
+            _action(ActionType.CODE_EXECUTE),
+        )
+
+        assert supported.confidence > out_of_distribution.confidence
 
     def test_falls_back_to_rule_table_when_no_weights(self, tmp_path):
         model = RiskTransitionModel(weights_path=str(tmp_path / "does_not_exist.npz"))

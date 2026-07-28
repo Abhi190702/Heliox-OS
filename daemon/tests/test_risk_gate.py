@@ -103,6 +103,9 @@ def test_status_reports_model_metadata_and_sanitized_last_evaluation():
     status = gate.status(enabled=True)
     assert status["enabled"] is True
     assert status["weights_loaded"] is True
+    assert status["calibrated"] is True
+    assert status["validation_samples"] == 5_400
+    assert status["validation_mae"]
     assert status["embedding_size"] == EMBEDDING_SIZE
     assert status["learnable_action_types"]
     assert set(status["last_evaluation"]) == {
@@ -112,4 +115,5 @@ def test_status_reports_model_metadata_and_sanitized_last_evaluation():
         "reasons",
         "worst_action_type",
         "prediction_sources",
+        "prediction_confidence",
     }

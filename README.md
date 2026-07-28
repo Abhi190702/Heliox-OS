@@ -96,9 +96,9 @@ Heliox OS combines reactive commands with opt-in proactive and background capabi
 
 ## 🧠 Cognitive Engine Integrations
 
-Heliox OS integrates a lightweight, dependency-free **Cognitive Engine** (`pilot.cognitive.cognitive_engine`) directly into the operating logic — attention/stress/cognitive-load estimated from local interaction-history heuristics, with zero external model, no network download, and no license restrictions:
+Heliox OS integrates a lightweight, dependency-free **Cognitive Engine** (`pilot.cognitive.cognitive_engine`) directly into the operating logic. Attention/stress/load are explicitly labelled behavioural estimates derived from measured local keyboard, click, pointer, interaction-history, and opt-in gaze signals. The HUD reports confidence and never presents these estimates as medical or physiological measurements. No raw keystrokes, click targets, camera frames, or gaze images are stored or sent to a model:
 
-1. **Cognitive HUD:** Tracks real-time attention/stress/load estimates, mapped onto the Svelte UI.
+1. **Cognitive HUD:** Shows smoothed attention/stress/load estimates together with signal count and confidence, avoiding false “100% certain” states when evidence is sparse.
 2. **Dynamic TTS Stress-Pacing:** JARVIS automatically slows down voice generation if you are engaged in high cognitive-load tasks.
 3. **Stress-Aware Destructive Gate:** High-risk actions (e.g., recursive deletes) evaluate cognitive stress first. If you are distracted, a strict 10-second auditory confirmation gate holds the process.
 4. **Subconscious Persona Fingerprint:** The Subconscious background loop learns your cognitive engagement patterns and encodes them to `persona.md` to align UIs to your habits.
@@ -115,7 +115,7 @@ user-visible product features. The production execution path uses the
 lightweight Cognitive Engine integrations listed above.
 
 ### 1. Adaptive Biometric Learning Loop
-Track user's physiological patterns over weeks (time-of-day productivity, stress cycles). Create personalized "cognitive fingerprints" that predict optimal interaction times. Implements a closed-loop feedback system where user responses refine the cognitive-load predictions.
+Track opt-in behavioural patterns over weeks (time-of-day productivity and interaction cadence). Create personalized behavioural fingerprints that estimate useful interaction times. This is an experimental developer API, not a physiological or medical classifier.
 
 ```python
 from pilot.cognitive.biometric_loop import BiometricLearningLoop
@@ -670,7 +670,7 @@ npm run tauri dev
 - **Snapshot-based rollback** — Btrfs/Timeshift on Linux and Windows Restore Points on Windows. Required snapshots fail closed: if the selected backend is unavailable or the Windows daemon is not elevated, the destructive action does not run. Windows controls restore-point retention; Heliox retention settings apply where the backend supports them.
 - **Tamper-evident, HMAC-chained audit log** for every elevated permission decision, viewable and independently verifiable (integrity check) from the Settings panel
 - **Agent Gateway**: source-scoped permission floors for shell/browsing/system-control actions (interactive/autonomous/web-agent/voice/gesture/self-healing, plus one enforced ceiling per specialist agent in the multi-agent orchestrator, each tightenable but never independently widenable by a per-task override), a second tamper-evident audit chain for gateway decisions, and dry-run impact modeling extended to browser and system-control actions — see [SECURITY.md](SECURITY.md) for the full threat model this closes
-- **Learned risk world model**: the bundled MLP predicts action impact from real training samples before execution. Deterministic policy remains authoritative; the model can interrupt or add confirmation, but it cannot remove a rule-based warning or grant permission.
+- **Learned risk world model**: the bundled transition model predicts action impact from 36,000 real training samples before execution. Its MLP output is blended with an action-specific robust median calibrated on a separate temporal block and evaluated on 5,400 later held-out samples; runtime confidence falls outside the observed OS-state distribution. Deterministic policy remains authoritative, so the model can interrupt or add confirmation but cannot remove a rule-based warning or grant permission.
 - **Autonomous Healing Engine (opt-in)**: passively watches CPU/memory/disk and plans a remediation goal through the normal Planner/Executor pipeline when one crosses its threshold — low-tier/reversible plans auto-execute, anything else is proposed and held for explicit confirmation — see [SECURITY.md](SECURITY.md#-autonomous-healing-engine-opt-in)
 - **Pre-execution target assessment**: dry-run plans that click/type/select on the current page get checked against the live DOM before you confirm — a missing, hidden, or ambiguous target raises that action's risk and shows why, instead of the same generic description every browser action used to get — see [SECURITY.md](SECURITY.md#-pre-execution-target-assessment-browser-actions)
 - **Interactive Execution Companion**: reviews every proposed plan independently, can warn/revise/stop work that drifts from the request, accepts typed or spoken live corrections during planning/execution/verification, and supplies grounded next ideas only after a verified result. Optional step narration remains user-controlled.

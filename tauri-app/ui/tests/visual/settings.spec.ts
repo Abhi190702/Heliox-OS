@@ -35,44 +35,32 @@ test.describe("Settings Panel", () => {
   });
 
   test("appearance section matches baseline", async ({ page }) => {
-    const section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Appearance" });
+    const section = page.locator(".settings-group").filter({ hasText: "Appearance" });
     await expect(section).toBeVisible();
     await expect(section).toHaveScreenshot("settings-appearance-section.png");
   });
 
   test("security section matches baseline", async ({ page }) => {
-    const section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Security" });
+    const section = page.locator(".settings-group").filter({ hasText: "Security" });
     await expect(section).toBeVisible();
     await expect(section).toHaveScreenshot("settings-security-section.png");
   });
 
   test("model section matches baseline", async ({ page }) => {
-    const section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Model" })
-      .first();
+    const section = page.locator(".settings-group").filter({ hasText: "Model" }).first();
     await expect(section).toBeVisible();
     await expect(section).toHaveScreenshot("settings-model-section.png");
   });
 
   test("cloud API section matches baseline", async ({ page }) => {
-    const section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Cloud API" });
+    const section = page.locator(".settings-group").filter({ hasText: "Cloud API" });
     await expect(section).toBeVisible();
     await expect(section).toHaveScreenshot("settings-cloud-section.png");
   });
 
   test("toggle active state renders correctly", async ({ page }) => {
     // Click the Root Access toggle and verify the active CSS class is applied
-    const rootToggle = page
-      .locator(".setting-row")
-      .filter({ hasText: "Root Access" })
-      .locator(".toggle");
+    const rootToggle = page.locator(".setting-row").filter({ hasText: "Root Access" }).locator(".toggle");
 
     await expect(rootToggle).toBeVisible();
     // Capture inactive state
@@ -86,10 +74,7 @@ test.describe("Settings Panel", () => {
 
   test("light mode settings panel matches baseline", async ({ page }) => {
     // Click the Light Mode toggle to switch themes
-    const themeToggle = page
-      .locator(".setting-row")
-      .filter({ hasText: "Light Mode" })
-      .locator(".toggle");
+    const themeToggle = page.locator(".setting-row").filter({ hasText: "Light Mode" }).locator(".toggle");
 
     await themeToggle.click();
     await page.waitForTimeout(200); // allow theme transition
@@ -99,26 +84,24 @@ test.describe("Settings Panel", () => {
   });
 
   test("restrictions section matches baseline", async ({ page }) => {
-    const section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Restrictions" });
+    const section = page.locator(".settings-group").filter({ hasText: "Restrictions" });
     await expect(section).toBeVisible();
     await expect(section).toHaveScreenshot("settings-restrictions-section.png");
   });
 
-  test("learned risk world model exposes runtime status and saves its toggle", async ({
-    page,
-  }) => {
-    const section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Learned Risk World Model" });
+  test("learned risk world model exposes runtime status and saves its toggle", async ({ page }) => {
+    const section = page.locator(".settings-group").filter({ hasText: "Learned Risk World Model" });
     await section.scrollIntoViewIfNeeded();
 
     await expect(section).toContainText("Loaded");
     await expect(section).toContainText("36,000 real samples");
-    await expect(section).toContainText("risk-mlp-v2-action-types");
+    await expect(section).toContainText("5,400 held-out samples");
+    await expect(section).toContainText("Calibration");
+    await expect(section).toContainText("Active");
+    await expect(section).toContainText("risk-mlp-v3-calibrated");
     await expect(section).toContainText("80% risk");
-    await expect(section).toContainText("learned + rule");
+    await expect(section).toContainText("learned_calibrated + rule");
+    await expect(section).toContainText("77% model confidence");
 
     const runtimeCard = section.locator(".status-card").filter({ hasText: "Runtime" });
     await expect(runtimeCard).toContainText("Enabled");
@@ -128,45 +111,31 @@ test.describe("Settings Panel", () => {
     await expect(runtimeCard).toContainText("Disabled");
 
     await expect
-      .poll(() =>
-        page.evaluate(() => (window as any).__risk_gate_update__)
-      )
+      .poll(() => page.evaluate(() => (window as any).__risk_gate_update__))
       .toMatchObject({
         method: "risk_gate_config_update",
         params: { enabled: false },
       });
   });
 
-  test("gesture workflow bindings validate, save, and reload", async ({
-    page,
-  }) => {
-    let section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Gesture Workflow Bindings" });
+  test("gesture workflow bindings validate, save, and reload", async ({ page }) => {
+    let section = page.locator(".settings-group").filter({ hasText: "Gesture Workflow Bindings" });
     await section.scrollIntoViewIfNeeded();
 
     await expect(section).toContainText(
-      "Saved changes apply immediately, including while the camera is already running."
+      "Saved changes apply immediately, including while the camera is already running.",
     );
     await section.getByRole("button", { name: "Add Binding" }).click();
     await expect(section).toContainText("Every binding needs a workflow goal.");
     await expect(section.getByRole("button", { name: "Save" })).toBeDisabled();
 
-    await section
-      .getByRole("combobox", { name: "Gesture for binding 1" })
-      .selectOption("swipe_up");
-    await section
-      .getByRole("textbox", { name: "Workflow goal for binding 1" })
-      .fill("run my daily briefing");
-    await section
-      .getByRole("button", { name: "Toggle gesture workflow bindings" })
-      .click();
+    await section.getByRole("combobox", { name: "Gesture for binding 1" }).selectOption("swipe_up");
+    await section.getByRole("textbox", { name: "Workflow goal for binding 1" }).fill("run my daily briefing");
+    await section.getByRole("button", { name: "Toggle gesture workflow bindings" }).click();
     await section.getByRole("button", { name: "Save" }).click();
 
     await expect
-      .poll(() =>
-        page.evaluate(() => (window as any).__gesture_workflow_update__)
-      )
+      .poll(() => page.evaluate(() => (window as any).__gesture_workflow_update__))
       .toMatchObject({
         method: "gesture_workflow_bindings_update",
         params: {
@@ -183,34 +152,25 @@ test.describe("Settings Panel", () => {
 
     await clickTab(page, "Activity");
     await clickTab(page, "Settings");
-    section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Gesture Workflow Bindings" });
+    section = page.locator(".settings-group").filter({ hasText: "Gesture Workflow Bindings" });
     await section.scrollIntoViewIfNeeded();
 
-    await expect(
-      section.getByRole("button", { name: "Toggle gesture workflow bindings" })
-    ).toHaveAttribute("aria-pressed", "true");
-    await expect(
-      section.getByRole("combobox", { name: "Gesture for binding 1" })
-    ).toHaveValue("swipe_up");
-    await expect(
-      section.getByRole("textbox", { name: "Workflow goal for binding 1" })
-    ).toHaveValue("run my daily briefing");
+    await expect(section.getByRole("button", { name: "Toggle gesture workflow bindings" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(section.getByRole("combobox", { name: "Gesture for binding 1" })).toHaveValue("swipe_up");
+    await expect(section.getByRole("textbox", { name: "Workflow goal for binding 1" })).toHaveValue(
+      "run my daily briefing",
+    );
   });
 
-  test("voice workflow panel submits a durable workflow goal", async ({
-    page,
-  }) => {
-    const section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Active Voice/Gesture Workflows" });
+  test("voice workflow panel submits a durable workflow goal", async ({ page }) => {
+    const section = page.locator(".settings-group").filter({ hasText: "Active Voice/Gesture Workflows" });
     await section.scrollIntoViewIfNeeded();
 
     await expect(section).toContainText("No active workflows right now.");
-    await section
-      .getByPlaceholder("Describe the multi-step goal")
-      .fill("open github and review notifications");
+    await section.getByPlaceholder("Describe the multi-step goal").fill("open github and review notifications");
     await section.getByRole("button", { name: "Start Workflow" }).click();
 
     await expect
@@ -224,12 +184,8 @@ test.describe("Settings Panel", () => {
       });
   });
 
-  test("autonomous healing shows live monitors and saves selected metrics", async ({
-    page,
-  }) => {
-    const section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Autonomous Healing" });
+  test("autonomous healing shows live monitors and saves selected metrics", async ({ page }) => {
+    const section = page.locator(".settings-group").filter({ hasText: "Autonomous Healing" });
     await section.scrollIntoViewIfNeeded();
 
     await expect(section).toContainText("CPU > 80% · 24% · 12 checks");
@@ -250,12 +206,8 @@ test.describe("Settings Panel", () => {
       });
   });
 
-  test("full window with settings tab active matches baseline", async ({
-    page,
-  }) => {
-    await expect(page.locator(".window")).toHaveScreenshot(
-      "settings-full-window.png"
-    );
+  test("full window with settings tab active matches baseline", async ({ page }) => {
+    await expect(page.locator(".window")).toHaveScreenshot("settings-full-window.png");
   });
 });
 
@@ -264,18 +216,14 @@ test.describe("Learned Risk World Model compatibility", () => {
     await gotoApp(page, { riskGateStatusMissing: true });
     await clickTab(page, "Settings");
 
-    const section = page
-      .locator(".settings-group")
-      .filter({ hasText: "Learned Risk World Model" });
+    const section = page.locator(".settings-group").filter({ hasText: "Learned Risk World Model" });
     await section.scrollIntoViewIfNeeded();
 
     await expect(section.getByRole("alert")).toContainText(
-      "This app is connected to an older Heliox daemon. Restart the daemon, then retry."
+      "This app is connected to an older Heliox daemon. Restart the daemon, then retry.",
     );
     await expect(section).not.toContainText("Rule fallback only");
     await expect(section).not.toContainText("0 real samples");
-    await expect(
-      section.getByRole("button", { name: "Toggle Learned Risk World Model" })
-    ).toBeDisabled();
+    await expect(section.getByRole("button", { name: "Toggle Learned Risk World Model" })).toBeDisabled();
   });
 });

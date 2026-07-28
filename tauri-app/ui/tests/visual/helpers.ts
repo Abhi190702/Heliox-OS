@@ -19,7 +19,7 @@ export async function mockTauriIpc(page: Page): Promise<void> {
     // Seed Math.random using mulberry32 to make all random layouts (like canvas nodes) completely deterministic
     const mulberry32 = (a: number) => {
       return () => {
-        let t = a += 0x6D2B79F5;
+        let t = (a += 0x6d2b79f5);
         t = Math.imul(t ^ (t >>> 15), t | 1);
         t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -65,25 +65,22 @@ export async function mockTauriIpc(page: Page): Promise<void> {
       onerror: any;
       onclose: any;
       readyState = 1; // WebSocket.OPEN
-      
+
       constructor(url: string, protocols?: string | string[]) {
         (window as any).__mock_ws__ = this;
-        
+
         // Auto-connect after a tiny delay
         setTimeout(() => {
           if (this.onopen) this.onopen(new Event("open"));
         }, 10);
       }
-      
+
       send(data: string) {
         // Intercept sent messages and store them globally for tests to inspect
         const request = JSON.parse(data);
         (window as any).__last_ws_send__ = request;
 
-        if (
-          request.method === "risk_gate_status" &&
-          (window as any).__mock_risk_gate_status_missing__
-        ) {
+        if (request.method === "risk_gate_status" && (window as any).__mock_risk_gate_status_missing__) {
           setTimeout(() => {
             this.onmessage?.({
               data: JSON.stringify({
@@ -114,6 +111,7 @@ export async function mockTauriIpc(page: Page): Promise<void> {
           request.method === "auth" ||
           request.method === "risk_gate_status" ||
           request.method === "risk_gate_config_update" ||
+          request.method === "cognitive_state" ||
           request.method === "self_healing_status" ||
           request.method === "self_healing_config_update" ||
           request.method === "voice_gesture_workflow_list" ||
@@ -124,29 +122,45 @@ export async function mockTauriIpc(page: Page): Promise<void> {
           let result: Record<string, unknown>;
           if (request.method === "auth") {
             result = { status: "ok" };
+          } else if (request.method === "cognitive_state") {
+            result = {
+              attention_score: 0.58,
+              stress_level: 0.22,
+              cognitive_load: 0.37,
+              dominant_modality: "visual",
+              confidence: 0.64,
+              estimate_kind: "behavioral",
+              signal_sources: 2,
+            };
           } else if (request.method.startsWith("risk_gate_")) {
             result = {
-                  status: "ok",
-                  enabled: (window as any).__risk_gate_enabled__ ?? true,
-                  weights_loaded: true,
-                  model_version: "risk-mlp-v2-action-types",
-                  training_samples: 36000,
-                  embedding_size: 23,
-                  learnable_action_types: [
-                    "file_write",
-                    "file_delete",
-                    "service_start",
-                    "service_stop",
-                  ],
-                  last_evaluation: {
-                    evaluated_at: "2026-07-26T10:00:00Z",
-                    action_count: 2,
-                    risk_score: 0.8,
-                    reasons: ["predicted disk usage 96% exceeds the safe threshold"],
-                    worst_action_type: "file_write",
-                    prediction_sources: ["learned", "rule"],
-                  },
-                };
+              status: "ok",
+              enabled: (window as any).__risk_gate_enabled__ ?? true,
+              weights_loaded: true,
+              model_version: "risk-mlp-v3-calibrated",
+              training_samples: 36000,
+              validation_samples: 5400,
+              calibrated: true,
+              validation_mae: {
+                disk_delta: 3.3039651015087657e-8,
+                process_delta: 1.3025066436966881e-5,
+              },
+              baseline_mae: {
+                disk_delta: 7.18494490570265e-8,
+                process_delta: 0.0022166655398905277,
+              },
+              embedding_size: 23,
+              learnable_action_types: ["file_write", "file_delete", "service_start", "service_stop"],
+              last_evaluation: {
+                evaluated_at: "2026-07-26T10:00:00Z",
+                action_count: 2,
+                risk_score: 0.8,
+                reasons: ["predicted disk usage 96% exceeds the safe threshold"],
+                worst_action_type: "file_write",
+                prediction_sources: ["learned_calibrated", "rule"],
+                prediction_confidence: 0.77,
+              },
+            };
           } else if (request.method.startsWith("self_healing_")) {
             result = {
               status: "ok",
@@ -227,7 +241,7 @@ export async function mockTauriIpc(page: Page): Promise<void> {
           }, 0);
         }
       }
-      
+
       close() {
         this.readyState = 3; // WebSocket.CLOSED
         if (this.onclose) this.onclose(new Event("close"));
@@ -239,11 +253,7 @@ export async function mockTauriIpc(page: Page): Promise<void> {
 /**
  * Helper to emit a daemon notification (e.g. status updates)
  */
-export async function emitNotification(
-  page: Page,
-  method: string,
-  params: Record<string, unknown>
-): Promise<void> {
+export async function emitNotification(page: Page, method: string, params: Record<string, unknown>): Promise<void> {
   await page.evaluate(
     ({ method, params }) => {
       const ws = (window as any).__mock_ws__;
@@ -251,7 +261,7 @@ export async function emitNotification(
         ws.onmessage({ data: JSON.stringify({ method, params }) });
       }
     },
-    { method, params }
+    { method, params },
   );
   await page.waitForTimeout(80);
 }
@@ -260,10 +270,7 @@ export async function emitNotification(
  * Navigate to the app root and wait for the main window to be visible.
  * Skips the SetupWizard by pre-seeding localStorage.
  */
-export async function gotoApp(
-  page: Page,
-  options: { riskGateStatusMissing?: boolean } = {}
-): Promise<void> {
+export async function gotoApp(page: Page, options: { riskGateStatusMissing?: boolean } = {}): Promise<void> {
   if (options.riskGateStatusMissing) {
     await page.addInitScript(() => {
       (window as any).__mock_risk_gate_status_missing__ = true;
@@ -300,7 +307,7 @@ export async function gotoApp(
           protected_packages: [],
           blocked_commands: [],
         },
-      })
+      }),
     );
   });
 

@@ -67,6 +67,44 @@ def load_dataset(path: str) -> tuple[np.ndarray, np.ndarray]:
     return X, Y
 
 
+def load_action_types(path: str) -> np.ndarray:
+    action_types: list[str] = []
+    with open(path) as dataset:
+        for line in dataset:
+            line = line.strip()
+            if line:
+                action_types.append(str(json.loads(line)["action_type"]))
+    return np.asarray(action_types)
+
+
+def stratified_temporal_split(
+    action_types: np.ndarray,
+    holdout_fraction: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Split every action family into train, calibration, and validation.
+
+    Rows are collected sequentially per action type. Keeping the final two
+    contiguous blocks out of training is stricter than a random row split,
+    which leaked nearly identical adjacent OS snapshots across both sides.
+    """
+    train_indices: list[int] = []
+    calibration_indices: list[int] = []
+    validation_indices: list[int] = []
+    for action_type in LEARNABLE_ACTION_TYPE_ORDER:
+        indices = np.flatnonzero(action_types == action_type.value)
+        holdout_size = max(1, int(len(indices) * holdout_fraction))
+        if len(indices) <= holdout_size * 2:
+            raise ValueError(f"Not enough {action_type.value} samples for temporal calibration and validation")
+        train_indices.extend(indices[: -2 * holdout_size])
+        calibration_indices.extend(indices[-2 * holdout_size : -holdout_size])
+        validation_indices.extend(indices[-holdout_size:])
+    return (
+        np.asarray(train_indices, dtype=np.int64),
+        np.asarray(calibration_indices, dtype=np.int64),
+        np.asarray(validation_indices, dtype=np.int64),
+    )
+
+
 def init_weights(input_size: int, hidden_size: int, output_size: int, rng: np.random.Generator):
     # Small random init scaled by fan-in, standard practice for a tanh
     # hidden layer to avoid saturating at the start of training.
@@ -144,7 +182,69 @@ def train(
     return w1, b1, w2, b2
 
 
-def write_weights(path: str, w1: np.ndarray, b1: np.ndarray, w2: np.ndarray, b2: np.ndarray, samples: int) -> None:
+def _predict(X: np.ndarray, w1, b1, w2, b2) -> np.ndarray:
+    return np.tanh(X @ w1 + b1) @ w2 + b2
+
+
+def _action_medians(Y: np.ndarray, action_types: np.ndarray) -> np.ndarray:
+    medians = np.zeros((len(LEARNABLE_ACTION_TYPE_ORDER), OUTPUT_SIZE), dtype=np.float32)
+    for index, action_type in enumerate(LEARNABLE_ACTION_TYPE_ORDER):
+        rows = Y[action_types == action_type.value]
+        if len(rows):
+            medians[index] = np.median(rows, axis=0)
+    return medians
+
+
+def fit_calibration_alpha(
+    predictions: np.ndarray,
+    targets: np.ndarray,
+    action_types: np.ndarray,
+    medians: np.ndarray,
+) -> np.ndarray:
+    """Fit a bounded per-action/output blend of MLP and robust median."""
+    alpha = np.zeros_like(medians)
+    for index, action_type in enumerate(LEARNABLE_ACTION_TYPE_ORDER):
+        mask = action_types == action_type.value
+        for output_index in range(OUTPUT_SIZE):
+            delta = predictions[mask, output_index] - medians[index, output_index]
+            denominator = float(delta @ delta)
+            if denominator <= 1e-20:
+                alpha[index, output_index] = 0.0
+                continue
+            numerator = float(delta @ (targets[mask, output_index] - medians[index, output_index]))
+            alpha[index, output_index] = float(np.clip(numerator / denominator, 0.0, 1.0))
+    return alpha
+
+
+def apply_calibration(
+    predictions: np.ndarray,
+    action_types: np.ndarray,
+    medians: np.ndarray,
+    alpha: np.ndarray,
+) -> np.ndarray:
+    calibrated = np.empty_like(predictions)
+    for index, action_type in enumerate(LEARNABLE_ACTION_TYPE_ORDER):
+        mask = action_types == action_type.value
+        calibrated[mask] = alpha[index] * predictions[mask] + (1.0 - alpha[index]) * medians[index]
+    return calibrated
+
+
+def write_weights(
+    path: str,
+    w1: np.ndarray,
+    b1: np.ndarray,
+    w2: np.ndarray,
+    b2: np.ndarray,
+    samples: int,
+    *,
+    validation_samples: int,
+    validation_mae: np.ndarray,
+    baseline_mae: np.ndarray,
+    action_medians: np.ndarray,
+    calibration_alpha: np.ndarray,
+    feature_mean: np.ndarray,
+    feature_scale: np.ndarray,
+) -> None:
     np.savez(
         path,
         w1=w1,
@@ -153,11 +253,18 @@ def write_weights(path: str, w1: np.ndarray, b1: np.ndarray, w2: np.ndarray, b2:
         b2=b2,
         model_version=np.array(MODEL_VERSION),
         training_samples=np.array(samples, dtype=np.int64),
+        validation_samples=np.array(validation_samples, dtype=np.int64),
+        validation_mae=validation_mae.astype(np.float32),
+        baseline_mae=baseline_mae.astype(np.float32),
+        action_medians=action_medians.astype(np.float32),
+        calibration_alpha=calibration_alpha.astype(np.float32),
+        feature_mean=feature_mean.astype(np.float32),
+        feature_scale=feature_scale.astype(np.float32),
     )
 
 
 def _mse(X: np.ndarray, Y: np.ndarray, w1, b1, w2, b2) -> float:
-    pred = np.tanh(X @ w1 + b1) @ w2 + b2
+    pred = _predict(X, w1, b1, w2, b2)
     return float(np.mean((pred - Y) ** 2))
 
 
@@ -174,38 +281,62 @@ def main() -> None:
         "--val-frac",
         type=float,
         default=0.15,
-        help="Held-out fraction used ONLY to report generalization MSE -- "
-        "the final saved weights are refit on the full dataset afterward.",
+        help="Per-action fraction reserved for calibration and again for final validation; "
+        "the saved MLP is refit on the full dataset afterward.",
     )
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
     X, Y = load_dataset(args.dataset)
+    action_types = load_action_types(args.dataset)
     print(f"Loaded {X.shape[0]} samples, embedding width {X.shape[1]}")
 
-    # The dataset file is grouped by action_type (collect_risk_training_data.py
-    # writes all samples for one type before moving to the next), so a plain
-    # index-based split would hand the validation set almost entirely
-    # different action types than training saw -- shuffle first so both
-    # splits are representative.
-    rng = np.random.default_rng(args.seed)
-    perm = rng.permutation(X.shape[0])
-    X, Y = X[perm], Y[perm]
+    train_indices, calibration_indices, validation_indices = stratified_temporal_split(
+        action_types,
+        args.val_frac,
+    )
+    X_train, Y_train = X[train_indices], Y[train_indices]
+    X_calibration, Y_calibration = X[calibration_indices], Y[calibration_indices]
+    X_validation, Y_validation = X[validation_indices], Y[validation_indices]
+    train_actions = action_types[train_indices]
+    calibration_actions = action_types[calibration_indices]
+    validation_actions = action_types[validation_indices]
 
-    n_val = max(1, int(X.shape[0] * args.val_frac))
-    X_val, Y_val = X[:n_val], Y[:n_val]
-    X_train, Y_train = X[n_val:], Y[n_val:]
-
-    print(f"Train/val split: {X_train.shape[0]} train, {X_val.shape[0]} val")
+    print(
+        "Temporal stratified split: "
+        f"{len(train_indices)} train, {len(calibration_indices)} calibration, "
+        f"{len(validation_indices)} validation"
+    )
 
     w1, b1, w2, b2 = train(X_train, Y_train, hidden_size=args.hidden, epochs=args.epochs, lr=args.lr, seed=args.seed)
 
-    baseline_val_mse = float(np.mean(Y_val**2))  # predicting all-zeros on held-out data
+    medians = _action_medians(Y_train, train_actions)
+    calibration_predictions = _predict(X_calibration, w1, b1, w2, b2)
+    calibration_alpha = fit_calibration_alpha(
+        calibration_predictions,
+        Y_calibration,
+        calibration_actions,
+        medians,
+    )
+    raw_validation_predictions = _predict(X_validation, w1, b1, w2, b2)
+    calibrated_validation_predictions = apply_calibration(
+        raw_validation_predictions,
+        validation_actions,
+        medians,
+        calibration_alpha,
+    )
+
+    baseline_val_mse = float(np.mean(Y_validation**2))
     train_mse = _mse(X_train, Y_train, w1, b1, w2, b2)
-    val_mse = _mse(X_val, Y_val, w1, b1, w2, b2)
-    print(f"Baseline (predict zero) val MSE: {baseline_val_mse:.6f}")
-    print(f"Train MSE:                       {train_mse:.6f}")
-    print(f"Held-out val MSE:                {val_mse:.6f}  (the number that actually matters)")
+    raw_val_mse = float(np.mean((raw_validation_predictions - Y_validation) ** 2))
+    val_mse = float(np.mean((calibrated_validation_predictions - Y_validation) ** 2))
+    validation_mae = np.mean(np.abs(calibrated_validation_predictions - Y_validation), axis=0)
+    baseline_mae = np.mean(np.abs(Y_validation), axis=0)
+    print(f"Baseline (predict zero) val MSE: {baseline_val_mse:.8e}")
+    print(f"Train MSE:                       {train_mse:.8e}")
+    print(f"Raw held-out val MSE:            {raw_val_mse:.8e}")
+    print(f"Calibrated held-out val MSE:     {val_mse:.8e}  (the number that actually matters)")
+    print(f"Calibrated held-out MAE:         disk={validation_mae[0]:.10f} proc={validation_mae[1]:.10f}")
     if val_mse > baseline_val_mse:
         print("WARNING: learned model is worse than predicting zero on held-out data -- do not ship these weights.")
 
@@ -214,7 +345,24 @@ def main() -> None:
     # actually shipped, since there's no reason to withhold real data from
     # the production model once its generalization is confirmed.
     w1, b1, w2, b2 = train(X, Y, hidden_size=args.hidden, epochs=args.epochs, lr=args.lr, seed=args.seed)
-    write_weights(args.out, w1, b1, w2, b2, X.shape[0])
+    production_medians = _action_medians(Y, action_types)
+    feature_mean = X[:, :3].mean(axis=0)
+    feature_scale = X[:, :3].std(axis=0)
+    write_weights(
+        args.out,
+        w1,
+        b1,
+        w2,
+        b2,
+        X.shape[0],
+        validation_samples=len(validation_indices),
+        validation_mae=validation_mae,
+        baseline_mae=baseline_mae,
+        action_medians=production_medians,
+        calibration_alpha=calibration_alpha,
+        feature_mean=feature_mean,
+        feature_scale=feature_scale,
+    )
     print(f"Wrote weights (trained on all {X.shape[0]} samples) to {args.out}")
 
 
