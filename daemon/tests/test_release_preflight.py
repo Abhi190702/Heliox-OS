@@ -39,3 +39,20 @@ def test_release_gate_rejects_wrong_tag(monkeypatch):
 
     with pytest.raises(ValueError, match="does not match"):
         check_release.validate_release(ROOT, "v0.10.1")
+
+
+def test_release_flow_has_no_certificate_or_notarization_gate():
+    release_text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    runbook_text = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
+    forbidden = (
+        "WINDOWS_CERTIFICATE",
+        "APPLE_CERTIFICATE",
+        "APPLE_SIGNING_IDENTITY",
+        "certificateThumbprint",
+        "Authenticode",
+        "notariz",
+    )
+
+    for token in forbidden:
+        assert token not in release_text
+        assert token not in runbook_text

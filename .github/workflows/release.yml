@@ -11,7 +11,7 @@ on:
         type: string
         required: true
       build_installers:
-        description: "Build signed installers and update the draft prerelease"
+        description: "Build installers and update the draft prerelease"
         type: boolean
         default: false
       publish_pypi:
@@ -143,7 +143,7 @@ jobs:
           python -m twine upload --verbose dist/*
 
   build-tauri:
-    name: Build signed ${{ matrix.label }} installer
+    name: Build ${{ matrix.label }} installer
     needs: release-gate
     if: github.event_name == 'push' || inputs.build_installers == true
     permissions:
@@ -204,110 +204,11 @@ jobs:
         working-directory: tauri-app/ui
         run: npm ci
 
-      - name: Require Windows signing certificate
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE) -or
-              [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
-            throw "WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD are required."
-          }
-
-      - name: Import Windows signing certificate
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          $certificatePath = Join-Path $env:RUNNER_TEMP "heliox-signing.pfx"
-          [IO.File]::WriteAllBytes(
-            $certificatePath,
-            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
-          )
-          $securePassword = ConvertTo-SecureString `
-            -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-          $certificate = Import-PfxCertificate `
-            -FilePath $certificatePath `
-            -CertStoreLocation Cert:\CurrentUser\My `
-            -Password $securePassword
-          if (-not $certificate.Thumbprint) {
-            throw "The Windows signing certificate could not be imported."
-          }
-
-          $configPath = "tauri-app/src-tauri/tauri.conf.json"
-          $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-          $config.bundle.windows | Add-Member `
-            -NotePropertyName certificateThumbprint `
-            -NotePropertyValue $certificate.Thumbprint -Force
-          $config.bundle.windows | Add-Member `
-            -NotePropertyName digestAlgorithm `
-            -NotePropertyValue "sha256" -Force
-          $config.bundle.windows | Add-Member `
-            -NotePropertyName timestampUrl `
-            -NotePropertyValue "http://timestamp.digicert.com" -Force
-          $config | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $configPath
-          Remove-Item -LiteralPath $certificatePath -Force
-
-      - name: Require Apple signing and notarization credentials
-        if: matrix.platform == 'macos-latest'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID \
-            APPLE_PASSWORD APPLE_TEAM_ID KEYCHAIN_PASSWORD; do
-            if [[ -z "${!name}" ]]; then
-              echo "::error::$name is required for signed and notarized macOS releases."
-              exit 1
-            fi
-          done
-
-      - name: Import Apple Developer ID certificate
-        if: matrix.platform == 'macos-latest'
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          certificate_path="$RUNNER_TEMP/heliox-signing.p12"
-          keychain_path="$RUNNER_TEMP/heliox-build.keychain-db"
-          printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A -out "$certificate_path"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
-          security set-keychain-settings -lut 21600 "$keychain_path"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
-          security import "$certificate_path" -k "$keychain_path" \
-            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" "$keychain_path"
-          security list-keychains -d user -s "$keychain_path"
-          identity="$(security find-identity -v -p codesigning "$keychain_path" \
-            | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
-          if [[ -z "$identity" ]]; then
-            echo "::error::No Developer ID Application identity was found in the certificate."
-            exit 1
-          fi
-          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
-          rm -f "$certificate_path"
-
       - name: Build and upload draft release artifacts
         id: tauri
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
         with:
           projectPath: "tauri-app"
           tagName: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
@@ -316,7 +217,7 @@ jobs:
             ## Heliox OS v${{ needs.release-gate.outputs.version }}
 
             This is a **draft prerelease** pending clean-machine installation,
-            first-run daemon, hardware-input, and signature verification.
+            first-run daemon, hardware-input, and artifact verification.
 
             Python 3.11+ is required. The desktop app creates its private
             environment on first launch.
@@ -325,7 +226,7 @@ jobs:
           prerelease: true
           args: ${{ matrix.args }}
 
-      - name: Verify Windows artifact signatures
+      - name: Verify Windows artifacts
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
@@ -335,14 +236,8 @@ jobs:
           if (-not $artifacts) {
             throw "No Windows installer artifacts were produced."
           }
-          foreach ($artifact in $artifacts) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $artifact.FullName
-            if ($signature.Status -ne "Valid") {
-              throw "Invalid Authenticode signature on $($artifact.Name): $($signature.Status)"
-            }
-          }
 
-      - name: Verify macOS signatures and notarization tickets
+      - name: Verify macOS artifacts
         if: matrix.platform == 'macos-latest'
         shell: bash
         run: |
@@ -352,14 +247,6 @@ jobs:
             echo "::error::Expected macOS app and DMG artifacts were not produced."
             exit 1
           fi
-          find tauri-app/src-tauri/target -name '*.app' -print0 |
-          while IFS= read -r -d '' app; do
-            codesign --verify --deep --strict --verbose=2 "$app"
-          done
-          find tauri-app/src-tauri/target -name '*.dmg' -print0 |
-          while IFS= read -r -d '' dmg; do
-            xcrun stapler validate "$dmg"
-          done
 
       - name: Verify Linux package structures
         if: matrix.platform == 'ubuntu-22.04'

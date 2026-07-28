@@ -1,27 +1,15 @@
 # Heliox OS release runbook
 
-Heliox releases are deliberately two-phase. A version tag builds signed
+Heliox releases are deliberately two-phase. A version tag builds
 installers into a draft prerelease, while PyPI publication and the final GitHub
 promotion remain explicit maintainer actions.
 
 ## One-time repository setup
 
-Configure these GitHub Actions secrets:
-
-| Platform | Required secrets |
-| --- | --- |
-| PyPI | `PYPI_API_TOKEN` |
-| Windows | `WINDOWS_CERTIFICATE` (raw Base64 `.pfx`), `WINDOWS_CERTIFICATE_PASSWORD` |
-| macOS | `APPLE_CERTIFICATE` (raw Base64 `.p12`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD` (app-specific), `APPLE_TEAM_ID`, `KEYCHAIN_PASSWORD` |
+Configure the `PYPI_API_TOKEN` GitHub Actions secret.
 
 Create a GitHub environment named `pypi` and require a maintainer approval for
-deployments to it. Never store certificate files or passwords in the
-repository.
-
-Windows builds import the certificate into the runner and configure Tauri with
-its thumbprint. macOS builds import a `Developer ID Application` certificate,
-sign the app, notarize it, and require a stapled notarization ticket. The
-workflow fails closed when credentials are absent or any signature check fails.
+deployments to it. Never store API tokens in the repository.
 
 ## 1. Prepare the release commit
 
@@ -51,9 +39,8 @@ The tag workflow:
 2. builds the daemon wheel and source distribution and runs `twine check`;
 3. confirms the exact commit passed the complete main CI matrix;
 4. reproducibly installs frontend dependencies with `npm ci`;
-5. signs Windows installers and signs/notarizes macOS installers;
-6. validates Windows signatures, macOS signatures/tickets, and Linux package
-   structures; and
+5. validates that Windows, macOS, and Linux installer artifacts were produced;
+6. validates Linux package structures; and
 7. creates a **draft prerelease** with generated release notes.
 
 It does **not** publish to PyPI on a tag push.
@@ -96,7 +83,7 @@ Use fresh Windows, macOS Intel, macOS Apple Silicon, and Linux machines or VMs.
 For each platform:
 
 1. download the installer from the draft release;
-2. verify the publisher/signature before opening it;
+2. confirm the installer came from the Heliox GitHub draft release;
 3. install Python 3.11 or 3.12, then install and launch Heliox;
 4. wait for first-run setup, restart once, and confirm the daemon becomes
    online;
