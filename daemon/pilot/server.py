@@ -5078,7 +5078,7 @@ def handle_tool(tool_name, params):
                 "feature_announcement",
                 {
                     "message": self._new_features_announcement,
-                    "version": "0.6.0",
+                    "version": __version__,
                 },
             )
 

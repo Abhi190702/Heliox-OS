@@ -10,64 +10,82 @@ from typing import Any
 
 logger = logging.getLogger("pilot.changelog")
 
-VERSION = "0.6.0"
+VERSION = "0.10.0"
 
 CHANGELOG = {
-    "0.6.0": {
-        "title": "Revolutionary Cognitive Intelligence Features",
-        "date": "2026-04-08",
+    "0.10.0": {
+        "title": "Interactive Companion and Reliability",
+        "date": "2026-07-29",
         "features": [
             {
-                "name": "Adaptive Biometric Learning Loop",
-                "description": "Tracks your patterns over weeks. Learns when you're most productive.",
-                "jarvis_announce": "I've learned your patterns. I know when you work best.",
+                "name": "Interactive Companion",
+                "description": (
+                    "Opt-in narration, risk interruption, spoken follow-up, and suggestions now "
+                    "share one coordinated conversation loop."
+                ),
+                "jarvis_announce": "I can now narrate, interrupt, and follow up without voices overlapping.",
             },
             {
-                "name": "Ambient Intelligence Mode",
-                "description": "Proactive suggestions. 'You've been working for 2 hours - take a break?'",
-                "jarvis_announce": "I'll proactively help before you get overwhelmed.",
+                "name": "Learned Risk World Model",
+                "description": (
+                    "On-device learned predictions now advise the deterministic safety gate and can "
+                    "add caution or pause risky actions."
+                ),
+                "jarvis_announce": "My learned risk model can now warn or pause before an unsafe action.",
             },
             {
-                "name": "Multi-Modal Neural Bridge",
-                "description": "Webcam, audio, keyboard dynamics. Builds neural workspace.",
-                "jarvis_announce": "I now understand your focus through multiple inputs.",
+                "name": "Unified Camera Intelligence",
+                "description": (
+                    "Gaze, hand gestures, and cursor control can run together from one camera stream "
+                    "without suppressing enabled inputs."
+                ),
+                "jarvis_announce": "Gaze and gesture controls can now work together from one camera.",
             },
             {
-                "name": "Cognitive Offloading",
-                "description": "Memory anchors when load > 80%. Remembers complex workflows.",
-                "jarvis_announce": "I'll remember complex tasks so you don't have to.",
+                "name": "Moderated Plugin Marketplace",
+                "description": (
+                    "Reviewed packages are verified by manifest and SHA-256 before installation, "
+                    "and merged catalog entries appear without a desktop release."
+                ),
+                "jarvis_announce": "Approved marketplace plugins are now verified before installation.",
             },
             {
-                "name": "Evolving Persona",
-                "description": "Communication adapts: concise when stressed, detailed when relaxed.",
-                "jarvis_announce": "My communication adapts to your cognitive state.",
+                "name": "Reliable Approvals and Results",
+                "description": (
+                    "Approval responses remain live on the active connection, while cancelled, "
+                    "blocked, and failed actions now finish with truthful terminal results."
+                ),
+                "jarvis_announce": "Approvals and failures now stay synchronized with the task.",
             },
             {
-                "name": "Cross-Device Handoff",
-                "description": "Sync state to cloud. Continue on mobile with context.",
-                "jarvis_announce": "Your context follows you across devices.",
-            },
-            {
-                "name": "Quantum-Ready Architecture",
-                "description": "Model-agnostic. Swap in future models without touching call sites.",
-                "jarvis_announce": "I'm built for the future of AI.",
+                "name": "Durable Voice and Gesture Workflows",
+                "description": (
+                    "Multi-step workflows can be submitted, paused, resumed, and inspected while "
+                    "autonomous healing remains separately permission-gated."
+                ),
+                "jarvis_announce": "Long-running voice and gesture workflows can now pause and resume safely.",
             },
         ],
-        "summary": "7 biologically-inspired AI features powered by a lightweight cognitive engine",
+        "summary": "Companion intelligence, learned safety, multimodal control, and reliable execution",
     },
-    "0.5.1": {
-        "title": "Cognitive Engine Integrations",
-        "date": "2026-04-01",
+    "0.9.0": {
+        "title": "JARVIS Autonomy",
+        "date": "2026-07-22",
         "features": [
-            "Neural Cognitive HUD",
-            "Dynamic TTS Stress-Pacing",
-            "Neuro-Safe Destructive Gate",
-            "Subconscious Persona Fingerprint",
-            "Attention-Optimized Notifications",
-            "ReAct Neural Cost Estimator",
-            "JARVIS Intent Classifier",
+            {
+                "name": "Autonomous Background Tasks",
+                "description": "Run permission-gated multi-step tasks while continuing to use the app.",
+            },
+            {
+                "name": "Live Execution Narrator",
+                "description": "Optionally hear short progress descriptions and risk interruptions.",
+            },
+            {
+                "name": "Local Voice, Gesture, and Gaze Inputs",
+                "description": "Use on-device multimodal controls without sending camera frames.",
+            },
         ],
-        "summary": "Core cognitive engine integrations",
+        "summary": "Background autonomy and local multimodal control",
     },
 }
 

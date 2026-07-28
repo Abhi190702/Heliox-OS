@@ -78,6 +78,10 @@ fn daemon_child_started(child: &mut Child, source: &str) -> bool {
 }
 
 /// Run the first-time venv + pip install in a background thread (non-blocking).
+fn daemon_requirement() -> String {
+    format!("pilot-daemon[all]=={}", env!("CARGO_PKG_VERSION"))
+}
+
 fn setup_venv_in_background() {
     std::thread::spawn(|| {
         let data_dir = get_app_data_dir();
@@ -131,8 +135,12 @@ fn setup_venv_in_background() {
         // checkbox in Settings regardless of whether pynput is installed)
         // -- installing the package is not the same as enabling the
         // feature.
+        // Keep the desktop and daemon on the same release. An unpinned install
+        // can silently pair an older desktop with a newer, incompatible RPC
+        // surface after a future PyPI publication.
+        let daemon_requirement = daemon_requirement();
         let ok = pip_cmd
-            .args(["install", "pilot-daemon[all]"])
+            .args(["install", daemon_requirement.as_str()])
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
@@ -691,5 +699,13 @@ mod startup_tests {
         let title = feed[0]["title"].as_str().unwrap_or_default();
 
         assert!(title.contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn desktop_installs_matching_daemon_version() {
+        assert_eq!(
+            daemon_requirement(),
+            format!("pilot-daemon[all]=={}", env!("CARGO_PKG_VERSION"))
+        );
     }
 }

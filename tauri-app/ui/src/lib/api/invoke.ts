@@ -1,3 +1,7 @@
+import uiPackage from "../../../package.json";
+
+const HELIOX_VERSION = uiPackage.version;
+
 export async function invoke<T = any>(command: string, args?: any): Promise<T> {
   // First check if native Tauri IPC bridge is present
   if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
@@ -87,11 +91,10 @@ export async function invoke<T = any>(command: string, args?: any): Promise<T> {
   if (command === "get_rss_feed") {
     return [
       {
-        title: "Heliox OS v0.9.0 Released with JARVIS Autonomy",
+        title: `Heliox OS v${HELIOX_VERSION} Current Build`,
         url: "https://github.com/VyomKulshrestha/Heliox-OS/releases",
-        source: "GitHub",
+        source: "Current Build",
       },
-      { title: "Cognitive Engine Integration Live", url: "https://helioxos.dev", source: "Heliox Blog" },
     ] as unknown as T;
   }
   if (command === "get_status_metrics") {

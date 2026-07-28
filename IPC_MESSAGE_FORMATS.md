@@ -325,7 +325,7 @@ List all providers with stored keys.
 Check connectivity.
 
 **Params:** `{}`
-**Result:** `{ "pong": true, "version": "0.9.0" }`
+**Result:** `{ "pong": true, "version": "0.10.0" }`
 
 #### `health`
 Check all model backend health.
@@ -1255,7 +1255,7 @@ A fused voice + gesture intent from the fusion engine.
 Emitted once on startup when a new daemon version introduces new capabilities.
 
 ```json
-{ "message": "New: cognitive intelligence features are now available!", "version": "0.6.0" }
+{ "message": "New: v0.10.0 release hardening and security improvements are now available!", "version": "0.10.0" }
 ```
 
 ---

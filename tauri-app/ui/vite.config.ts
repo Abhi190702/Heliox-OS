@@ -19,6 +19,7 @@ import { execSync } from "node:child_process";
 const MEDIAPIPE_HANDS_ROUTE = "/mediapipe/hands";
 const MEDIAPIPE_HANDS_ASSET_DIR = "mediapipe/hands";
 const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
+const UI_VERSION = JSON.parse(readFileSync(join(CONFIG_DIR, "package.json"), "utf-8")).version as string;
 const MEDIAPIPE_HANDS_DIR = join(CONFIG_DIR, "node_modules", "@mediapipe", "hands");
 
 const MEDIAPIPE_TASKS_VISION_ROUTE = "/mediapipe/tasks-vision";
@@ -405,7 +406,7 @@ function daemonTokenDevPlugin(): Plugin {
               let feedItems: any[] = [];
               try {
                 const pkgPath = join(process.cwd(), "package.json");
-                let currentVer = "0.9.0";
+                let currentVer = UI_VERSION;
                 if (existsSync(pkgPath)) {
                   try {
                     currentVer = JSON.parse(readFileSync(pkgPath, "utf-8")).version || currentVer;
@@ -448,7 +449,7 @@ function daemonTokenDevPlugin(): Plugin {
               } catch (e) {
                 feedItems = [
                   {
-                    title: "Heliox OS v0.9.0 Active - JARVIS Core Running",
+                    title: `Heliox OS v${UI_VERSION} Active - JARVIS Core Running`,
                     url: "https://github.com/VyomKulshrestha/Heliox-OS",
                     source: "System",
                   },

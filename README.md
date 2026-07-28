@@ -80,7 +80,7 @@ Unlike simple command runners, Heliox OS is a **true agentic system** inspired b
 7. **Security** — Five-tier permission system with confirmation gates and rollback support.
 
 <a id="jarvis-autonomy"></a>
-## 🤖 JARVIS Autonomy (v0.9.0)
+## 🤖 JARVIS Autonomy (v0.10.0)
 
 Heliox OS combines reactive commands with opt-in proactive and background capabilities that run through the same permission and verification pipeline:
 
@@ -255,17 +255,21 @@ Heliox OS uses a **modular multi-agent architecture** where specialized agents c
 
 ## Release Verification
 
-The release gate is reproducible; it does not rely on an informal task-pass percentage. The latest local v0.9.0 readiness pass completed:
+The release gate is reproducible; it does not rely on an informal task-pass percentage. The v0.10.0 release candidate is validated through:
 
 | Surface | Verification |
 |---------|--------------|
-| Python daemon | Ruff lint and format; 1,167 tests passed, 6 skipped |
-| Svelte UI | Prettier and `svelte-check` with zero warnings; 102 unit tests; production build |
+| Python daemon | Ruff lint and format; 1,231 tests passed, 6 skipped |
+| Svelte UI | Prettier and `svelte-check` with zero warnings; 118 unit tests; production build |
 | Dependencies | `npm audit --audit-level=high` with zero vulnerabilities |
-| Native Tauri bridge | Cargo format, Clippy with warnings denied, and 6 Rust tests |
+| Native Tauri bridge | Cargo format, Clippy with warnings denied, and 7 Rust tests |
 | Visual UI | 32 Playwright visual scenarios passed on Windows |
 
 GitHub Actions repeats Python tests on Windows, Ubuntu, and macOS with Python 3.11 and 3.12, runs the frontend gate, compares per-OS visual baselines, and checks the Rust bridge on Linux. Camera, microphone, desktop permissions, model downloads, and OS-specific integrations still require real-device validation; CI cannot prove hardware behavior.
+
+Public releases use a signed, draft-first workflow. PyPI publication and stable
+promotion happen only after package and clean-machine acceptance. Maintainers
+must follow the [release runbook](docs/RELEASING.md).
 
 ## 🖥️ Cross-Platform Support
 
@@ -570,9 +574,9 @@ The easiest way to get started is to download the pre-compiled installer for you
 
 1. Go to the [GitHub Releases page](https://github.com/VyomKulshrestha/Heliox-OS/releases).
 2. Download the installer for your OS:
-   - **Windows**: `Heliox-OS_0.9.0_x64-setup.exe` or the `.msi`
-   - **macOS (Apple Silicon)**: `Heliox-OS_0.9.0_aarch64.dmg`
-   - **macOS (Intel)**: `Heliox-OS_0.9.0_x64.dmg`
+   - **Windows**: the latest `Heliox-OS_<version>_x64-setup.exe` or `.msi`
+   - **macOS (Apple Silicon)**: the latest `Heliox-OS_<version>_aarch64.dmg`
+   - **macOS (Intel)**: the latest `Heliox-OS_<version>_x64.dmg`
    - **Linux**: `.AppImage`, `.deb`, or `.rpm`
 3. Install the app.
 4. Open Heliox OS and enter your API Key (e.g., Gemini, OpenAI, Claude, Meta) in the Settings tab.
@@ -749,7 +753,7 @@ capture_interval_seconds = 3.0
 **A:** First, verify you are using **Python 3.11+**. Check your version with `python --version`. The desktop app starts the daemon and keeps reconnecting while first-run models initialize. If it remains offline, check `~/.local/state/heliox-os/pilot.log` and ensure port `8785` is free.
 
 #### Q2: I get an API key error even though I entered one.
-**A:** Heliox OS stores API keys securely in your system keyring (GNOME Keyring/libsecret on Linux, Credential Manager on Windows) or an encrypted `vault.enc` file. It does **not** use `.env` files. Ensure you've added the key via the Settings tab in the UI. If the issue persists, check if `libsecret-1-dev` is installed (on Linux).
+**A:** Heliox OS stores API keys only in your operating-system credential store: Secret Service-compatible keyring on Linux, Credential Manager on Windows, or Keychain on macOS. It fails closed instead of falling back to a machine-derived encrypted file. A legacy `vault.enc` is ignored and left untouched; re-enter those keys through Settings. Heliox does **not** use `.env` files. On Linux, ensure a Secret Service provider such as GNOME Keyring is installed and unlocked.
 
 #### Q3: How do I switch from Ollama to a cloud LLM?
 **A:** You can change your model provider in the `~/.config/heliox-os/config.toml` file. Under the `[model]` section, set `provider = "cloud"` and specify your `cloud_provider` (e.g., `"gemini"`, `"openai"`, `"claude"`, or `"meta"`). `"meta"` talks to Meta's Muse Spark 1.1 via the Meta Model API (public preview as of July 2026) — it's OpenAI-chat-completions-compatible, so it shares the same request path as `"openai"`.

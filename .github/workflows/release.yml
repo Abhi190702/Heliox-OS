@@ -6,53 +6,148 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
-      publish_only:
-        description: "Skip the 4-platform Tauri builds -- only run the PyPI publish job (for iterating on publish failures cheaply)"
+      release_tag:
+        description: "Existing release tag to validate (for example v0.10.0)"
+        type: string
+        required: true
+      build_installers:
+        description: "Build signed installers and update the draft prerelease"
+        type: boolean
+        default: false
+      publish_pypi:
+        description: "Publish the already-validated daemon distribution to PyPI"
         type: boolean
         default: false
 
 permissions:
-  contents: write
+  contents: read
+  checks: read
 
 jobs:
-  # Publishes the daemon (pilot-daemon) to PyPI so the desktop app's
-  # first-run setup (tauri-app/src-tauri/src/main.rs's
-  # setup_venv_in_background, which runs `pip install pilot-daemon[all]`)
-  # and the .deb postinst script actually have a real package to install --
-  # without this, those install commands fail on a real user's machine
-  # since pilot-daemon has never been published. Runs independently of the
-  # Tauri builds below (no `needs:`) so a PyPI publish problem (e.g. the
-  # tagged version wasn't bumped in daemon/pyproject.toml, so PyPI rejects
-  # the re-upload) never blocks the app installers from being built and
-  # released.
-  publish-daemon-to-pypi:
-    name: Publish daemon to PyPI
+  release-gate:
+    name: Verify release metadata, CI, and daemon package
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit_sha: ${{ steps.version.outputs.commit_sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || inputs.release_tag }}
 
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Install build tooling
-        run: pip install build twine
+      - name: Verify synchronized version and tag
+        id: version
+        shell: bash
+        env:
+          DISPATCH_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          tag=""
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="${DISPATCH_RELEASE_TAG}"
+          fi
+          python scripts/check_release.py --tag "$tag"
+          version="$(python -c "import tomllib; print(tomllib.load(open('daemon/pyproject.toml', 'rb'))['project']['version'])")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Build daemon distribution
+      - name: Require successful main CI for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          required_checks=(
+            "Svelte (Prettier + Build)"
+            "Visual Regression (ubuntu-latest)"
+            "Visual Regression (windows-latest)"
+            "Visual Regression (macos-latest)"
+            "Rust (Clippy + Fmt)"
+            "Python (Ruff + Pytest) (ubuntu-latest, 3.11)"
+            "Python (Ruff + Pytest) (ubuntu-latest, 3.12)"
+            "Python (Ruff + Pytest) (windows-latest, 3.11)"
+            "Python (Ruff + Pytest) (windows-latest, 3.12)"
+            "Python (Ruff + Pytest) (macos-latest, 3.11)"
+            "Python (Ruff + Pytest) (macos-latest, 3.12)"
+          )
+          release_sha="${{ steps.version.outputs.commit_sha }}"
+          checks_json="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_sha}/check-runs?per_page=100")"
+          for check_name in "${required_checks[@]}"; do
+            conclusion="$(jq -r --arg name "$check_name" \
+              '.check_runs[] | select(.name == $name) | .conclusion' \
+              <<<"$checks_json" | head -n 1)"
+            if [[ "$conclusion" != "success" ]]; then
+              echo "::error::Required check '$check_name' is '$conclusion' for ${release_sha}."
+              exit 1
+            fi
+          done
+
+      - name: Install packaging tools
+        run: python -m pip install --disable-pip-version-check build twine
+
+      - name: Build and validate daemon distributions
         working-directory: daemon
-        run: python -m build
+        run: |
+          python -m build
+          python -m twine check dist/*
+
+      - name: Upload validated daemon distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: pilot-daemon-${{ steps.version.outputs.version }}
+          path: daemon/dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-daemon-to-pypi:
+    name: Publish validated daemon to PyPI
+    needs: release-gate
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_pypi == true
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Download validated daemon distributions
+        uses: actions/download-artifact@v5
+        with:
+          name: pilot-daemon-${{ needs.release-gate.outputs.version }}
+          path: dist
+
+      - name: Refuse to overwrite an existing PyPI version
+        env:
+          VERSION: ${{ needs.release-gate.outputs.version }}
+        shell: bash
+        run: |
+          if curl --fail --silent --show-error \
+            "https://pypi.org/pypi/pilot-daemon/${VERSION}/json" > /dev/null; then
+            echo "::error::pilot-daemon ${VERSION} already exists on PyPI."
+            exit 1
+          fi
 
       - name: Publish to PyPI
-        working-directory: daemon
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload --verbose dist/*
+        run: |
+          python -m pip install --disable-pip-version-check twine
+          python -m twine upload --verbose dist/*
 
   build-tauri:
-    if: github.event_name != 'workflow_dispatch' || inputs.publish_only != true
+    name: Build signed ${{ matrix.label }} installer
+    needs: release-gate
+    if: github.event_name == 'push' || inputs.build_installers == true
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -71,13 +166,12 @@ jobs:
             label: "Linux"
 
     runs-on: ${{ matrix.platform }}
-    name: Build (${{ matrix.label }})
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || inputs.release_tag }}
 
-      # ── System Dependencies ──
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -89,7 +183,6 @@ jobs:
             libgtk-3-dev \
             libayatana-appindicator3-dev
 
-      # ── Rust ──
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -100,49 +193,183 @@ jobs:
         with:
           workspaces: "tauri-app/src-tauri -> target"
 
-      # ── Node.js ──
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: tauri-app/ui/package-lock.json
 
-      - name: Install frontend dependencies
+      - name: Install frontend dependencies reproducibly
         working-directory: tauri-app/ui
-        run: npm ci || npm install
+        run: npm ci
 
-      # ── Python daemon (bundled alongside) ──
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - name: Require Windows signing certificate
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE) -or
+              [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            throw "WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD are required."
+          }
 
-      - name: Install Python daemon dependencies
-        working-directory: daemon
-        run: pip install -e ".[full]" || pip install -e .
+      - name: Import Windows signing certificate
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP "heliox-signing.pfx"
+          [IO.File]::WriteAllBytes(
+            $certificatePath,
+            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          )
+          $securePassword = ConvertTo-SecureString `
+            -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate `
+            -FilePath $certificatePath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password $securePassword
+          if (-not $certificate.Thumbprint) {
+            throw "The Windows signing certificate could not be imported."
+          }
 
-      # ── Build Tauri ──
-      - name: Build Tauri app
+          $configPath = "tauri-app/src-tauri/tauri.conf.json"
+          $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+          $config.bundle.windows | Add-Member `
+            -NotePropertyName certificateThumbprint `
+            -NotePropertyValue $certificate.Thumbprint -Force
+          $config.bundle.windows | Add-Member `
+            -NotePropertyName digestAlgorithm `
+            -NotePropertyValue "sha256" -Force
+          $config.bundle.windows | Add-Member `
+            -NotePropertyName timestampUrl `
+            -NotePropertyValue "http://timestamp.digicert.com" -Force
+          $config | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $configPath
+          Remove-Item -LiteralPath $certificatePath -Force
+
+      - name: Require Apple signing and notarization credentials
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID \
+            APPLE_PASSWORD APPLE_TEAM_ID KEYCHAIN_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::$name is required for signed and notarized macOS releases."
+              exit 1
+            fi
+          done
+
+      - name: Import Apple Developer ID certificate
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          certificate_path="$RUNNER_TEMP/heliox-signing.p12"
+          keychain_path="$RUNNER_TEMP/heliox-build.keychain-db"
+          printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A -out "$certificate_path"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" -k "$keychain_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          identity="$(security find-identity -v -p codesigning "$keychain_path" \
+            | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+          if [[ -z "$identity" ]]; then
+            echo "::error::No Developer ID Application identity was found in the certificate."
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          rm -f "$certificate_path"
+
+      - name: Build and upload draft release artifacts
+        id: tauri
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
         with:
           projectPath: "tauri-app"
-          tagName: ${{ github.ref_name }}
-          releaseName: "Heliox OS ${{ github.ref_name }}"
+          tagName: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+          releaseName: "Heliox OS v${{ needs.release-gate.outputs.version }}"
           releaseBody: |
-            ## Heliox OS ${{ github.ref_name }}
+            ## Heliox OS v${{ needs.release-gate.outputs.version }}
 
-            ### Download & Install (Auto-Setup Architect)
-            1. **Install Python 3.11+** on your system (if not already installed)
-            2. Download the installer for your OS below
-            3. Run the installer and launch Heliox OS
-            4. The app will **automatically build a Virtual Environment and install the AI backend** for you on first launch!
-            5. Enter your API key (Gemini/OpenAI/Claude) in Settings
+            This is a **draft prerelease** pending clean-machine installation,
+            first-run daemon, hardware-input, and signature verification.
 
-            ### What's New
-            ${{ github.event.head_commit.message }}
-            
-            *You can view the full list of changes and feature details in our [Releases history](https://github.com/VyomKulshrestha/Heliox-OS/commits/main).*
-          releaseDraft: false
-          prerelease: false
+            Python 3.11+ is required. The desktop app creates its private
+            environment on first launch.
+          generateReleaseNotes: true
+          releaseDraft: true
+          prerelease: true
           args: ${{ matrix.args }}
+
+      - name: Verify Windows artifact signatures
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $artifacts = Get-ChildItem `
+            -Path tauri-app/src-tauri/target/release/bundle `
+            -Recurse -File -Include *.exe,*.msi
+          if (-not $artifacts) {
+            throw "No Windows installer artifacts were produced."
+          }
+          foreach ($artifact in $artifacts) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $artifact.FullName
+            if ($signature.Status -ne "Valid") {
+              throw "Invalid Authenticode signature on $($artifact.Name): $($signature.Status)"
+            }
+          }
+
+      - name: Verify macOS signatures and notarization tickets
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          app_count="$(find tauri-app/src-tauri/target -name '*.app' | wc -l | tr -d ' ')"
+          dmg_count="$(find tauri-app/src-tauri/target -name '*.dmg' | wc -l | tr -d ' ')"
+          if [[ "$app_count" == "0" || "$dmg_count" == "0" ]]; then
+            echo "::error::Expected macOS app and DMG artifacts were not produced."
+            exit 1
+          fi
+          find tauri-app/src-tauri/target -name '*.app' -print0 |
+          while IFS= read -r -d '' app; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+          done
+          find tauri-app/src-tauri/target -name '*.dmg' -print0 |
+          while IFS= read -r -d '' dmg; do
+            xcrun stapler validate "$dmg"
+          done
+
+      - name: Verify Linux package structures
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          bundle_dir="tauri-app/src-tauri/target/release/bundle"
+          test -n "$(find "$bundle_dir" -name '*.AppImage' -print -quit)"
+          deb="$(find "$bundle_dir" -name '*.deb' -print -quit)"
+          rpm="$(find "$bundle_dir" -name '*.rpm' -print -quit)"
+          test -n "$deb"
+          test -n "$rpm"
+          dpkg-deb --info "$deb" > /dev/null
+          file "$rpm" | grep -q 'RPM'
