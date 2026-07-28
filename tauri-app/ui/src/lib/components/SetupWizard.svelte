@@ -9,6 +9,7 @@
 
   let { oncomplete }: Props = $props();
   let finishing = $state(false);
+  let finishError = $state("");
   let step = $state(0);
 
   let modelProvider = $state("ollama");
@@ -41,6 +42,7 @@
   async function finish() {
     if (finishing) return;
     finishing = true;
+    finishError = "";
 
     try {
       // These now save to localStorage instantly (non-blocking daemon sync)
@@ -64,15 +66,24 @@
         protected_packages: packages,
       });
 
-      // Store API key in background (don't block wizard)
+      // Cloud setup is incomplete until the daemon confirms that the key
+      // reached a secure operating-system credential store.
       if (cloudApiKey && cloudProvider) {
-        call("store_api_key", { provider: cloudProvider, key: cloudApiKey }).catch(() => {});
+        const result = await call<{ status: string; message?: string }>("store_api_key", {
+          provider: cloudProvider,
+          key: cloudApiKey,
+        });
+        if (result.status !== "ok") {
+          throw new Error(result.message || "The API key could not be stored securely.");
+        }
       }
 
       // Mark first run complete in localStorage
       localStorage.setItem("heliox_first_run_complete", "true");
 
       await oncomplete();
+    } catch (error) {
+      finishError = error instanceof Error ? error.message : "Setup could not be completed.";
     } finally {
       finishing = false;
     }
@@ -174,7 +185,9 @@
               <div class="field">
                 <label for="cloud-api-key">API Key</label>
                 <input id="cloud-api-key" type="password" bind:value={cloudApiKey} placeholder="sk-..." />
-                <span class="hint">Stored encrypted in GNOME Keyring or local vault</span>
+                <span class="hint"
+                  >Stored only in Windows Credential Manager, macOS Keychain, or Linux Secret Service.</span
+                >
               </div>
             {/if}
           {/if}
@@ -243,6 +256,9 @@
     </div>
 
     <div class="wizard-footer">
+      {#if finishError}
+        <p class="finish-error" role="alert">{finishError}</p>
+      {/if}
       {#if step > 0}
         <button class="btn-back" onclick={() => step--}>Back</button>
       {:else}
@@ -530,9 +546,19 @@
 
   .wizard-footer {
     display: flex;
+    align-items: center;
+    gap: 12px;
     justify-content: space-between;
     padding: 16px 28px;
     border-top: 1px solid var(--border);
+  }
+
+  .finish-error {
+    margin: 0 auto 0 0;
+    max-width: 58%;
+    color: var(--danger, #ef4444);
+    font-size: 11px;
+    line-height: 1.35;
   }
 
   .btn-back {

@@ -1,20 +1,13 @@
-"""Encrypted key vault for API key storage.
+"""API-key storage backed exclusively by the operating system keyring.
 
-Primary: GNOME Keyring via libsecret (SecretStorage)
-Fallback: AES-256-GCM encrypted file with Argon2id key derivation
-
-API keys are NEVER logged, included in action plans, or sent to local LLMs.
-Keys are decrypted only at the moment of an API call.
+Heliox intentionally fails closed when no secure credential backend is
+available. Older releases used a machine-identifier-derived encrypted file;
+that file is detected and left untouched, but is never decrypted or reused.
 """
 
 from __future__ import annotations
 
-import base64
-import contextlib
-import json
 import logging
-import os
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pilot.config import DATA_DIR
@@ -24,259 +17,140 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("pilot.security.vault")
 
-VAULT_FILE = DATA_DIR / "vault.enc"
 VAULT_SERVICE = "pilot-ai-command-center"
+LEGACY_VAULT_FILE = DATA_DIR / "vault.enc"
+KNOWN_PROVIDERS = ("openai", "anthropic", "claude", "gemini", "meta")
+
+
+class VaultUnavailableError(RuntimeError):
+    """Raised when persistent secret storage has no secure OS backend."""
 
 
 class KeyVault:
-    """Secure storage for API keys."""
+    """Store API keys in Windows Credential Manager, Keychain, or Secret Service."""
 
     def __init__(self, config: PilotConfig) -> None:
         self._config = config
         self._keyring_available = False
+        self._backend_name = ""
         self._cache: dict[str, str] = {}
         self._detect_backend()
+
+    @property
+    def available(self) -> bool:
+        """Whether a secure operating-system credential backend is usable."""
+        return self._keyring_available
+
+    @property
+    def backend_name(self) -> str:
+        """Human-readable keyring backend name for diagnostics."""
+        return self._backend_name
 
     def _detect_backend(self) -> None:
         try:
             import keyring
             import keyring.backends
 
-            kr = keyring.get_keyring()
-            self._keyring_available = not isinstance(
-                kr,
+            backend = keyring.get_keyring()
+            priority = float(getattr(backend, "priority", 0))
+            self._keyring_available = priority > 0 and not isinstance(
+                backend,
                 keyring.backends.fail.Keyring,  # type: ignore[attr-defined]
             )
+            self._backend_name = type(backend).__name__
         except Exception:
             self._keyring_available = False
+            self._backend_name = ""
+            logger.debug("Unable to initialize the system keyring", exc_info=True)
 
         if self._keyring_available:
-            logger.info("Using system keyring (libsecret) for API key storage")
+            logger.info("Using secure OS credential backend: %s", self._backend_name)
         else:
-            logger.info("System keyring not available; using encrypted file vault")
+            logger.error("No secure OS credential backend is available; API-key persistence is disabled")
+
+        if LEGACY_VAULT_FILE.exists():
+            logger.warning(
+                "Legacy vault.enc detected and ignored. Re-enter API keys in Settings so they "
+                "are stored in the operating system keyring."
+            )
+
+    def _require_backend(self) -> None:
+        if not self._keyring_available:
+            raise VaultUnavailableError(
+                "Secure credential storage is unavailable. Enable Windows Credential Manager, "
+                "macOS Keychain, or a Secret Service-compatible keyring, then restart Heliox OS."
+            )
 
     async def get_key(self, provider: str) -> str | None:
-        """Retrieve a decrypted API key for the given provider."""
+        """Retrieve a key without falling back to insecure file storage."""
         if provider in self._cache:
             return self._cache[provider]
+        if not self._keyring_available:
+            return None
 
-        key = self._read_key(provider)
+        key = self._read_from_keyring(provider)
         if key:
             self._cache[provider] = key
         return key
 
     async def store_key(self, provider: str, api_key: str) -> None:
-        """Store an API key securely."""
-        self._write_key(provider, api_key)
+        """Persist an API key in the operating system keyring."""
+        self._require_backend()
+        self._write_to_keyring(provider, api_key)
         self._cache[provider] = api_key
         logger.info("API key stored for provider: %s", provider)
 
     async def delete_key(self, provider: str) -> None:
-        """Remove a stored API key."""
-        self._remove_key(provider)
+        """Remove an API key from the operating system keyring."""
+        self._require_backend()
+        self._remove_from_keyring(provider)
         self._cache.pop(provider, None)
         logger.info("API key removed for provider: %s", provider)
 
     async def list_providers(self) -> list[str]:
-        """List providers that have stored keys."""
-        if self._keyring_available:
-            return self._list_keyring_providers()
-        return self._list_file_providers()
+        """List known providers that currently have stored credentials."""
+        if not self._keyring_available:
+            return []
+        return self._list_keyring_providers()
 
     def clear_cache(self) -> None:
-        """Clear in-memory key cache."""
+        """Clear decrypted keys held in process memory."""
         self._cache.clear()
-
-    def _read_key(self, provider: str) -> str | None:
-        if self._keyring_available:
-            return self._read_from_keyring(provider)
-        return self._read_from_file(provider)
-
-    def _write_key(self, provider: str, api_key: str) -> None:
-        if self._keyring_available:
-            self._write_to_keyring(provider, api_key)
-        else:
-            self._write_to_file(provider, api_key)
-
-    def _remove_key(self, provider: str) -> None:
-        if self._keyring_available:
-            self._remove_from_keyring(provider)
-        else:
-            self._remove_from_file(provider)
-
-    # -- Keyring backend --
 
     def _read_from_keyring(self, provider: str) -> str | None:
         import keyring
+        from keyring.errors import KeyringError
 
         try:
             return keyring.get_password(VAULT_SERVICE, provider)
-        except Exception:
-            logger.exception("Failed to read from keyring")
-            return None
+        except KeyringError as exc:
+            raise VaultUnavailableError(
+                f"The operating system credential store could not read the {provider} key."
+            ) from exc
 
     def _write_to_keyring(self, provider: str, api_key: str) -> None:
         import keyring
+        from keyring.errors import KeyringError
 
-        keyring.set_password(VAULT_SERVICE, provider, api_key)
+        try:
+            keyring.set_password(VAULT_SERVICE, provider, api_key)
+        except KeyringError as exc:
+            raise VaultUnavailableError(
+                f"The operating system credential store could not save the {provider} key."
+            ) from exc
 
     def _remove_from_keyring(self, provider: str) -> None:
         import keyring
+        from keyring.errors import KeyringError, PasswordDeleteError
 
-        with contextlib.suppress(Exception):
+        try:
             keyring.delete_password(VAULT_SERVICE, provider)
+        except PasswordDeleteError:
+            return
+        except KeyringError as exc:
+            raise VaultUnavailableError(
+                f"The operating system credential store could not delete the {provider} key."
+            ) from exc
 
     def _list_keyring_providers(self) -> list[str]:
-        known = ["openai", "claude", "gemini", "meta"]
-        import keyring
-
-        return [p for p in known if keyring.get_password(VAULT_SERVICE, p)]
-
-    # -- Encrypted file backend --
-
-    def _get_vault_data(self) -> dict[str, str]:
-        if not VAULT_FILE.exists():
-            return {}
-        try:
-            encrypted = VAULT_FILE.read_bytes()
-            return self._decrypt_vault(encrypted)
-        except Exception:
-            logger.exception("Failed to decrypt vault file")
-            return {}
-
-    def _save_vault_data(self, data: dict[str, str]) -> None:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        encrypted = self._encrypt_vault(data)
-        VAULT_FILE.write_bytes(encrypted)
-        os.chmod(VAULT_FILE, 0o600)
-
-    def _read_from_file(self, provider: str) -> str | None:
-        data = self._get_vault_data()
-        return data.get(provider)
-
-    def _write_to_file(self, provider: str, api_key: str) -> None:
-        data = self._get_vault_data()
-        data[provider] = api_key
-        self._save_vault_data(data)
-
-    def _remove_from_file(self, provider: str) -> None:
-        data = self._get_vault_data()
-        data.pop(provider, None)
-        self._save_vault_data(data)
-
-    def _list_file_providers(self) -> list[str]:
-        return list(self._get_vault_data().keys())
-
-    def _derive_key(self, salt: bytes) -> bytes:
-        """Derive encryption key using PBKDF2-HMAC-SHA256.
-
-        Uses machine-id as the passphrase for unattended operation.
-        For maximum security, users should configure keyring instead.
-        """
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
-        machine_id = self._get_machine_id()
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=600_000,
-        )
-        return kdf.derive(machine_id.encode("utf-8"))
-
-    def _encrypt_vault(self, data: dict[str, str]) -> bytes:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-        plaintext = json.dumps(data).encode("utf-8")
-        salt = os.urandom(16)
-        key = self._derive_key(salt)
-        nonce = os.urandom(12)
-        aesgcm = AESGCM(key)
-        ciphertext = aesgcm.encrypt(nonce, plaintext, None)
-
-        envelope = {
-            "v": 1,
-            "salt": base64.b64encode(salt).decode(),
-            "nonce": base64.b64encode(nonce).decode(),
-            "data": base64.b64encode(ciphertext).decode(),
-        }
-        return json.dumps(envelope).encode("utf-8")
-
-    def _decrypt_vault(self, raw: bytes) -> dict[str, str]:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-        envelope = json.loads(raw)
-        salt = base64.b64decode(envelope["salt"])
-        nonce = base64.b64decode(envelope["nonce"])
-        ciphertext = base64.b64decode(envelope["data"])
-
-        key = self._derive_key(salt)
-        aesgcm = AESGCM(key)
-        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
-        return json.loads(plaintext)
-
-    @staticmethod
-    def _get_machine_id() -> str:
-        """Read a stable per-machine identifier used as the KDF passphrase.
-
-        Tries platform-specific sources in order of preference:
-          - Linux: /etc/machine-id or /var/lib/dbus/machine-id
-          - macOS: IOPlatformUUID from ioreg
-          - Windows: MachineGuid from the Cryptography registry key
-
-        Falls back to a hardcoded constant only when no platform source
-        is reachable. The fallback weakens machine-binding (any attacker
-        who obtains the vault file can attempt decryption with the known
-        constant), so users on platforms where the fallback is hit should
-        prefer the system-keyring backend instead.
-        """
-        import platform
-        import subprocess
-
-        # Linux: standard machine-id files written by systemd / D-Bus.
-        for path in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
-            try:
-                value = Path(path).read_text().strip()
-                if value:
-                    return value
-            except OSError:
-                continue
-
-        system = platform.system()
-
-        # macOS: IOPlatformUUID is stable across reboots and unique per device.
-        if system == "Darwin":
-            try:
-                result = subprocess.run(
-                    ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                for line in result.stdout.splitlines():
-                    if "IOPlatformUUID" in line:
-                        parts = line.split('"')
-                        if len(parts) >= 2:
-                            uuid = parts[-2].strip()
-                            if uuid:
-                                return uuid
-            except Exception:
-                pass
-
-        # Windows: MachineGuid written by Windows Setup; unique per installation.
-        if system == "Windows":
-            try:
-                import winreg  # available only on Windows
-
-                with winreg.OpenKey(
-                    winreg.HKEY_LOCAL_MACHINE,
-                    r"SOFTWARE\Microsoft\Cryptography",
-                ) as key:
-                    guid, _ = winreg.QueryValueEx(key, "MachineGuid")
-                    if guid:
-                        return str(guid)
-            except Exception:
-                pass
-
-        return "pilot-fallback-id"
+        return [provider for provider in KNOWN_PROVIDERS if self._read_from_keyring(provider)]

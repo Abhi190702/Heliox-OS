@@ -40,6 +40,7 @@
   let apiKeyInput = $state("");
   let apiKeySaved = $state(false);
   let apiKeySaving = $state(false);
+  let apiKeyError = $state("");
   let rootToast = $state("");
   let rootToastType = $state<"success" | "warning">("success");
   let rootSaving = $state(false);
@@ -628,9 +629,16 @@
   async function saveApiKey() {
     if (!apiKeyInput.trim()) return;
     apiKeySaving = true;
+    apiKeyError = "";
     try {
       const provider = $settings.model.cloud_provider || "gemini";
-      await call("store_api_key", { provider, api_key: apiKeyInput.trim() });
+      const result = await call<{ status: string; message?: string }>("store_api_key", {
+        provider,
+        api_key: apiKeyInput.trim(),
+      });
+      if (result.status !== "ok") {
+        throw new Error(result.message || "The daemon did not confirm secure API-key storage.");
+      }
       apiKeySaved = true;
       apiKeyInput = "";
       setTimeout(() => {
@@ -638,6 +646,7 @@
       }, 3000);
     } catch (err) {
       console.error("Failed to save API key:", err);
+      apiKeyError = err instanceof Error ? err.message : "The API key could not be stored securely.";
     } finally {
       apiKeySaving = false;
     }
@@ -1513,6 +1522,9 @@
           {apiKeySaved ? $_("settings.saved") : apiKeySaving ? $_("settings.saving") : $_("settings.save")}
         </button>
       </div>
+      {#if apiKeyError}
+        <p class="api-key-error" role="alert">{apiKeyError}</p>
+      {/if}
     </div>
   </section>
 
@@ -2213,5 +2225,13 @@
     font-size: 12px;
     font-weight: 600;
     color: var(--success, #10b981);
+  }
+
+  .api-key-error {
+    margin: 6px 0 0;
+    max-width: 520px;
+    color: var(--danger, #ef4444);
+    font-size: 11px;
+    line-height: 1.4;
   }
 </style>

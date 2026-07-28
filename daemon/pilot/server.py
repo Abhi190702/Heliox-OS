@@ -3415,7 +3415,12 @@ class PilotServer:
         key = params.get("api_key", "") or params.get("key", "")
         if not provider or not key:
             return {"status": "error", "message": "provider and api_key are required"}
-        await self._vault.store_key(provider, key)
+        from pilot.security.vault import VaultUnavailableError
+
+        try:
+            await self._vault.store_key(provider, key)
+        except VaultUnavailableError as exc:
+            return {"status": "error", "message": str(exc), "available": False}
         if self.config.model.cloud_provider == provider:
             from pilot.models.cloud import CloudClient
 
@@ -3435,7 +3440,12 @@ class PilotServer:
         provider = params.get("provider", "")
         if not provider:
             return {"status": "error", "message": "provider is required"}
-        await self._vault.delete_key(provider)
+        from pilot.security.vault import VaultUnavailableError
+
+        try:
+            await self._vault.delete_key(provider)
+        except VaultUnavailableError as exc:
+            return {"status": "error", "message": str(exc), "available": False}
         return {"status": "ok"}
 
     async def _handle_list_api_keys(self, params: dict, ws: ServerConnection) -> dict:
@@ -3448,8 +3458,27 @@ class PilotServer:
         Returns:
             A dict with providers list.
         """
-        providers = await self._vault.list_providers()
-        return {"providers": providers}
+        from pilot.security.vault import VaultUnavailableError
+
+        try:
+            providers = await self._vault.list_providers()
+        except VaultUnavailableError as exc:
+            return {
+                "providers": [],
+                "available": False,
+                "backend": self._vault.backend_name,
+                "message": str(exc),
+            }
+        return {
+            "providers": providers,
+            "available": self._vault.available,
+            "backend": self._vault.backend_name,
+            "message": (
+                ""
+                if self._vault.available
+                else "Secure OS credential storage is unavailable; API keys cannot be persisted."
+            ),
+        }
 
     # -- Ollama model discovery --
 

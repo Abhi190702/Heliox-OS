@@ -7,14 +7,27 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import shlex
 
 from pilot.system.platform_detect import CURRENT_PLATFORM, Platform, run_command
 
 logger = logging.getLogger("pilot.system.environment")
 
+_ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_env_name(name: str) -> None:
+    if not _ENV_NAME_PATTERN.fullmatch(name):
+        raise ValueError(
+            "Environment variable names must start with a letter or underscore and contain "
+            "only letters, numbers, and underscores."
+        )
+
 
 async def env_get(name: str) -> str:
     """Get an environment variable value."""
+    _validate_env_name(name)
     value = os.environ.get(name)
     if value is None:
         return f"Environment variable '{name}' is not set"
@@ -26,6 +39,8 @@ async def env_set(name: str, value: str, persistent: bool = False) -> str:
 
     If persistent=True, write to the appropriate shell profile or system config.
     """
+    _validate_env_name(name)
+
     # Set for current process
     os.environ[name] = value
 
@@ -54,19 +69,22 @@ async def env_set(name: str, value: str, persistent: bool = False) -> str:
 
 async def _append_env_to_profile(profile_path: str, name: str, value: str) -> None:
     """Append or update an env var in a shell profile file."""
+    _validate_env_name(name)
     marker = f"# pilot-env:{name}"
 
     try:
-        with open(profile_path) as f:
+        with open(profile_path, encoding="utf-8") as f:
             lines = f.readlines()
     except FileNotFoundError:
         lines = []
 
     # Remove old entry
     new_lines = [l for l in lines if marker not in l]
-    new_lines.append(f'export {name}="{value}"  {marker}\n')
+    # POSIX shell quoting keeps command substitutions, newlines, quotes, and
+    # metacharacters literal when the profile is sourced.
+    new_lines.append(f"export {name}={shlex.quote(value)}  {marker}\n")
 
-    with open(profile_path, "w") as f:
+    with open(profile_path, "w", encoding="utf-8") as f:
         f.writelines(new_lines)
 
 
