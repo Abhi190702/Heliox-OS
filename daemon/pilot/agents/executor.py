@@ -405,8 +405,12 @@ class Executor:
         """
         failed = False
         for position, item in enumerate(batch_results):
-            if isinstance(item, Exception):
-                results.append(ActionResult(action=batch[position], success=False, error=str(item)))
+            if isinstance(item, BaseException):
+                if isinstance(item, asyncio.CancelledError):
+                    error = "Action cancelled before completion"
+                else:
+                    error = str(item) or item.__class__.__name__
+                results.append(ActionResult(action=batch[position], success=False, error=error))
                 failed = True
             else:
                 _idx, result = item

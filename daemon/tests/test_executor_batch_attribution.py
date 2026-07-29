@@ -6,6 +6,8 @@ input order, so batch_results[i] corresponds to batch[i]; a raised exception
 carries no index, so position is the only link back to the action.
 """
 
+import asyncio
+
 from pilot.actions import Action, ActionResult, ActionType, EmptyParams
 from pilot.agents.executor import Executor
 
@@ -76,3 +78,20 @@ def test_all_success_returns_not_failed():
     assert failed is False
     assert len(results) == 2
     assert all(r.success for r in results)
+
+
+def test_cancelled_action_becomes_a_clean_failure():
+    ex = _bare_executor()
+    batch = [_make_action("cancelled"), _make_action("completed")]
+    batch_results = [
+        asyncio.CancelledError(),
+        (1, ActionResult(action=batch[1], success=True, output="ok")),
+    ]
+    results: list[ActionResult] = []
+
+    failed = ex._collect_batch_results(batch, batch_results, results)
+
+    assert failed is True
+    assert results[0].action.target == "cancelled"
+    assert results[0].error == "Action cancelled before completion"
+    assert results[1].success is True
