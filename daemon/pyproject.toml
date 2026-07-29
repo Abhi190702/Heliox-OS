@@ -127,9 +127,6 @@ pilot-daemon = "pilot.server:main"
 [tool.hatch.build.targets.wheel]
 packages = ["pilot"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"../plugins" = "pilot/plugins/marketplace_catalog"
-
 [tool.hatch.metadata]
 allow-direct-references = true
 

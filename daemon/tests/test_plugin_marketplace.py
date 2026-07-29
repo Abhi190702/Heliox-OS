@@ -19,6 +19,7 @@ from pilot.plugins.marketplace import (
 from pilot.server import PilotServer
 
 REPO_ROOT = Path(__file__).parents[2]
+PACKAGED_CATALOG = REPO_ROOT / "daemon" / "pilot" / "plugins" / "marketplace_catalog"
 
 
 def _offline_marketplace(tmp_path: Path, monkeypatch) -> GitHubMarketplace:
@@ -63,6 +64,22 @@ def test_offline_catalog_uses_bundled_snapshot(tmp_path, monkeypatch):
         "spotify-control",
         "weather",
     }
+
+
+def test_packaged_offline_snapshot_matches_public_marketplace():
+    public_catalog = REPO_ROOT / "plugins"
+    assert (PACKAGED_CATALOG / "registry.json").read_text(encoding="utf-8") == (
+        public_catalog / "registry.json"
+    ).read_text(encoding="utf-8")
+
+    registry = json.loads((public_catalog / "registry.json").read_text(encoding="utf-8"))
+    for plugin in registry["plugins"]:
+        name = plugin["name"]
+        for file_entry in plugin["package"]["files"]:
+            relative_path = Path(file_entry["path"])
+            assert (PACKAGED_CATALOG / name / relative_path).read_text(encoding="utf-8") == (
+                public_catalog / name / relative_path
+            ).read_text(encoding="utf-8")
 
 
 def test_install_accepts_only_approved_verified_package(tmp_path, monkeypatch):
