@@ -88,8 +88,8 @@ class ModelConfig:
     # The planner's current static policy/tool prompt is slightly above 4k
     # tokens before the user's command is added, so a 4k default blocks
     # ordinary requests before planning starts.
-    max_tokens_per_action: int = 6000  # cap on tokens for a single LLM call
-    max_tokens_per_task: int = 50000  # cumulative token cap per orchestrator task
+    max_tokens_per_action: int = 12000  # cap on tokens for a single LLM call
+    max_tokens_per_task: int = 100000  # cumulative token cap per orchestrator task
     max_usd_per_task: float = 0.10  # cumulative USD cap per task
     max_consecutive_failures: int = 3  # circuit breaker threshold (Phase 4)
 

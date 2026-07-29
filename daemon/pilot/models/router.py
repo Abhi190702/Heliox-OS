@@ -62,20 +62,12 @@ class ModelRouter:
 
     @staticmethod
     def _estimate_input_tokens(prompt: str | list[dict[str, Any]]) -> int:
-        """Rough token estimate using the len/4 heuristic.
+        """Estimate input tokens with the same tokenizer as context compaction."""
+        from pilot.memory.sliding_window import count_message_tokens, get_token_count
 
-        TODO: replace with provider-specific tokenizers (tiktoken for OpenAI,
-        anthropic-tokenizer for Claude, model-specific for Ollama) for accurate
-        counts. The heuristic is acceptable for budget gating since it tends
-        to over-estimate, biasing toward earlier cutoffs rather than overruns.
-        """
         if isinstance(prompt, list):
-            import json
-
-            prompt_str = json.dumps(prompt)
-        else:
-            prompt_str = prompt
-        return len(prompt_str) // 4
+            return count_message_tokens(prompt)
+        return get_token_count(prompt)
 
     def get_config(self) -> PilotConfig:
         return self._config

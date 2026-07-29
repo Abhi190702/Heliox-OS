@@ -7,9 +7,38 @@ success or failure result.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from pilot.actions import ActionPlan, ActionResult, VerificationResult
+
+_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+
+
+def exact_labeled_finding_count(plan: ActionPlan) -> int | None:
+    """Return the requested exact finding count, when the user specified one."""
+    raw_input = str(plan.raw_input or "")
+    match = re.search(
+        r"\bexactly\s+(?P<count>\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
+        r"\s+(?:distinct\s+)?(?:labeled\s+)?(?:findings?|results?|items?)\b",
+        raw_input,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    value = match.group("count").lower()
+    return int(value) if value.isdigit() else _NUMBER_WORDS[value]
 
 
 def success_message(
@@ -27,6 +56,23 @@ def success_message(
             if intent
             else "Dry run completed; no changes were made."
         )
+
+    exact_count = exact_labeled_finding_count(plan)
+    if exact_count is not None:
+        sections = [section for result in results for section in _extract_labeled_sections(result.output)]
+        if len(sections) == exact_count:
+            return "\n".join(
+                f"{index}. {label}: {content or 'Verified.'}"
+                for index, (label, content) in enumerate(sections, start=1)
+            )
+
+    if exact_count is not None and exact_count == len(results):
+        findings = []
+        for index, result in enumerate(results, start=1):
+            label = _clean(result.action.target) or result.action.action_type.value.replace("_", " ").title()
+            output = _clean(result.output)
+            findings.append(f"{index}. {label}: {output or 'Verified.'}")
+        return "\n".join(findings)
 
     count = len(results)
     noun = "action" if count == 1 else "actions"
@@ -70,3 +116,17 @@ def partial_failure_message(
 
 def _clean(value: object) -> str:
     return " ".join(str(value).split())
+
+
+def _extract_labeled_sections(output: str) -> list[tuple[str, str]]:
+    """Extract ``=== Label ===`` tool sections as deterministic findings."""
+    matches = list(re.finditer(r"(?m)^===\s*(?P<label>[^=\r\n]+?)\s*===\s*$", output))
+    if not matches:
+        return []
+
+    sections: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(output)
+        sections.append((_clean(match.group("label")), _clean(output[start:end])))
+    return sections

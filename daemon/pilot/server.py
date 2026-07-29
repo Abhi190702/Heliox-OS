@@ -1582,7 +1582,11 @@ class PilotServer:
         last_explanation = ""
         _original_plan = None
         _successful_results: list = []
-        from pilot.response_contract import partial_failure_message, success_message
+        from pilot.response_contract import (
+            exact_labeled_finding_count,
+            partial_failure_message,
+            success_message,
+        )
 
         for attempt in range(1 + self.MAX_RETRIES):
             # ── Cancel Token: check before each planning attempt ──
@@ -2241,6 +2245,7 @@ class PilotServer:
                     and self._execution_companion
                     and hasattr(self._execution_companion, "follow_up")
                     and not dry_run
+                    and exact_labeled_finding_count(plan) is None
                 ):
                     await ws.send(_notification("status", {"phase": "preparing useful next ideas"}))
                     try:

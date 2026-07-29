@@ -18,7 +18,8 @@ from pilot.models.router import ModelRouter
 
 
 def test_default_action_budget_can_fit_the_planner_prompt():
-    assert ModelConfig().max_tokens_per_action >= 6000
+    assert ModelConfig().max_tokens_per_action >= 12000
+    assert ModelConfig().max_tokens_per_task >= 100000
 
 
 @pytest.fixture
@@ -66,14 +67,14 @@ def router(pilot_config, tracker):
     return r
 
 
-def test_estimate_input_tokens_uses_len_over_4():
-    text = "a" * 400  # 400 chars -> 100 tokens estimated
-    assert ModelRouter._estimate_input_tokens(text) == 100
+def test_estimate_input_tokens_uses_context_tokenizer():
+    text = "a" * 400
+    count = ModelRouter._estimate_input_tokens(text)
+    assert 1 < count < 100
 
 
 def test_estimate_input_tokens_handles_list_prompts():
     prompts = [{"role": "user", "content": "hi"}]
-    # Serializes to JSON, then len // 4
     count = ModelRouter._estimate_input_tokens(prompts)
     assert count > 0
 

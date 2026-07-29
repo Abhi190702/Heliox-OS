@@ -122,6 +122,7 @@ BROWSER AUTOMATION (Headless, for reading/interacting):
 - browser_type — Params: {{"selector": "#q", "text": "search query"}}
 - browser_select, browser_hover, browser_scroll — Params: {{"selector": "...", "value": "..."}}
 - browser_extract, browser_extract_table, browser_extract_links — Params: {{"selector": "h1"}} -- Extracts text into PREV_OUTPUT
+- browser_page_info — Params: {{}} -- Returns the current URL and title without executing code
 - browser_execute_js — Params: {{"script": "return document.title"}}
 - browser_screenshot — Params: {{"output_path": "path.png"}}
 - browser_new_tab, browser_close_tab, browser_switch_tab — Params: {{"url": "..."}} / {{"index": 0}}
@@ -158,8 +159,11 @@ API INTEGRATION, MESSAGING & WEBHOOKS (OpenClaw-style Hub):
 # === STANDARD SYSTEM CONTROLS ===
 
 FILE OPERATIONS:
-... (all previously known standard operations)
-- file_read, file_write, file_delete, file_move, file_copy, file_list, file_search
+- file_read — Params: {{"path": "C:\\path\\file.txt"}}
+- file_write — Params: {{"path": "C:\\path\\file.txt", "content": "exact content"}}
+- file_delete — Params: {{"path": "C:\\path\\file.txt"}}
+- file_move, file_copy — Params: {{"path": "C:\\source.txt", "destination": "C:\\destination.txt"}}
+- file_list, file_search — Params: {{"path": "C:\\path"}}
 - directory_summary, file_permissions
 
 SYSTEM ADMINISTRATION / PACKAGE / SERVICE / PROCESS / POWER:
@@ -239,6 +243,7 @@ Output STRICT JSON (no markdown, no explanation outside JSON):
     - For code_execute (Python): The variable PREV_OUTPUT is automatically available as a Python string containing the previous action's output. Just use it directly: e.g. print(PREV_OUTPUT.count('word')). NEVER assign or define PREV_OUTPUT yourself.
 12. For queries about the system (how much RAM, disk space, etc), use the system_info actions.
 13. ALWAYS USE THE MOST SPECIFIC TOOL: E.g., for parsing a PDF, use file_parse, DO NOT write a python script. For web scraping, use api_scrape or browser_extract.
+13a. If the user forbids code or scripts, never use browser_execute_js, code_execute, shell_command, or shell_script. Use browser_page_info for the current title/URL and browser_extract for visible content.
 14. YOU CAN CLICK AND TYPE: If an app has no CLI/API, use mouse_click, keyboard_type, and screen_ocr to use its GUI manually just like a human would!
 15. REASON IN THE APPS: You can write Python code (code_execute) to process data if needed.
 16. USE BACKGROUND TRIGGERS: If asked to "watch" or "alert" when something happens, use trigger_create.
@@ -836,6 +841,26 @@ class Planner:
 
         # Post-process: fix common LLM structural errors
         actions = self._postprocess_actions(actions)
+
+        missing_destination = next(
+            (
+                action
+                for action in actions
+                if action.action_type in {ActionType.FILE_COPY, ActionType.FILE_MOVE}
+                and not getattr(action.parameters, "destination", None)
+            ),
+            None,
+        )
+        if missing_destination is not None:
+            return ActionPlan(
+                error=(
+                    f"{missing_destination.action_type.value} requires a non-empty "
+                    "'parameters.destination'. Rebuild the complete plan from the "
+                    "original request and include both source and destination paths."
+                ),
+                explanation=explanation,
+                raw_input=user_input,
+            )
 
         return ActionPlan(actions=actions, explanation=explanation, raw_input=user_input)
 

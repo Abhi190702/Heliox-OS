@@ -1,5 +1,5 @@
 from pilot.actions import Action, ActionPlan, ActionResult, ActionType, SystemInfoParams, VerificationResult
-from pilot.response_contract import partial_failure_message, success_message
+from pilot.response_contract import exact_labeled_finding_count, partial_failure_message, success_message
 
 
 def _action() -> Action:
@@ -42,3 +42,64 @@ def test_partial_failure_message_surfaces_real_error_instead_of_plan_intent():
 
     assert "1 of 1 action failed" in message
     assert "Process exited with code 125" in message
+
+
+def test_exact_labeled_findings_preserve_requested_result_shape():
+    actions = [
+        Action(
+            action_type=ActionType.SYSTEM_INFO,
+            target=label,
+            parameters=SystemInfoParams(),
+        )
+        for label in ("Operating System", "CPU", "Memory", "Disk")
+    ]
+    plan = ActionPlan(
+        actions=actions,
+        explanation="Inspect four metrics.",
+        raw_input="Return exactly four labeled findings.",
+    )
+    results = [ActionResult(action=action, success=True, output=f"{action.target} details") for action in actions]
+    verification = VerificationResult(passed=True)
+
+    message = success_message(plan, results, verification, dry_run=False)
+
+    assert exact_labeled_finding_count(plan) == 4
+    assert message.splitlines() == [
+        "1. Operating System: Operating System details",
+        "2. CPU: CPU details",
+        "3. Memory: Memory details",
+        "4. Disk: Disk details",
+    ]
+
+
+def test_exact_labeled_findings_split_one_composite_system_result():
+    action = _action()
+    plan = ActionPlan(
+        actions=[action],
+        explanation="Inspect four metrics.",
+        raw_input="Return exactly four labeled findings.",
+    )
+    result = ActionResult(
+        action=action,
+        success=True,
+        output=(
+            "=== Operating System ===\nrelease: 11\n"
+            "=== CPU ===\nAverage usage: 16%\n"
+            "=== Memory ===\nUsed: 84%\n"
+            "=== Disk ===\nC: 90%\n"
+        ),
+    )
+
+    message = success_message(
+        plan,
+        [result],
+        VerificationResult(passed=True),
+        dry_run=False,
+    )
+
+    assert message.splitlines() == [
+        "1. Operating System: release: 11",
+        "2. CPU: Average usage: 16%",
+        "3. Memory: Used: 84%",
+        "4. Disk: C: 90%",
+    ]
