@@ -1,6 +1,16 @@
 import { writable, get } from "svelte/store";
 import { call, connect, isConnected, onNotification } from "../api/daemon";
 import { classifyExecuteResponse, normalizeActionResult } from "../utils/executeResponse";
+import {
+  LEGACY_CHAT_HISTORY_KEY,
+  createChatSession,
+  deriveChatTitle,
+  loadChatSessions,
+  saveChatSessions,
+  summarizeChatSessions,
+  type ChatSessionRecord,
+  type ChatSessionSummary,
+} from "../utils/chatSessions";
 import { settings } from "./settings";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
@@ -93,6 +103,7 @@ export interface ProactiveSuggestion {
 }
 
 interface SessionState {
+  activeSessionId: string;
   daemonConnected: boolean;
   loading: boolean;
   messages: Message[];
@@ -123,31 +134,27 @@ export interface Attachment {
   content: string;
 }
 
-function loadPersistedMessages(): Message[] {
-  if (typeof localStorage === "undefined") return [];
-  const stored = localStorage.getItem("heliox_session_history");
-  if (!stored) return [];
-  try {
-    const parsed = JSON.parse(stored);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((message) => {
-      if (!message || typeof message !== "object" || !Array.isArray(message.actionResults)) {
-        return message;
-      }
-      return {
-        ...message,
-        actionResults: message.actionResults.map((result: ActionResultData) => normalizeActionResult(result)),
-      };
-    }) as Message[];
-  } catch {
-    return [];
-  }
+function normalizeMessages(messages: Message[]): Message[] {
+  return messages.map((message) => ({
+    ...message,
+    actionResults: message.actionResults?.map((result) => normalizeActionResult(result)),
+  }));
 }
 
+const browserStorage = typeof localStorage === "undefined" ? null : localStorage;
+const loadedChatCollection = loadChatSessions(browserStorage);
+let chatSessions: ChatSessionRecord[] = loadedChatCollection.sessions.map((chat) => ({
+  ...chat,
+  messages: normalizeMessages(chat.messages),
+}));
+const loadedActiveChat =
+  chatSessions.find((chat) => chat.id === loadedChatCollection.activeSessionId) ?? chatSessions[0];
+
 const initialState: SessionState = {
+  activeSessionId: loadedActiveChat.id,
   daemonConnected: false,
   loading: false,
-  messages: loadPersistedMessages(),
+  messages: loadedActiveChat.messages,
   currentPlan: null,
   confirmRequired: false,
   confirmPlanId: "",
@@ -158,8 +165,8 @@ const initialState: SessionState = {
   confirmError: "",
   phase: "",
   liveActions: [],
-  totalTokens: 0,
-  estimatedCost: 0,
+  totalTokens: loadedActiveChat.totalTokens,
+  estimatedCost: loadedActiveChat.estimatedCost,
   streamingText: "",
   budget: null,
   rollback: null,
@@ -231,6 +238,48 @@ function estimateTokens(text: string): number {
 // 2. Custom store creation managing real-time core states
 function createSession() {
   const { subscribe, update, set } = writable<SessionState>(initialState);
+  let lastPersistedMessages: Message[] | null = null;
+  let lastPersistedTokens = Number.NaN;
+  let lastPersistedCost = Number.NaN;
+
+  function persistActiveSession(state: SessionState, touch = true) {
+    const index = chatSessions.findIndex((chat) => chat.id === state.activeSessionId);
+    if (index === -1) return;
+    const previous = chatSessions[index];
+    const changed =
+      previous.messages !== state.messages ||
+      previous.totalTokens !== state.totalTokens ||
+      previous.estimatedCost !== state.estimatedCost;
+    chatSessions[index] = {
+      ...previous,
+      title: deriveChatTitle(state.messages),
+      updatedAt: touch && changed ? Date.now() : previous.updatedAt,
+      messages: state.messages,
+      totalTokens: state.totalTokens,
+      estimatedCost: state.estimatedCost,
+    };
+    saveChatSessions(browserStorage, chatSessions, state.activeSessionId);
+    if (browserStorage) {
+      if (state.messages.length > 0) {
+        browserStorage.setItem(LEGACY_CHAT_HISTORY_KEY, JSON.stringify(state.messages));
+      } else {
+        browserStorage.removeItem(LEGACY_CHAT_HISTORY_KEY);
+      }
+    }
+  }
+
+  function stateForChat(current: SessionState, chat: ChatSessionRecord): SessionState {
+    return {
+      ...initialState,
+      activeSessionId: chat.id,
+      daemonConnected: current.daemonConnected,
+      messages: chat.messages,
+      totalTokens: chat.totalTokens,
+      estimatedCost: chat.estimatedCost,
+      liveActions: [],
+      confirmActions: [],
+    };
+  }
 
   // Background daemon message channel routing
   onNotification((method, params) => {
@@ -617,6 +666,7 @@ function createSession() {
       const result = (await call("execute", {
         input,
         attachments,
+        session_id: current.activeSessionId,
       })) as Record<string, unknown>;
       const rawResults = (result.results ?? []) as Array<Record<string, unknown>>;
       const actionResults: ActionResultData[] = rawResults.map((r) => {
@@ -842,10 +892,34 @@ function createSession() {
   }
 
   function clearMessages() {
-    if (typeof localStorage !== "undefined") {
-      localStorage.removeItem("heliox_session_history");
-    }
     update((s) => ({ ...s, messages: [] }));
+  }
+
+  function listChatSessions(): ChatSessionSummary[] {
+    persistActiveSession(get({ subscribe }), false);
+    return summarizeChatSessions(chatSessions);
+  }
+
+  function newChat(): boolean {
+    const current = get({ subscribe });
+    if (current.loading) return false;
+    persistActiveSession(current, false);
+    const chat = createChatSession();
+    chatSessions = [...chatSessions, chat];
+    saveChatSessions(browserStorage, chatSessions, chat.id);
+    set(stateForChat(current, chat));
+    return true;
+  }
+
+  function switchChatSession(sessionId: string): boolean {
+    const current = get({ subscribe });
+    if (current.loading || sessionId === current.activeSessionId) return !current.loading;
+    const target = chatSessions.find((chat) => chat.id === sessionId);
+    if (!target) return false;
+    persistActiveSession(current, false);
+    saveChatSessions(browserStorage, chatSessions, target.id);
+    set(stateForChat(current, target));
+    return true;
   }
 
   function resetUsage() {
@@ -859,10 +933,20 @@ function createSession() {
   init();
 
   subscribe((s) => {
-    if (typeof localStorage !== "undefined" && s.messages && s.messages.length > 0) {
-      try {
-        localStorage.setItem("heliox_session_history", JSON.stringify(s.messages));
-      } catch (e) {}
+    if (
+      s.messages === lastPersistedMessages &&
+      s.totalTokens === lastPersistedTokens &&
+      s.estimatedCost === lastPersistedCost
+    ) {
+      return;
+    }
+    lastPersistedMessages = s.messages;
+    lastPersistedTokens = s.totalTokens;
+    lastPersistedCost = s.estimatedCost;
+    try {
+      persistActiveSession(s);
+    } catch (error) {
+      console.warn("[Heliox] could not persist chat session", error);
     }
   });
 
@@ -927,6 +1011,9 @@ function createSession() {
     abort,
     addSystemMessage,
     clearMessages,
+    listChatSessions,
+    newChat,
+    switchChatSession,
     resetUsage,
     acknowledgeBudgetEvent,
     acceptProactiveSuggestion,

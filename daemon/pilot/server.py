@@ -420,6 +420,7 @@ class PilotServer:
         self._live_correction: str | None = None
         self._execution_companion: Any = None
         self._recent_companion_context = ""
+        self._recent_companion_context_by_session: dict[str, str] = {}
         self._tts_warmup_task: asyncio.Task[None] | None = None
         self._rss_agent: Any = None
         # ── LAN Mesh Network ──
@@ -1306,6 +1307,7 @@ class PilotServer:
         """
         user_input = params.get("input", "")
         attachments = params.get("attachments", [])
+        chat_session_id = str(params.get("session_id") or "default")
         revision_count = int(params.get("_companion_revision_count", 0))
         auto_revision_count = int(params.get("_companion_auto_revision_count", 0))
 
@@ -1372,6 +1374,16 @@ class PilotServer:
             if len(clean) <= limit:
                 return clean
             return clean[: max(0, limit - 3)] + "..."
+
+        def _record_memory(plan: Any, results: list[Any]) -> Any:
+            if chat_session_id == "default":
+                return self._memory.record(user_input, plan, results)
+            return self._memory.record(
+                user_input,
+                plan,
+                results,
+                session_id=chat_session_id,
+            )
 
         async def _emit_task_complete(status: str, summary: str) -> None:
             try:
@@ -1455,6 +1467,7 @@ class PilotServer:
                     "dry_run": dry_run,
                     "_companion_revision_count": revision_count + 1,
                     "_companion_auto_revision_count": auto_revision_count,
+                    "session_id": chat_session_id,
                 },
                 ws,
             )
@@ -1512,6 +1525,7 @@ class PilotServer:
                     "dry_run": dry_run,
                     "_companion_revision_count": revision_count,
                     "_companion_auto_revision_count": auto_revision_count + 1,
+                    "session_id": chat_session_id,
                 },
                 ws,
             )
@@ -1616,8 +1630,9 @@ class PilotServer:
                     _screen_ctx = self._screen_vision.get_context_for_planner()
                 except Exception:
                     pass
-            if self._recent_companion_context:
-                _screen_ctx = (f"{_screen_ctx}\n\n[RECENT COMPANION CONTEXT]\n{self._recent_companion_context}").strip()
+            recent_companion_context = self._recent_companion_context_by_session.get(chat_session_id, "")
+            if recent_companion_context:
+                _screen_ctx = (f"{_screen_ctx}\n\n[RECENT COMPANION CONTEXT]\n{recent_companion_context}").strip()
             if self._subconscious:
                 try:
                     persona_context = await self._subconscious.get_persona_context()
@@ -1632,15 +1647,20 @@ class PilotServer:
                     logger.debug("Could not load learned persona context", exc_info=True)
 
             try:
+                planner_kwargs: dict[str, Any] = {
+                    "error_context": error_context,
+                    "screen_context": _screen_ctx,
+                    # Planner output is internal JSON, not an assistant response.
+                    # Streaming it into chat exposes implementation details and can
+                    # replace the final user-facing explanation.
+                    "stream_callback": None,
+                }
+                if chat_session_id != "default":
+                    planner_kwargs["session_id"] = chat_session_id
                 plan = await self._await_execution_tracked(
                     self._planner.plan(
                         user_input,
-                        error_context=error_context,
-                        screen_context=_screen_ctx,
-                        # Planner output is internal JSON, not an assistant response.
-                        # Streaming it into chat exposes implementation details and can
-                        # replace the final user-facing explanation.
-                        stream_callback=None,
+                        **planner_kwargs,
                     )
                 )
             except asyncio.CancelledError:
@@ -1678,7 +1698,7 @@ class PilotServer:
                     )
 
                 if self._memory:
-                    asyncio.create_task(self._memory.record(user_input, plan, []))
+                    asyncio.create_task(_record_memory(plan, []))
                 await ws.send(_notification("conversation_response", {"explanation": plan.explanation}))
                 await _emit_task_complete("success", plan.explanation)
                 return {
@@ -2204,7 +2224,7 @@ class PilotServer:
                         "memory_update", "Persisting interaction to long-term memory...", parent_id=mem_store_phase
                     )
 
-                asyncio.create_task(self._memory.record(user_input, plan, results))
+                asyncio.create_task(_record_memory(plan, results))
                 if self._checkpoint_store:
                     await self._checkpoint_store.mark_status(plan_id, "complete")
                 asyncio.create_task(
@@ -2266,7 +2286,7 @@ class PilotServer:
 
                 message = success_message(plan, results, verification, dry_run=dry_run)
                 if companion_follow_up:
-                    self._recent_companion_context = (
+                    self._recent_companion_context_by_session[chat_session_id] = (
                         f"Previous request: {_sanitize_summary(user_input, limit=300)}\n"
                         f"Verified result: {_sanitize_summary(message, limit=300)}\n"
                         f"Companion next ideas: {' | '.join(companion_follow_up.suggestions)}"
@@ -2333,7 +2353,7 @@ class PilotServer:
             mem_final = await emit.phase_start("memory_update", MEMORY_STORE_STARTED)
             await emit.phase_complete("memory_update", MEMORY_STORE_COMPLETE, {"partial": True}, parent_id=mem_final)
 
-        asyncio.create_task(self._memory.record(user_input, plan, all_results))
+        asyncio.create_task(_record_memory(plan, all_results))
         if self._checkpoint_store and last_plan_id:
             await self._checkpoint_store.mark_status(last_plan_id, "failed")
 

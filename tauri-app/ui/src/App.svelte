@@ -33,6 +33,7 @@
   import ConnectionBadge from "./lib/components/ConnectionBadge.svelte";
   import HeaderMiniMonitor from "./lib/components/HeaderMiniMonitor.svelte";
   import CommandHistory from "./lib/components/CommandHistory.svelte";
+  import ChatSessionControls from "./lib/components/ChatSessionControls.svelte";
   import { _, isLoading } from "svelte-i18n";
 
   let isDragging = $state(false);
@@ -229,6 +230,7 @@
       >
     </nav>
     <div class="titlebar-right">
+      <ChatSessionControls onactivate={() => (activeTab = "chat")} />
       <HeaderMiniMonitor />
       <ConnectionBadge />
       <AmbientHUD />

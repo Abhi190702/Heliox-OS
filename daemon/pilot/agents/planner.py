@@ -606,6 +606,7 @@ class Planner:
         error_context: str = "",
         screen_context: str = "",
         stream_callback: callable | None = None,
+        session_id: str = "default",
     ) -> ActionPlan:
         """Generate an action plan from a natural language request.
 
@@ -648,7 +649,10 @@ class Planner:
                     logger.info("Fast-path matched: %s", user_input[:80])
                     return fast
 
-            context = await self._memory.get_context(user_input)
+            if session_id == "default":
+                context = await self._memory.get_context(user_input)
+            else:
+                context = await self._memory.get_context(user_input, session_id=session_id)
 
             # Load config parameters safely
             config = getattr(self._model, "_config", None)
@@ -664,7 +668,10 @@ class Planner:
                     recent_limit = getattr(config, "max_recent_messages", 10)
 
             # Retrieve chronological history
-            history_entries = await self._memory.get_history(limit=50)
+            if session_id == "default":
+                history_entries = await self._memory.get_history(limit=50)
+            else:
+                history_entries = await self._memory.get_history(limit=50, session_id=session_id)
             history_entries.reverse()
 
             messages = [{"role": "system", "content": self._system_prompt}]

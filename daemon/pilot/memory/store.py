@@ -27,6 +27,7 @@ SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS action_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT 'default',
     user_input TEXT NOT NULL,
     plan_json TEXT NOT NULL,
     results_json TEXT,
@@ -75,6 +76,12 @@ class MemoryStore:
 
         async with self._pool.write() as db:
             await db.executescript(SCHEMA_SQL)
+            cursor = await db.execute("PRAGMA table_info(action_history)")
+            columns = {row[1] for row in await cursor.fetchall()}
+            await cursor.close()
+            if "session_id" not in columns:
+                await db.execute("ALTER TABLE action_history ADD COLUMN session_id TEXT NOT NULL DEFAULT 'default'")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_history_session ON action_history(session_id, id)")
             await db.commit()
 
         await asyncio.to_thread(self._init_chroma)
@@ -263,6 +270,8 @@ class MemoryStore:
         user_input: str,
         plan: ActionPlan,
         results: list[ActionResult],
+        *,
+        session_id: str = "default",
     ) -> None:
         """Record an executed plan and its results."""
         if not self._pool:
@@ -278,10 +287,11 @@ class MemoryStore:
         async with self._pool.write() as db:
             await db.execute(
                 """INSERT INTO action_history
-                   (timestamp, user_input, plan_json, results_json, success, explanation)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   (timestamp, session_id, user_input, plan_json, results_json, success, explanation)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     now,
+                    session_id,
                     user_input,
                     plan_json,
                     results_json,
@@ -300,6 +310,7 @@ class MemoryStore:
                     metadatas=[
                         {
                             "timestamp": now,
+                            "session_id": session_id,
                             "success": str(success),
                             "explanation": plan.explanation[:500],
                         }
@@ -310,17 +321,25 @@ class MemoryStore:
             except Exception:
                 logger.debug("ChromaDB write failed", exc_info=True)
 
-    async def get_context(self, query: str, n_results: int = 5) -> str:
+    async def get_context(
+        self,
+        query: str,
+        n_results: int = 5,
+        *,
+        session_id: str | None = None,
+    ) -> str:
         """Retrieve relevant context for a query using semantic search."""
         parts: list[str] = []
 
         if self._chroma_collection is not None:
             try:
-                results = await asyncio.to_thread(
-                    self._chroma_collection.query,
-                    query_texts=[query],
-                    n_results=n_results,
-                )
+                query_args: dict[str, Any] = {
+                    "query_texts": [query],
+                    "n_results": n_results,
+                }
+                if session_id is not None:
+                    query_args["where"] = {"session_id": session_id}
+                results = await asyncio.to_thread(self._chroma_collection.query, **query_args)
 
                 if results["documents"] and results["documents"][0]:
                     parts.append("Related past requests:")
@@ -351,19 +370,31 @@ class MemoryStore:
         *,
         limit: int = 50,
         offset: int = 0,
+        session_id: str | None = None,
     ) -> list[dict[str, Any]]:
         if not self._pool:
             return []
 
         async with self._pool.read() as db:
-            cursor = await db.execute(
-                """SELECT id, timestamp, user_input, success, explanation
-                   FROM action_history
-                   ORDER BY id DESC
-                   LIMIT ?
-                   OFFSET ?""",
-                (limit, offset),
-            )
+            if session_id is None:
+                cursor = await db.execute(
+                    """SELECT id, timestamp, user_input, success, explanation
+                       FROM action_history
+                       ORDER BY id DESC
+                       LIMIT ?
+                       OFFSET ?""",
+                    (limit, offset),
+                )
+            else:
+                cursor = await db.execute(
+                    """SELECT id, timestamp, user_input, success, explanation
+                       FROM action_history
+                       WHERE session_id = ?
+                       ORDER BY id DESC
+                       LIMIT ?
+                       OFFSET ?""",
+                    (session_id, limit, offset),
+                )
 
             rows = await cursor.fetchall()
 

@@ -130,6 +130,43 @@ class TestMemoryStoreInit:
         assert s._pool is not None
         await pool.close()
 
+    @pytest.mark.asyncio
+    async def test_initialize_migrates_existing_history_to_session_column(self, tmp_path):
+        database = tmp_path / "legacy.db"
+        pool = AsyncSqlitePool(database)
+        await pool.start()
+        async with pool.write() as db:
+            await db.execute(
+                """CREATE TABLE action_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    user_input TEXT NOT NULL,
+                    plan_json TEXT NOT NULL,
+                    results_json TEXT,
+                    success INTEGER DEFAULT 1,
+                    explanation TEXT DEFAULT ''
+                )"""
+            )
+            await db.commit()
+        await pool.close()
+
+        s = MemoryStore(checkpoint_interval_seconds=0, pruning_interval_seconds=0)
+        with (
+            patch("pilot.memory.store.DATA_DIR", tmp_path),
+            patch("pilot.memory.store.DB_FILE", database),
+            patch.object(s, "_init_chroma"),
+            patch.object(s, "_init_workspace_index"),
+        ):
+            await s.initialize()
+
+        async with s._pool.read() as db:
+            cursor = await db.execute("PRAGMA table_info(action_history)")
+            columns = {row[1] for row in await cursor.fetchall()}
+            await cursor.close()
+
+        assert "session_id" in columns
+        await s.close()
+
 
 class TestCheckpoint:
     @pytest.mark.asyncio
@@ -167,6 +204,19 @@ class TestRecord:
 
         row = await _fetch_one(store, "SELECT user_input FROM action_history")
         assert row[0] == "close window"
+
+    @pytest.mark.asyncio
+    async def test_record_stores_chat_session_id(self, store, fake_plan, fake_results):
+        with patch("pilot.memory.store.asyncio.to_thread", new_callable=AsyncMock):
+            await store.record(
+                "session-specific task",
+                fake_plan,
+                fake_results,
+                session_id="chat-123",
+            )
+
+        row = await _fetch_one(store, "SELECT session_id FROM action_history")
+        assert row[0] == "chat-123"
 
     @pytest.mark.asyncio
     async def test_record_success_flag_true(self, store, fake_plan, fake_results):
@@ -276,6 +326,16 @@ class TestGetHistory:
         assert len(page1) == 2
         assert len(page2) == 2
         assert page1[0]["user_input"] != page2[0]["user_input"]
+
+    @pytest.mark.asyncio
+    async def test_get_history_filters_by_chat_session(self, store, fake_plan, fake_results):
+        with patch("pilot.memory.store.asyncio.to_thread", new_callable=AsyncMock):
+            await store.record("first chat", fake_plan, fake_results, session_id="chat-a")
+            await store.record("second chat", fake_plan, fake_results, session_id="chat-b")
+
+        history = await store.get_history(session_id="chat-a")
+
+        assert [entry["user_input"] for entry in history] == ["first chat"]
 
     @pytest.mark.asyncio
     async def test_get_history_entry_has_required_keys(self, store, fake_plan, fake_results):
@@ -392,6 +452,19 @@ class TestGetContext:
             result = await store.get_context("open browser")
 
         assert "open browser last time" in result
+
+    @pytest.mark.asyncio
+    async def test_get_context_filters_semantic_memory_by_chat_session(self, store):
+        await store.set_preference("interaction_style", "concise")
+
+        async def fake_to_thread(fn, *args, **kwargs):
+            assert kwargs["where"] == {"session_id": "chat-123"}
+            return {"documents": [[]], "metadatas": [[]]}
+
+        with patch("pilot.memory.store.asyncio.to_thread", side_effect=fake_to_thread):
+            context = await store.get_context("open browser", session_id="chat-123")
+
+        assert "interaction_style: concise" in context
 
     @pytest.mark.asyncio
     async def test_get_context_chroma_failure_does_not_crash(self, store):

@@ -250,6 +250,31 @@ async def test_handle_execute_returns_conversation_without_preview_or_execution(
 
 
 @pytest.mark.asyncio
+async def test_handle_execute_forwards_chat_session_to_planner():
+    class _ExecutorThatMustNotRun:
+        async def execute(self, plan, **kwargs):
+            raise AssertionError("a zero-action conversation must not reach the executor")
+
+    captured = {}
+
+    class _SessionAwarePlanner:
+        async def plan(self, user_input, **kwargs):
+            captured.update(kwargs)
+            return ActionPlan(actions=[], explanation="Session-aware response", raw_input=user_input)
+
+    server = _server_ready_for_handle_execute(_ExecutorThatMustNotRun())
+    server._planner = _SessionAwarePlanner()
+
+    result = await server._handle_execute(
+        {"input": "Continue this chat", "session_id": "chat-123"},
+        _FakeWs(),
+    )
+
+    assert result["status"] == "success"
+    assert captured["session_id"] == "chat-123"
+
+
+@pytest.mark.asyncio
 async def test_handle_execute_returns_clean_response_when_cancelled_mid_flight():
     """End-to-end (bypassing the real, ML-heavy PilotServer.initialize()):
     drives a real 'execute' RPC through _handle_execute and confirms that
