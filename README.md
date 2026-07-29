@@ -268,8 +268,7 @@ The release gate is reproducible; it does not rely on an informal task-pass perc
 GitHub Actions repeats Python tests on Windows, Ubuntu, and macOS with Python 3.11 and 3.12, runs the frontend gate, compares per-OS visual baselines, and checks the Rust bridge on Linux. Camera, microphone, desktop permissions, model downloads, and OS-specific integrations still require real-device validation; CI cannot prove hardware behavior.
 
 Public releases use a signed, draft-first workflow. PyPI publication and stable
-promotion happen only after package and clean-machine acceptance. Maintainers
-must follow the [release runbook](docs/RELEASING.md).
+promotion happen only after package and clean-machine acceptance.
 
 ## 🖥️ Cross-Platform Support
 

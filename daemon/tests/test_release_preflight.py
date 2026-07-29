@@ -41,9 +41,8 @@ def test_release_gate_rejects_wrong_tag(monkeypatch):
         check_release.validate_release(ROOT, "v0.10.1")
 
 
-def test_release_flow_has_no_certificate_or_notarization_gate():
+def test_release_workflow_has_no_certificate_or_notarization_gate():
     release_text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    runbook_text = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
     forbidden = (
         "WINDOWS_CERTIFICATE",
         "APPLE_CERTIFICATE",
@@ -55,7 +54,6 @@ def test_release_flow_has_no_certificate_or_notarization_gate():
 
     for token in forbidden:
         assert token not in release_text
-        assert token not in runbook_text
 
 
 def test_end_user_all_extra_contains_both_local_voice_engines():
