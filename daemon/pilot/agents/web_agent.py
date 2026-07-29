@@ -64,29 +64,10 @@ class WebAgent(BaseAgent):
     def get_capabilities(self) -> list[AgentCapability]:
         return [
             AgentCapability(
-                action_type=ActionType.BROWSER_NAVIGATE,
-                description="Navigate to a URL in an automated browser",
-            ),
-            AgentCapability(
-                action_type=ActionType.BROWSER_EXTRACT,
-                description="Extract text/data from a web page",
-            ),
-            AgentCapability(
-                action_type=ActionType.API_REQUEST,
-                description="Make HTTP API requests (GET, POST, etc.)",
-            ),
-            AgentCapability(
-                action_type=ActionType.API_SCRAPE,
-                description="Scrape structured data from web pages",
-            ),
-            AgentCapability(
-                action_type=ActionType.DOWNLOAD_FILE,
-                description="Download files from the internet",
-            ),
-            AgentCapability(
-                action_type=ActionType.API_GITHUB,
-                description="Interact with the GitHub API",
-            ),
+                action_type=action_type,
+                description=f"Web operation: {action_type.value}",
+            )
+            for action_type in sorted(WEB_ACTION_TYPES, key=lambda item: item.value)
         ]
 
     def get_system_prompt(self) -> str:

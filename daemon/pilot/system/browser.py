@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +50,20 @@ MAX_SELF_CORRECT_RETRIES: int = 2
 # Global browser instance for session persistence
 _browser_context: Any = None
 _playwright_instance: Any = None
+
+_CLICK_INTENT_GROUPS = (
+    frozenset({"learn", "read", "discover", "explore", "details", "detail", "information", "info", "more"}),
+    frozenset({"continue", "next", "proceed", "advance"}),
+    frozenset({"submit", "send", "confirm", "save", "apply"}),
+    frozenset({"close", "cancel", "dismiss", "exit"}),
+    frozenset({"login", "log", "signin", "sign"}),
+    frozenset({"register", "signup", "join", "create"}),
+)
+_CLICK_STOP_WORDS = frozenset({"a", "an", "and", "button", "link", "please", "the", "to"})
+_INTERACTIVE_SELECTOR = (
+    "a, button, [role='button'], [role='link'], "
+    "input[type='button'], input[type='submit']"
+)
 
 
 async def _ensure_browser():
@@ -226,14 +242,32 @@ async def browser_click(
 
 
 async def browser_click_text(text: str, exact: bool = False) -> str:
-    """Click an element by its visible text content, with DOM-diff self-correction."""
+    """Click visible text, reasoning over equivalent labels when literal lookup fails.
+
+    The semantic fallback is deliberately bounded: it considers only visible
+    interactive controls and proceeds only when one candidate is both
+    high-confidence and clearly better than the runner-up.
+    """
     page = await _get_page()
     before = await _snap(page)
+    matched_text = text
+    used_fallback = False
 
-    if exact:
-        await page.click(f"text='{text}'")
-    else:
-        await page.click(f"text={text}")
+    try:
+        if exact:
+            await page.click(f"text='{text}'", timeout=10000, no_wait_after=True)
+        else:
+            await page.click(f"text={text}", timeout=10000, no_wait_after=True)
+    except Exception as exc:
+        if "timeout" not in str(exc).lower():
+            raise
+        candidate = await _find_semantic_click_candidate(page, text)
+        if candidate is None:
+            raise
+        candidate_locator, matched_text = candidate
+        await candidate_locator.click(timeout=10000, no_wait_after=True)
+        used_fallback = True
+
     await page.wait_for_timeout(300)
     after = await _snap(page)
 
@@ -250,7 +284,7 @@ async def browser_click_text(text: str, exact: bool = False) -> str:
                 retries,
                 MAX_SELF_CORRECT_RETRIES,
             )
-            escaped = text.replace("'", "\\'")
+            escaped = matched_text.replace("'", "\\'")
             await page.evaluate(
                 f"""
                 const els = [...document.querySelectorAll('*')];
@@ -262,7 +296,96 @@ async def browser_click_text(text: str, exact: bool = False) -> str:
             after = await _snap(page)
             diff = diff_dom(before, after)
 
-    return _append_diff(f"Clicked element with text: {text}", before, after, f"click_text:{text}")
+    output = (
+        f"Clicked closest available option: {matched_text} (requested: {text})"
+        if used_fallback
+        else f"Clicked element with text: {text}"
+    )
+    return _append_diff(output, before, after, f"click_text:{matched_text}")
+
+
+def _normalize_click_label(value: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", value.casefold()))
+
+
+def _click_text_similarity(requested: str, candidate: str) -> float:
+    """Score two UI labels by wording and bounded intent equivalence."""
+    requested_norm = _normalize_click_label(requested)
+    candidate_norm = _normalize_click_label(candidate)
+    if not requested_norm or not candidate_norm:
+        return 0.0
+    if requested_norm == candidate_norm:
+        return 1.0
+
+    requested_tokens = set(requested_norm.split()) - _CLICK_STOP_WORDS
+    candidate_tokens = set(candidate_norm.split()) - _CLICK_STOP_WORDS
+    union = requested_tokens | candidate_tokens
+    overlap = len(requested_tokens & candidate_tokens) / len(union) if union else 0.0
+    sequence = SequenceMatcher(None, requested_norm, candidate_norm).ratio()
+    score = (0.55 * sequence) + (0.45 * overlap)
+
+    for intent_group in _CLICK_INTENT_GROUPS:
+        if requested_tokens & intent_group and candidate_tokens & intent_group:
+            score = max(score, 0.74 + min(overlap, 0.2))
+
+    if requested_norm in candidate_norm or candidate_norm in requested_norm:
+        score = max(score, 0.78)
+    return min(score, 1.0)
+
+
+def _select_semantic_click_candidate(
+    requested: str,
+    candidates: list[str],
+) -> tuple[int, str] | None:
+    """Return one unambiguous, high-confidence semantic label match."""
+    scored = sorted(
+        (
+            (_click_text_similarity(requested, label), index, label)
+            for index, label in enumerate(candidates)
+            if _normalize_click_label(label)
+        ),
+        reverse=True,
+    )
+    if not scored or scored[0][0] < 0.65:
+        return None
+
+    best_score, best_index, best_label = scored[0]
+    if len(scored) > 1:
+        second_score, _, second_label = scored[1]
+        if second_label != best_label and best_score - second_score < 0.08:
+            return None
+    return best_index, best_label
+
+
+async def _find_semantic_click_candidate(page: Any, requested: str) -> tuple[Any, str] | None:
+    controls = page.locator(_INTERACTIVE_SELECTOR)
+    count = min(await controls.count(), 60)
+    visible_locators: list[Any] = []
+    labels: list[str] = []
+
+    for index in range(count):
+        locator = controls.nth(index)
+        if not await locator.is_visible():
+            continue
+        label = (await locator.inner_text()).strip()
+        if not label:
+            for attribute in ("aria-label", "title", "value"):
+                label = str(await locator.get_attribute(attribute) or "").strip()
+                if label:
+                    break
+        if label:
+            visible_locators.append(locator)
+            labels.append(label)
+
+    selected = _select_semantic_click_candidate(requested, labels)
+    if selected is None:
+        available = ", ".join(dict.fromkeys(labels[:8])) or "none"
+        raise RuntimeError(
+            f"No unambiguous option matched '{requested}'. Visible options: {available}"
+        )
+    index, label = selected
+    logger.info("browser_click_text: mapped requested label %r to visible option %r", requested, label)
+    return visible_locators[index], label
 
 
 async def browser_type(
