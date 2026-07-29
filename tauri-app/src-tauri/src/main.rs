@@ -82,6 +82,10 @@ fn daemon_requirement() -> String {
     format!("pilot-daemon[all]=={}", env!("CARGO_PKG_VERSION"))
 }
 
+fn playwright_browser_install_args() -> [&'static str; 4] {
+    ["-m", "playwright", "install", "chromium"]
+}
+
 fn setup_venv_in_background() {
     std::thread::spawn(|| {
         let data_dir = get_app_data_dir();
@@ -115,6 +119,10 @@ fn setup_venv_in_background() {
         let pip_exe = venv_dir.join("Scripts").join("pip.exe");
         #[cfg(not(target_os = "windows"))]
         let pip_exe = venv_dir.join("bin").join("pip");
+        #[cfg(target_os = "windows")]
+        let venv_python = venv_dir.join("Scripts").join("python.exe");
+        #[cfg(not(target_os = "windows"))]
+        let venv_python = venv_dir.join("bin").join("python");
 
         let mut pip_cmd = Command::new(&pip_exe);
         #[cfg(target_os = "windows")]
@@ -145,13 +153,31 @@ fn setup_venv_in_background() {
             .map(|s| s.success())
             .unwrap_or(false);
 
-        if ok {
-            println!(
-                "[Heliox OS] Background setup complete — restart the app to activate AI backend."
-            );
-        } else {
+        if !ok {
             eprintln!("[Heliox OS] Background setup: pip install failed.");
+            return;
         }
+
+        // Installing the Playwright Python package does not install a browser
+        // executable. Provision Chromium during the same background setup so
+        // browser actions work without a separate developer command.
+        let mut browser_cmd = Command::new(&venv_python);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            browser_cmd.creation_flags(0x08000000);
+        }
+        let browser_ok = browser_cmd
+            .args(playwright_browser_install_args())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !browser_ok {
+            eprintln!("[Heliox OS] Background setup: Chromium installation failed.");
+            return;
+        }
+
+        println!("[Heliox OS] Background setup complete — restart the app to activate AI backend.");
     });
 }
 #[tauri::command]
@@ -706,6 +732,14 @@ mod startup_tests {
         assert_eq!(
             daemon_requirement(),
             format!("pilot-daemon[all]=={}", env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    #[test]
+    fn desktop_first_run_installs_playwright_chromium() {
+        assert_eq!(
+            playwright_browser_install_args(),
+            ["-m", "playwright", "install", "chromium"]
         );
     }
 }

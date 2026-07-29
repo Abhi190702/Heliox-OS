@@ -85,16 +85,17 @@ For each platform:
 1. download the installer from the draft release;
 2. confirm the installer came from the Heliox GitHub draft release;
 3. install Python 3.11 or 3.12, then install and launch Heliox;
-4. wait for first-run setup, restart once, and confirm the daemon becomes
-   online;
+4. wait for first-run setup to install the daemon dependencies and Playwright
+   Chromium, restart once, and confirm the daemon becomes online;
 5. save and use a cloud API key through the OS credential store;
 6. test a non-destructive command, an approved command, a denied command, and a
    failed command;
-7. test microphone input, camera gaze plus gesture coexistence, cursor mode,
-   Kokoro TTS, Pocket TTS, and the learned risk interruption path on real hardware; and
-8. disconnect the network and confirm the bundled marketplace catalog can
+7. test a real browser navigation plus click or type action;
+8. test microphone input, camera gaze plus gesture coexistence, cursor mode,
+   Kokoro TTS, Pocket TTS, and the learned risk interruption path on real hardware;
+9. disconnect the network and confirm the bundled marketplace catalog can
    install one of its bundled plugins; and
-9. uninstall the application and confirm no running daemon remains.
+10. uninstall the application and confirm no running daemon remains.
 
 Record the OS version and result for every row. CI cannot substitute for this
 hardware and first-run validation.

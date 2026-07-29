@@ -14,7 +14,7 @@ REQUIRED_FILES = {
     "pilot/security/risk_gate_weights.npz",
     f"{PACKAGE_PREFIX}/registry.json",
 }
-REQUIRED_REQUIREMENTS = ("kokoro", "pocket-tts", "sounddevice", "openai-whisper")
+REQUIRED_REQUIREMENTS = ("kokoro", "pocket-tts", "sounddevice", "openai-whisper", "playwright")
 
 
 def validate_wheel(path: Path) -> None:
