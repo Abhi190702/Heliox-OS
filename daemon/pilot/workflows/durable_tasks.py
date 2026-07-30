@@ -124,6 +124,8 @@ _ALLOWED_TRANSITIONS: dict[TaskStatus, frozenset[TaskStatus]] = {
     ),
     TaskStatus.VERIFYING: frozenset(
         {
+            TaskStatus.AWAITING_APPROVAL,
+            TaskStatus.EXECUTING,
             TaskStatus.SUCCEEDED,
             TaskStatus.PARTIAL,
             TaskStatus.FAILED,
@@ -404,6 +406,25 @@ class DurableTaskStore:
         if row is None or not hmac.compare_digest(row[11], token_hash):
             return None
         return self._task_from_row(row[:11])
+
+    async def get_by_plan_id(self, plan_id: str) -> DurableTask | None:
+        pool = self._require_pool()
+        async with pool.read() as db:
+            cursor = await db.execute(
+                """
+                SELECT task_id, session_id, user_id, user_input, status, plan_id,
+                       cancellation_requested, terminal_response_json, version,
+                       created_at, updated_at
+                FROM durable_tasks
+                WHERE plan_id = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (plan_id,),
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+        return self._task_from_row(row) if row is not None else None
 
     async def transition(
         self,
@@ -855,6 +876,41 @@ class DurableTaskStore:
             attempt_count=int(row[2]),
             result=redact_for_persistence(result) if result is not None else None,
         )
+
+    async def mark_action_uncertain(
+        self,
+        *,
+        task_id: str,
+        action_key: str,
+        lease_owner: str,
+        error: str = "",
+    ) -> None:
+        """Release a claim only into the fail-closed reconciliation state."""
+
+        pool = self._require_pool()
+        async with pool.write() as db:
+            cursor = await db.execute(
+                """
+                UPDATE action_execution_claims
+                SET status = ?, lease_owner = '', lease_until = '', error = ?,
+                    updated_at = ?
+                WHERE task_id = ? AND action_key = ? AND status = ?
+                      AND lease_owner = ?
+                """,
+                (
+                    ActionExecutionStatus.UNCERTAIN.value,
+                    str(redact_for_persistence(error)),
+                    self._now(),
+                    task_id,
+                    action_key,
+                    ActionExecutionStatus.RUNNING.value,
+                    lease_owner,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise ActionClaimConflict(f"Worker {lease_owner!r} does not own running action {action_key}")
+            await cursor.close()
+            await db.commit()
 
     async def recover_incomplete(self) -> RecoverySummary:
         """Recover after daemon startup without repeating uncertain effects."""

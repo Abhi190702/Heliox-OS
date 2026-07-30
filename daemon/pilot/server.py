@@ -46,6 +46,13 @@ from pilot.intelligence.experience import (
     stable_action_idempotency_key,
 )
 from pilot.logger import ColorFormatter
+from pilot.workflows.durable_tasks import (
+    ApprovalConflict,
+    ApprovalStatus,
+    DurableTaskStore,
+    InvalidTaskTransition,
+    TaskStatus,
+)
 
 logger = logging.getLogger("pilot.server")
 
@@ -419,6 +426,7 @@ class PilotServer:
         self._vault: Any = None
         self._permission_audit: Any = None
         self._checkpoint_store: Any = None
+        self._durable_tasks: DurableTaskStore | None = None
         # ── Plan History Audit Log ──
         self._plan_history: PlanHistoryStore | None = None
         self._plan_history_tasks: set[asyncio.Task[None]] = set()
@@ -451,6 +459,7 @@ class PilotServer:
         # stop the one active interactive task.
         self._interactive_request_active = False
         self._active_plan_id = ""
+        self._active_task_id = ""
         self._live_correction: str | None = None
         self._execution_companion: Any = None
         self._recent_companion_context = ""
@@ -548,6 +557,22 @@ class PilotServer:
         await self._permission_audit.initialize()
         self._checkpoint_store = WorkflowCheckpointStore()
         await self._checkpoint_store.initialize()
+        self._durable_tasks = DurableTaskStore()
+        await self._durable_tasks.initialize()
+        recovery = await self._durable_tasks.recover_incomplete()
+        if any(
+            (
+                recovery.interrupted_tasks,
+                recovery.uncertain_actions,
+                recovery.expired_approvals,
+            )
+        ):
+            logger.warning(
+                "Recovered durable work: %d interrupted task(s), %d uncertain action(s), %d expired approval(s)",
+                recovery.interrupted_tasks,
+                recovery.uncertain_actions,
+                recovery.expired_approvals,
+            )
         validator = ActionValidator(self.config)
         permissions = PermissionChecker(self.config)
         self._permission_checker = permissions
@@ -583,6 +608,7 @@ class PilotServer:
             skill_registry=self._skill_registry,
         )
         self._executor.set_experience_ledger(self._experience_ledger)
+        self._executor.set_durable_task_store(self._durable_tasks)
         self._verifier = Verifier(model_router)
 
         # Destructive Critic Agent — secondary safety reviewer for Tier 4 plans.
@@ -924,6 +950,7 @@ class PilotServer:
         self._handlers = {
             "execute": self._handle_execute,
             "resume_plan": self._handle_resume_plan,
+            "resume_task": self._handle_resume_task,
             "export_session_chat": self._handle_export_session_chat,
             "confirm": self._handle_confirm,
             "rollback_plan": self._handle_rollback_plan,
@@ -1342,14 +1369,92 @@ class PilotServer:
         """
         return await self._await_execution_tracked(self._executor.execute(plan, **kwargs))
 
+    async def _finalize_durable_task(self, task_id: str, response: dict[str, Any]) -> None:
+        """Persist one terminal response so duplicate requests can replay it."""
+
+        if self._durable_tasks is None:
+            return
+        task = await self._durable_tasks.get(task_id)
+        if task is None or task.is_terminal:
+            return
+        response_status = str(response.get("status", "error"))
+        target = {
+            "success": TaskStatus.SUCCEEDED,
+            "cancelled": TaskStatus.CANCELLED,
+            "partial_failure": TaskStatus.PARTIAL,
+        }.get(response_status, TaskStatus.FAILED)
+        if target == TaskStatus.SUCCEEDED and task.status == TaskStatus.EXECUTING:
+            task = await self._durable_tasks.transition(
+                task_id,
+                TaskStatus.VERIFYING,
+                reason="execution completed before terminal success",
+                plan_id=self._active_plan_id or task.plan_id,
+            )
+        if target == TaskStatus.PARTIAL and task.status not in {
+            TaskStatus.EXECUTING,
+            TaskStatus.VERIFYING,
+        }:
+            task = await self._durable_tasks.transition(
+                task_id,
+                TaskStatus.EXECUTING,
+                reason="terminal partial result entered execution",
+                plan_id=self._active_plan_id or task.plan_id,
+            )
+        await self._durable_tasks.transition(
+            task_id,
+            target,
+            reason=f"interactive request finished with {response_status}",
+            plan_id=self._active_plan_id or task.plan_id,
+            terminal_response=response,
+        )
+
     async def _handle_execute(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Run one interactive request while exposing an out-of-band control slot."""
+        requested_task_id = str(params.get("task_id") or uuid.uuid4())
+        resume_token = ""
+        if self._durable_tasks is not None:
+            existing = await self._durable_tasks.get(requested_task_id)
+            if existing is not None:
+                supplied_token = str(params.get("resume_token") or "")
+                authorized = await self._durable_tasks.get_by_resume_token(supplied_token) if supplied_token else None
+                if authorized is None or authorized.task_id != existing.task_id:
+                    return {
+                        "status": "error",
+                        "message": "This task_id already exists; a valid resume_token is required.",
+                        "task_id": existing.task_id,
+                    }
+                if existing.is_terminal and existing.terminal_response is not None:
+                    return {
+                        **existing.terminal_response,
+                        "task_id": existing.task_id,
+                        "replayed": True,
+                    }
+                return {
+                    "status": "interrupted",
+                    "message": "This task already exists. Use resume_task to continue it safely.",
+                    "task_id": existing.task_id,
+                    "task_state": existing.status.value,
+                }
+            created = await self._durable_tasks.create_task(
+                task_id=requested_task_id,
+                session_id=str(params.get("session_id") or "default"),
+                user_id=str(params.get("user_id") or "local"),
+                user_input=str(params.get("input") or ""),
+            )
+            requested_task_id = created.task.task_id
+            resume_token = created.resume_token
+            await self._durable_tasks.transition(
+                requested_task_id,
+                TaskStatus.PLANNING,
+                reason="interactive request accepted",
+            )
         self._interactive_request_active = True
         self._active_plan_id = ""
+        self._active_task_id = requested_task_id
         self._live_correction = None
         context = ExperienceContext(
             session_id=str(params.get("session_id") or "default"),
-            task_id=str(params.get("task_id") or uuid.uuid4()),
+            task_id=requested_task_id,
             user_id=str(params.get("user_id") or "local"),
         )
         self._active_experience_context = context
@@ -1360,7 +1465,24 @@ class PilotServer:
                 user_id=context.user_id,
             ):
                 try:
-                    return await self._handle_execute_inner(params, ws)
+                    if resume_token:
+                        await ws.send(
+                            _notification(
+                                "task_registered",
+                                {
+                                    "task_id": context.task_id,
+                                    "resume_token": resume_token,
+                                    "session_id": context.session_id,
+                                },
+                            )
+                        )
+                    response = await self._handle_execute_inner(params, ws)
+                    await self._finalize_durable_task(context.task_id, response)
+                    if self._durable_tasks is not None:
+                        response = {**response, "task_id": context.task_id}
+                        if resume_token:
+                            response["resume_token"] = resume_token
+                    return response
                 except Exception as exc:
                     await self._append_experience(
                         ExperienceEventType.OUTCOME_VERIFIED,
@@ -1374,10 +1496,24 @@ class PilotServer:
                         provenance={"component": "PilotServer._handle_execute"},
                         privacy_class=PrivacyClass.SENSITIVE,
                     )
+                    if self._durable_tasks is not None:
+                        task = await self._durable_tasks.get(context.task_id)
+                        if task is not None and not task.is_terminal:
+                            await self._durable_tasks.transition(
+                                context.task_id,
+                                TaskStatus.FAILED,
+                                reason=f"unhandled {type(exc).__name__}",
+                                plan_id=self._active_plan_id or task.plan_id,
+                                terminal_response={
+                                    "status": "error",
+                                    "message": "Internal error while executing task.",
+                                },
+                            )
                     raise
         finally:
             self._interactive_request_active = False
             self._active_plan_id = ""
+            self._active_task_id = ""
             self._live_correction = None
             self._cancel_event = None
             self._active_experience_context = ExperienceContext()
@@ -1543,6 +1679,25 @@ class PilotServer:
             except Exception:
                 pass
 
+        async def _prepare_durable_replan(reason: str) -> None:
+            if self._durable_tasks is None or not self._active_task_id:
+                return
+            task = await self._durable_tasks.get(self._active_task_id)
+            if task is None or task.is_terminal:
+                return
+            if task.status != TaskStatus.INTERRUPTED:
+                await self._durable_tasks.transition(
+                    task.task_id,
+                    TaskStatus.INTERRUPTED,
+                    reason=reason,
+                    plan_id=self._active_plan_id or task.plan_id,
+                )
+            await self._durable_tasks.transition(
+                task.task_id,
+                TaskStatus.PLANNING,
+                reason="replanning after intervention",
+            )
+
         async def _restart_with_live_correction(completed_results: list[Any] | None = None) -> dict | None:
             """Consume one queued correction and re-enter planning in this RPC.
 
@@ -1604,6 +1759,7 @@ class PilotServer:
                     "completed_actions": len(completed),
                 },
             )
+            await _prepare_durable_replan("live user correction")
             return await self._handle_execute_inner(
                 {
                     "input": revised_input,
@@ -1662,6 +1818,7 @@ class PilotServer:
                 "Create a smaller corrected plan that still follows the original "
                 "user request. Do not add goals, permissions, or side effects."
             )
+            await _prepare_durable_replan("companion requested plan revision")
             return await self._handle_execute_inner(
                 {
                     "input": revised_input,
@@ -2113,6 +2270,13 @@ class PilotServer:
             ) and not dry_run
             partially_approved = False
             if needs_confirm:
+                if self._durable_tasks is not None and self._active_task_id:
+                    await self._durable_tasks.transition(
+                        self._active_task_id,
+                        TaskStatus.AWAITING_APPROVAL,
+                        reason="plan requires user approval",
+                        plan_id=plan_id,
+                    )
                 confirm_phase = ""
                 if emit:
                     confirm_phase = await emit.phase_start("confirmation", CONFIRMATION_REQUIRED, {"plan_id": plan_id})
@@ -2210,6 +2374,13 @@ class PilotServer:
                     )
 
             approved_decision = "partially_approved" if partially_approved else "approved"
+            if self._durable_tasks is not None and self._active_task_id:
+                await self._durable_tasks.transition(
+                    self._active_task_id,
+                    TaskStatus.EXECUTING,
+                    reason="approval satisfied; execution starting",
+                    plan_id=plan_id,
+                )
 
             exec_phase = ""
             if emit:
@@ -2378,6 +2549,13 @@ class PilotServer:
                     "verification", "Checking execution results against expected outcomes...", parent_id=verify_phase
                 )
 
+            if self._durable_tasks is not None and self._active_task_id:
+                await self._durable_tasks.transition(
+                    self._active_task_id,
+                    TaskStatus.VERIFYING,
+                    reason="action execution finished",
+                    plan_id=plan_id,
+                )
             await ws.send(_notification("status", {"phase": "verifying"}))
             if dry_run:
                 from pilot.actions import VerificationResult
@@ -2692,6 +2870,110 @@ class PilotServer:
         self._plan_history_tasks.add(task)
         task.add_done_callback(self._plan_history_tasks.discard)
 
+    async def _handle_resume_task(self, params: dict[str, Any], ws: ServerConnection) -> dict:
+        """Authenticate and continue a durable task after reconnect or restart."""
+
+        if self._durable_tasks is None:
+            return {"status": "error", "message": "Durable task store is not initialized"}
+        resume_token = str(params.get("resume_token") or "")
+        if not resume_token:
+            return {"status": "error", "message": "resume_task requires resume_token"}
+        task = await self._durable_tasks.get_by_resume_token(resume_token)
+        requested_task_id = str(params.get("task_id") or "")
+        if task is None or (requested_task_id and requested_task_id != task.task_id):
+            return {"status": "error", "message": "Invalid task_id or resume_token"}
+        if task.is_terminal:
+            return {
+                **(task.terminal_response or {"status": task.status.value}),
+                "task_id": task.task_id,
+                "replayed": True,
+            }
+        if task.cancellation_requested:
+            response = {
+                "status": "cancelled",
+                "message": "Task cancellation was requested before resume.",
+                "task_id": task.task_id,
+            }
+            await self._finalize_durable_task(task.task_id, response)
+            return response
+
+        approval = await self._durable_tasks.get_approval(task.plan_id) if task.plan_id else None
+        if approval is not None and approval.status == ApprovalStatus.PENDING:
+            return {
+                "status": "awaiting_approval",
+                "task_id": task.task_id,
+                "plan_id": task.plan_id,
+                "approval": approval.request,
+                "expires_at": approval.expires_at,
+            }
+        if approval is not None and approval.status in {
+            ApprovalStatus.DENIED,
+            ApprovalStatus.EXPIRED,
+        }:
+            response = {
+                "status": "cancelled",
+                "message": f"Task approval was {approval.status.value}.",
+                "task_id": task.task_id,
+                "plan_id": task.plan_id,
+            }
+            await self._finalize_durable_task(task.task_id, response)
+            return response
+
+        self._interactive_request_active = True
+        self._active_task_id = task.task_id
+        self._active_plan_id = task.plan_id
+        self._live_correction = None
+        context = ExperienceContext(
+            session_id=task.session_id,
+            task_id=task.task_id,
+            user_id=task.user_id,
+        )
+        self._active_experience_context = context
+        try:
+            with experience_scope(
+                session_id=context.session_id,
+                task_id=context.task_id,
+                user_id=context.user_id,
+            ):
+                if task.plan_id:
+                    if task.status != TaskStatus.EXECUTING:
+                        await self._durable_tasks.transition(
+                            task.task_id,
+                            TaskStatus.EXECUTING,
+                            reason="authenticated task resume",
+                            plan_id=task.plan_id,
+                        )
+                    response = await self._handle_resume_plan(
+                        {
+                            "plan_id": task.plan_id,
+                            "_authorized_task_id": task.task_id,
+                        },
+                        ws,
+                    )
+                else:
+                    if task.status != TaskStatus.PLANNING:
+                        await self._durable_tasks.transition(
+                            task.task_id,
+                            TaskStatus.PLANNING,
+                            reason="restart interrupted planning",
+                        )
+                    response = await self._handle_execute_inner(
+                        {
+                            "input": task.user_input,
+                            "session_id": task.session_id,
+                        },
+                        ws,
+                    )
+                await self._finalize_durable_task(task.task_id, response)
+                return {**response, "task_id": task.task_id, "resumed": True}
+        finally:
+            self._interactive_request_active = False
+            self._active_task_id = ""
+            self._active_plan_id = ""
+            self._live_correction = None
+            self._cancel_event = None
+            self._active_experience_context = ExperienceContext()
+
     async def _handle_resume_plan(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Resume a previously checkpointed plan from its last completed action."""
         plan_id = str(params.get("plan_id", "")).strip()
@@ -2699,6 +2981,15 @@ class PilotServer:
             return {"status": "error", "message": "resume_plan requires plan_id"}
         if not self._checkpoint_store:
             return {"status": "error", "message": "Workflow checkpoint store is not initialized"}
+        if self._durable_tasks is not None:
+            durable = await self._durable_tasks.get_by_plan_id(plan_id)
+            authorized_task_id = str(params.get("_authorized_task_id") or "")
+            if durable is not None and authorized_task_id != durable.task_id:
+                return {
+                    "status": "error",
+                    "message": "This durable plan must be resumed with resume_task and its resume_token.",
+                    "task_id": durable.task_id,
+                }
 
         checkpoint = await self._checkpoint_store.get(plan_id)
         if checkpoint is None:
@@ -2748,15 +3039,17 @@ class PilotServer:
                 await self._checkpoint_store.record_result(plan_id, result)
 
         await self._checkpoint_store.mark_status(plan_id, "resuming")
+        execute_kwargs: dict[str, Any] = {
+            "on_action_start": _on_action_start,
+            "on_action_complete": _on_action_complete,
+            "cancel_event": cancel_event,
+            "plan_id": plan_id,
+            "initial_last_output": checkpoint.last_output,
+        }
+        if params.get("_authorized_task_id"):
+            execute_kwargs["action_index_offset"] = completed_count
         try:
-            results = await self._execute_tracked(
-                remaining_plan,
-                on_action_start=_on_action_start,
-                on_action_complete=_on_action_complete,
-                cancel_event=cancel_event,
-                plan_id=plan_id,
-                initial_last_output=checkpoint.last_output,
-            )
+            results = await self._execute_tracked(remaining_plan, **execute_kwargs)
         except asyncio.CancelledError:
             # ── Mid-flight cancellation (Part 3): cancel_event is already
             # set by _handle_abort before it cancels the tracked task, so
@@ -2898,17 +3191,26 @@ class PilotServer:
             payload["index"] = idx
             return payload
 
+        approval_request = {
+            "action_indices": confirm_indices,
+            "actions": [_dump_confirm_action(i, plan.actions[i]) for i in confirm_indices],
+            "reason": reason,
+            "risk_assessment": risk_assessment,
+        }
+        if self._durable_tasks is not None and self._active_task_id:
+            await self._durable_tasks.create_approval(
+                task_id=self._active_task_id,
+                plan_id=plan_id,
+                request=approval_request,
+                timeout_seconds=CONFIRM_TIMEOUT_SECONDS,
+            )
+
         await self._append_experience(
             ExperienceEventType.APPROVAL_REQUESTED,
             plan_id=plan_id,
             idempotency_key=f"plan:{plan_id}:approval:requested",
             source="permission_gate",
-            payload={
-                "action_indices": confirm_indices,
-                "actions": [_dump_confirm_action(i, plan.actions[i]) for i in confirm_indices],
-                "reason": reason,
-                "risk_assessment": risk_assessment,
-            },
+            payload=approval_request,
             provenance={"component": "PilotServer._wait_for_confirmation"},
             privacy_class=PrivacyClass.SENSITIVE,
         )
@@ -2929,6 +3231,14 @@ class PilotServer:
             await asyncio.wait_for(pending.event.wait(), timeout=CONFIRM_TIMEOUT_SECONDS)
         except TimeoutError:
             logger.warning("Confirmation timed out for plan %s", plan_id)
+            if self._durable_tasks is not None and self._active_task_id:
+                try:
+                    await self._durable_tasks.resolve_approval(
+                        plan_id,
+                        ApprovalStatus.EXPIRED,
+                    )
+                except ApprovalConflict:
+                    logger.info("Approval %s resolved concurrently with timeout", plan_id)
             await self._append_experience(
                 ExperienceEventType.APPROVAL_RESOLVED,
                 plan_id=plan_id,
@@ -2950,6 +3260,14 @@ class PilotServer:
             if pending.confirmed
             else set()
         )
+        if self._durable_tasks is not None and self._active_task_id:
+            persisted = await self._durable_tasks.get_approval(plan_id)
+            if persisted is not None and persisted.status == ApprovalStatus.PENDING:
+                await self._durable_tasks.resolve_approval(
+                    plan_id,
+                    ApprovalStatus.APPROVED if pending.confirmed else ApprovalStatus.DENIED,
+                    approved_indices=sorted(approved & required),
+                )
         await self._append_experience(
             ExperienceEventType.APPROVAL_RESOLVED,
             plan_id=plan_id,
@@ -2983,7 +3301,31 @@ class PilotServer:
 
         pending = self._pending_confirms.get(plan_id)
         if pending is None:
-            return {"status": "error", "message": f"No pending confirmation for plan_id: {plan_id}"}
+            if self._durable_tasks is None:
+                return {"status": "error", "message": f"No pending confirmation for plan_id: {plan_id}"}
+            durable = await self._durable_tasks.get_approval(plan_id)
+            if durable is None or durable.status != ApprovalStatus.PENDING:
+                return {"status": "error", "message": f"No pending confirmation for plan_id: {plan_id}"}
+            try:
+                required = {int(index) for index in durable.request.get("action_indices", [])}
+                approved = (
+                    required
+                    if bool(confirmed) and raw_approved is None
+                    else {int(index) for index in (raw_approved or [])} & required
+                )
+            except (TypeError, ValueError):
+                approved = set()
+            resolved = await self._durable_tasks.resolve_approval(
+                plan_id,
+                ApprovalStatus.APPROVED if bool(confirmed) else ApprovalStatus.DENIED,
+                approved_indices=sorted(approved),
+            )
+            return {
+                "status": "ok",
+                "confirmed": resolved.status == ApprovalStatus.APPROVED,
+                "resume_required": True,
+                "task_id": resolved.task_id,
+            }
 
         pending.confirmed = bool(confirmed)
         if raw_approved is not None:
@@ -2991,6 +3333,20 @@ class PilotServer:
                 pending.approved_indices = {int(i) for i in raw_approved}
             except (TypeError, ValueError):
                 pending.approved_indices = None
+        if self._durable_tasks is not None:
+            durable = await self._durable_tasks.get_approval(plan_id)
+            if durable is not None and durable.status == ApprovalStatus.PENDING:
+                required = {int(index) for index in durable.request.get("action_indices", [])}
+                approved = (
+                    required
+                    if pending.confirmed and pending.approved_indices is None
+                    else (pending.approved_indices or set()) & required
+                )
+                await self._durable_tasks.resolve_approval(
+                    plan_id,
+                    ApprovalStatus.APPROVED if pending.confirmed else ApprovalStatus.DENIED,
+                    approved_indices=sorted(approved),
+                )
         pending.event.set()
         return {"status": "ok", "confirmed": pending.confirmed}
 
@@ -3302,6 +3658,10 @@ class PilotServer:
             A dict with status indicating whether an active execution was aborted.
         """
         aborted_something = False
+
+        if self._durable_tasks is not None and self._active_task_id:
+            await self._durable_tasks.request_cancel(self._active_task_id)
+            aborted_something = True
 
         if self._cancel_event and not self._cancel_event.is_set():
             self._cancel_event.set()
@@ -5490,6 +5850,9 @@ def handle_tool(tool_name, params):
         if self._experience_ledger:
             await self._experience_ledger.close()
             self._experience_ledger = None
+        if self._durable_tasks:
+            await self._durable_tasks.close()
+            self._durable_tasks = None
         if self._budget_tracker:
             await self._budget_tracker.close()
         # ── Drain pending plan-history tasks before closing the store ──

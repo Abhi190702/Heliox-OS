@@ -78,6 +78,7 @@ from pilot.system.snapshots import SnapshotManager
 if TYPE_CHECKING:
     from pilot.config import PilotConfig
     from pilot.skills.loader import SkillRegistry
+    from pilot.workflows.durable_tasks import DurableTaskStore
 
 logger = logging.getLogger("pilot.agents.executor")
 
@@ -125,6 +126,7 @@ class Executor:
         self._narrator: Any = None
         self._broadcast: Any = None
         self._experience_ledger: ExperienceLedger | None = None
+        self._durable_task_store: DurableTaskStore | None = None
         self._last_output = ""  # For output chaining between steps
         self._largest_output = ""  # Largest output from any step in the pipeline
 
@@ -359,6 +361,11 @@ class Executor:
 
         self._experience_ledger = ledger
 
+    def set_durable_task_store(self, store: DurableTaskStore) -> None:
+        """Wire exactly-once execution claims for durable interactive tasks."""
+
+        self._durable_task_store = store
+
     async def _append_experience(
         self,
         event_type: ExperienceEventType,
@@ -502,6 +509,7 @@ class Executor:
         scope_override: TaskScopeOverride | None = None,
         critic_already_reviewed: bool = False,
         user_confirmed: bool = False,
+        action_index_offset: int = 0,
     ) -> list[ActionResult]:
         """Record and execute a plan through the one canonical action ingress."""
 
@@ -542,7 +550,7 @@ class Executor:
             provenance={"component": "Executor.execute", "invocation_source": source},
         )
 
-        action_indices = {id(action): index for index, action in enumerate(plan.actions)}
+        action_indices = {id(action): index + action_index_offset for index, action in enumerate(plan.actions)}
         action_ids = {
             id(action): stable_action_idempotency_key(resolved_plan_id, index, action)
             for index, action in enumerate(plan.actions)
@@ -643,6 +651,7 @@ class Executor:
             scope_override=scope_override,
             critic_already_reviewed=critic_already_reviewed,
             user_confirmed=user_confirmed,
+            action_index_offset=action_index_offset,
         )
         for result in results:
             if id(result) not in completed_result_ids:
@@ -663,6 +672,7 @@ class Executor:
         scope_override: TaskScopeOverride | None = None,
         critic_already_reviewed: bool = False,
         user_confirmed: bool = False,
+        action_index_offset: int = 0,
     ) -> list[ActionResult]:
         """Execute all actions in a plan sequentially, with output chaining."""
         plan_id = plan_id or str(uuid.uuid4())[:8]
@@ -816,6 +826,13 @@ class Executor:
             await self._audit.log_action_start(action, plan_id)
 
         batches = self._analyze_dependencies(plan.actions)
+        durable_action_indices = {id(action): index + action_index_offset for index, action in enumerate(plan.actions)}
+        durable_task = (
+            await self._durable_task_store.get(get_experience_context().task_id)
+            if self._durable_task_store is not None and get_experience_context().task_id
+            else None
+        )
+        claim_owner = str(uuid.uuid4())
         logger.info("Executing %d action(s) in %d parallel batch(es)", len(plan.actions), len(batches))
 
         for batch_idx, batch in enumerate(batches):
@@ -841,6 +858,63 @@ class Executor:
             logger.info("Batch %d: executing %d action(s) in parallel", batch_idx + 1, len(batch))
 
             async def execute_single_action(action: Action, idx: int):
+                action_key = stable_action_idempotency_key(
+                    plan_id,
+                    durable_action_indices[id(action)],
+                    action,
+                )
+                claimed = False
+                if durable_task is not None and self._durable_task_store is not None:
+                    from pilot.workflows.durable_tasks import ActionClaimDecision
+
+                    claim = await self._durable_task_store.claim_action(
+                        task_id=get_experience_context().task_id,
+                        plan_id=plan_id,
+                        action_key=action_key,
+                        lease_owner=claim_owner,
+                    )
+                    if claim.decision == ActionClaimDecision.ALREADY_COMPLETED:
+                        if claim.result is None:
+                            result = ActionResult(
+                                action=action,
+                                success=False,
+                                error="Safety stop: completed action has no durable result.",
+                            )
+                        else:
+                            result = ActionResult.model_validate(
+                                {
+                                    **claim.result,
+                                    # Parameter unions are intentionally broad;
+                                    # retain the already-validated current action
+                                    # instead of re-inferring its parameter type
+                                    # from generic JSON during replay.
+                                    "action": action,
+                                }
+                            )
+                        if on_action_complete:
+                            await on_action_complete(result)
+                        return idx, result
+                    if claim.decision != ActionClaimDecision.CLAIMED:
+                        reason = {
+                            ActionClaimDecision.BUSY: "another worker still owns this action",
+                            ActionClaimDecision.RECONCILIATION_REQUIRED: (
+                                "the daemon stopped after this action may have changed the real world; "
+                                "reconcile its effect before retrying"
+                            ),
+                            ActionClaimDecision.RETRY_REQUIRED: (
+                                "the previous attempt failed; an explicit retry is required"
+                            ),
+                        }.get(claim.decision, claim.decision.value)
+                        result = ActionResult(
+                            action=action,
+                            success=False,
+                            error=f"Safety stop: {reason}.",
+                        )
+                        if on_action_complete:
+                            await on_action_complete(result)
+                        return idx, result
+                    claimed = True
+
                 await self._audit.log_action_start(action, plan_id)
                 if on_action_start:
                     await on_action_start(action)
@@ -915,11 +989,32 @@ class Executor:
                                 await self._narrator.on_action_complete(result)
                             return idx, result
 
-                result = await self._execute_single(
-                    action,
-                    snapshot_id,
-                    user_confirmed=user_confirmed,
-                )
+                try:
+                    result = await self._execute_single(
+                        action,
+                        snapshot_id,
+                        user_confirmed=user_confirmed,
+                    )
+                except BaseException as exc:
+                    if claimed and self._durable_task_store is not None:
+                        await self._durable_task_store.mark_action_uncertain(
+                            task_id=get_experience_context().task_id,
+                            action_key=action_key,
+                            lease_owner=claim_owner,
+                            error=f"{type(exc).__name__}: {exc}",
+                        )
+                    raise
+                if claimed and self._durable_task_store is not None:
+                    from pilot.workflows.durable_tasks import ActionExecutionStatus
+
+                    await self._durable_task_store.finish_action(
+                        task_id=get_experience_context().task_id,
+                        action_key=action_key,
+                        lease_owner=claim_owner,
+                        status=(ActionExecutionStatus.COMPLETED if result.success else ActionExecutionStatus.FAILED),
+                        result=result.model_dump(mode="json"),
+                        error=result.error or "",
+                    )
                 await self._audit.log_action_result(result, plan_id)
                 if on_action_complete:
                     await on_action_complete(result)
