@@ -80,7 +80,7 @@ Unlike simple command runners, Heliox OS is a **true agentic system** inspired b
 7. **Security** — Five-tier permission system with confirmation gates and rollback support.
 
 <a id="jarvis-autonomy"></a>
-## 🤖 JARVIS Autonomy (v0.10.0)
+## 🤖 JARVIS Autonomy (v0.10.1)
 
 Heliox OS combines reactive commands with opt-in proactive and background capabilities that run through the same permission and verification pipeline:
 
@@ -255,7 +255,7 @@ Heliox OS uses a **modular multi-agent architecture** where specialized agents c
 
 ## Release Verification
 
-The release gate is reproducible; it does not rely on an informal task-pass percentage. The v0.10.0 release candidate is validated through:
+The release gate is reproducible; it does not rely on an informal task-pass percentage. The v0.10.1 release candidate is validated through:
 
 | Surface | Verification |
 |---------|--------------|

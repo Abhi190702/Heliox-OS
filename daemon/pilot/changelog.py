@@ -10,9 +10,48 @@ from typing import Any
 
 logger = logging.getLogger("pilot.changelog")
 
-VERSION = "0.10.0"
+VERSION = "0.10.1"
 
 CHANGELOG = {
+    "0.10.1": {
+        "title": "Reliable Interactive Sessions",
+        "date": "2026-07-30",
+        "features": [
+            {
+                "name": "Persistent Private Sessions",
+                "description": (
+                    "Start isolated chats, reopen prior sessions, and retain adaptive memory "
+                    "without leaking one conversation's transcript into another."
+                ),
+                "jarvis_announce": "Your sessions are now durable, private, and easy to reopen.",
+            },
+            {
+                "name": "Faster Semantic Browser Control",
+                "description": (
+                    "Common browser tasks use bounded planning, resolve controls by meaning, and "
+                    "serialize shared-page actions to avoid slow or conflicting execution."
+                ),
+                "jarvis_announce": "I can now resolve and use browser controls more quickly and reliably.",
+            },
+            {
+                "name": "Coordinated Companion Services",
+                "description": (
+                    "Narration, learned-risk interruption, voice, and verified follow-up suggestions "
+                    "remain available together while approvals pass through every action gate."
+                ),
+                "jarvis_announce": "My voice, safety model, and follow-up guidance now stay coordinated.",
+            },
+            {
+                "name": "Safer, Truthful Task Results",
+                "description": (
+                    "Cancelled work, cloud-provider failures, destructive file changes, and exact "
+                    "findings now produce bounded, redacted, recoverable results."
+                ),
+                "jarvis_announce": "Task outcomes are now clearer, safer, and easier to recover.",
+            },
+        ],
+        "summary": "Persistent sessions, faster browser control, and coordinated companion reliability",
+    },
     "0.10.0": {
         "title": "Interactive Companion and Reliability",
         "date": "2026-07-29",

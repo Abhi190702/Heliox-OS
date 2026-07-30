@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Existing release tag to validate (for example v0.10.0)"
+        description: "Existing release tag to validate (for example v0.10.1)"
         type: string
         required: true
       build_installers:
