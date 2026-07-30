@@ -14,6 +14,7 @@
   import OnlineLearningPanel from "./OnlineLearningPanel.svelte";
   import StrategyEvolutionPanel from "./StrategyEvolutionPanel.svelte";
   import EvolutionHarnessPanel from "./EvolutionHarnessPanel.svelte";
+  import AgentMeshPanel from "./AgentMeshPanel.svelte";
   import GestureWorkflowBindings from "./GestureWorkflowBindings.svelte";
   import VoiceGestureWorkflowStatus from "./VoiceGestureWorkflowStatus.svelte";
   import SelfHealingPanel from "./SelfHealingPanel.svelte";
@@ -1645,6 +1646,10 @@
 
   <section class="settings-group feature-panel-section">
     <EvolutionHarnessPanel />
+  </section>
+
+  <section class="settings-group feature-panel-section">
+    <AgentMeshPanel />
   </section>
 
   <section class="settings-group feature-panel-section">
