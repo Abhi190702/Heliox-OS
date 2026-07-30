@@ -5,6 +5,7 @@ import {
   pinchDistance3D,
   detectPushPull3D,
   fingerExtensionStates3D,
+  classifyThumbState3D,
   WorldModelFilterBank,
   type Landmark,
 } from "./worldModel";
@@ -129,6 +130,24 @@ describe("fingerExtensionStates3D", () => {
     const invalid = posedHand({ index: true });
     invalid[8] = { x: Number.NaN, y: 0, z: 0 };
     expect(fingerExtensionStates3D(invalid)).toBeNull();
+  });
+});
+
+describe("classifyThumbState3D", () => {
+  it("recognizes the fixture's spread thumb as extended", () => {
+    expect(classifyThumbState3D(worldLandmarksHandCentered())).toBe("extended");
+  });
+
+  it("recognizes a thumb folded onto the index MCP as tucked", () => {
+    const tucked = worldLandmarksHandCentered();
+    tucked[4] = { ...tucked[5] };
+    expect(classifyThumbState3D(tucked)).toBe("tucked");
+  });
+
+  it("keeps borderline thumb geometry uncertain instead of authorizing a tucked-thumb action", () => {
+    const uncertain = worldLandmarksHandCentered();
+    uncertain[4] = { x: -0.022, y: -0.02, z: 0 };
+    expect(classifyThumbState3D(uncertain)).toBe("uncertain");
   });
 });
 

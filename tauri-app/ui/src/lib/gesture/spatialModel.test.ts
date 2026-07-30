@@ -10,6 +10,7 @@ import {
   predictCursorTarget,
   trajectoryAgreement,
   measureRecentMotion,
+  isReliableHandFrame,
   type Landmark,
 } from "./spatialModel";
 
@@ -326,6 +327,28 @@ describe("numeric pinning — 2D static-pose path stays bit-identical", () => {
     expect(isThumbExtended(lm)).toBe(true);
     expect(geometricQuality(lm)).toBe(1);
     expect(computeHandQuality(lm, 0.8)).toBeCloseTo(0.8, 12);
+  });
+});
+
+describe("isReliableHandFrame", () => {
+  it("accepts a confident, geometrically plausible hand", () => {
+    expect(isReliableHandFrame(openPalmRightHand(), 0.92)).toBe(true);
+  });
+
+  it("rejects low-confidence detections before they can emit actions", () => {
+    expect(isReliableHandFrame(openPalmRightHand(), 0.69)).toBe(false);
+    expect(isReliableHandFrame(openPalmRightHand(), undefined)).toBe(false);
+  });
+
+  it("rejects compact face-like and degenerate landmark clusters", () => {
+    const faceCluster = new Array(21)
+      .fill(null)
+      .map((_, index) => ({ x: 0.5 + (index % 3) * 0.005, y: 0.5 + Math.floor(index / 3) * 0.004, z: 0 }));
+    expect(isReliableHandFrame(faceCluster, 0.99)).toBe(false);
+
+    const invalid = openPalmRightHand();
+    invalid[8] = { x: Number.NaN, y: 0.2, z: 0 };
+    expect(isReliableHandFrame(invalid, 0.99)).toBe(false);
   });
 });
 

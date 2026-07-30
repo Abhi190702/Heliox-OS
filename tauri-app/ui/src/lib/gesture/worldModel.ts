@@ -51,6 +51,8 @@ export interface FingerExtensionStates3D {
   pinky: boolean;
 }
 
+export type ThumbState3D = "extended" | "tucked" | "uncertain";
+
 function dist3d(a: Landmark, b: Landmark): number {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
@@ -122,6 +124,21 @@ export function fingerExtensionStates3D(worldLandmarks: Landmark[]): FingerExten
     ring: isFingerExtended3D(worldLandmarks, 13, 14, 15, 16),
     pinky: isFingerExtended3D(worldLandmarks, 17, 18, 19, 20),
   };
+}
+
+/**
+ * Uses metric 3D spacing to distinguish an extended thumb from a confidently
+ * tucked one. The middle band is intentionally "uncertain": callers must not
+ * turn an ambiguous thumb into a high-impact four-finger/fist action.
+ */
+export function classifyThumbState3D(worldLandmarks: Landmark[]): ThumbState3D | null {
+  if (worldLandmarks.length < 21 || !worldLandmarks.every(isFiniteLandmark)) return null;
+  const wristRelative = toWristRelative3D(worldLandmarks);
+  const size = handSize3D(wristRelative);
+  const thumbToIndexMcpRatio = dist3d(wristRelative[THUMB_TIP], wristRelative[5]) / size;
+  if (thumbToIndexMcpRatio >= 0.62) return "extended";
+  if (thumbToIndexMcpRatio <= 0.42) return "tucked";
+  return "uncertain";
 }
 
 /** Re-anchors worldLandmarks (hand-center-relative by default, per the

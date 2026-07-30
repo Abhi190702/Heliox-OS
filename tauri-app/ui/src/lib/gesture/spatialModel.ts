@@ -379,3 +379,37 @@ export function computeHandQuality(
   const qGeometric = geometricQuality(landmarks, size);
   return qDetection * qGeometric;
 }
+
+export const MIN_RELIABLE_HAND_CONFIDENCE = 0.7;
+const MIN_RELIABLE_HAND_QUALITY = 0.65;
+const MIN_RELIABLE_HAND_SPAN = 0.08;
+
+/**
+ * Fail-closed gate between MediaPipe detections and gesture actions.
+ *
+ * Hand landmark models can occasionally hallucinate a hand-shaped topology
+ * over a face or other high-contrast object. A complete 21-point array alone
+ * therefore cannot authorize a gesture. Require confident handedness,
+ * finite/plausible geometry, and enough image-space span to classify a pose.
+ */
+export function isReliableHandFrame(
+  landmarks: Landmark[],
+  handednessScore: number | undefined,
+  minConfidence = MIN_RELIABLE_HAND_CONFIDENCE,
+): boolean {
+  if (landmarks.length < 21 || handednessScore === undefined || !Number.isFinite(handednessScore)) return false;
+  if (handednessScore < minConfidence) return false;
+  if (
+    landmarks.some(
+      (landmark) => !Number.isFinite(landmark.x) || !Number.isFinite(landmark.y) || !Number.isFinite(landmark.z ?? 0),
+    )
+  ) {
+    return false;
+  }
+
+  const xs = landmarks.map((landmark) => landmark.x);
+  const ys = landmarks.map((landmark) => landmark.y);
+  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  if (span < MIN_RELIABLE_HAND_SPAN) return false;
+  return computeHandQuality(landmarks, handednessScore) >= MIN_RELIABLE_HAND_QUALITY;
+}

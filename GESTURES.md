@@ -391,8 +391,12 @@ reversal-pairing logic.
 ## Static Pose Gestures (21)
 
 These are recognized by analyzing which fingers are extended, curled, or touching.
+Only stop and pending-approval control signals have built-in effects. Every
+other row below is a suggested binding and cannot create a task or change the
+OS unless the user explicitly enables Gesture Workflow Bindings and assigns
+that gesture in Settings.
 
-| # | Gesture | Emoji | How To Do It | System Action |
+| # | Gesture | Emoji | How To Do It | Suggested Binding |
 |---|---------|-------|--------------|---------------|
 | 1 | **Open Palm** | ✋ | All fingers and thumb extended | Cancel / Stop current task |
 | 2 | **Thumbs Up** | 👍 | Only thumb up, fist closed | Confirm AI plan |
@@ -420,9 +424,11 @@ These are recognized by analyzing which fingers are extended, curled, or touchin
 
 ## Motion-Based Gestures (10)
 
-These detect **hand movement over time** using position history buffers.
+These detect **hand movement over time** using position history buffers. As
+above, only pending-approval control signals have built-in effects; the other
+actions shown are suggestions for explicit bindings.
 
-| # | Gesture | Emoji | How To Do It | System Action |
+| # | Gesture | Emoji | How To Do It | Suggested Binding |
 |---|---------|-------|--------------|---------------|
 | 22 | **Swipe Left** | 👈 | Open palm, move hand left quickly | Previous tab |
 | 23 | **Swipe Right** | 👉 | Open palm, move hand right quickly | Next tab |

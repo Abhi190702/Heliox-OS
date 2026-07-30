@@ -1,6 +1,8 @@
 <script lang="ts">
   /**
    * GestureControl v3 — 30+ hand gesture recognition engine.
+   * The mappings below are suggested explicit bindings. Unbound gestures
+   * never create OS tasks; only stop and pending-approval controls are built in.
    *
    * STATIC POSE GESTURES:
    *  ✋ Open Palm       → Cancel / Stop
@@ -54,6 +56,8 @@
     predictCursorTarget,
     trajectoryAgreement,
     measureRecentMotion,
+    isReliableHandFrame,
+    MIN_RELIABLE_HAND_CONFIDENCE,
     THUMB_EXTENDED_RATIO,
     type Landmark,
   } from "../gesture/spatialModel";
@@ -63,6 +67,7 @@
     pinchDistance3D,
     detectPushPull3D,
     fingerExtensionStates3D,
+    classifyThumbState3D,
     WorldModelFilterBank,
   } from "../gesture/worldModel";
   import {
@@ -81,6 +86,7 @@
     type GestureEvent,
   } from "../gesture/calibration";
   import { classifyControlGesture } from "../gesture/workflowControl";
+  import { defaultGestureAction } from "../gesture/actionPolicy";
   import {
     activeGestureWorkflowBindings,
     controlGestureWorkflow,
@@ -108,6 +114,8 @@
   let isStarting = $state(false);
   let gestureHistory: string[] = $state([]);
   let worldTracking = $state(false);
+  let handAcquiring = $state(false);
+  let handAcquireFrames = 0;
 
   let videoEl: HTMLVideoElement | undefined = $state();
   let canvasEl: HTMLCanvasElement | undefined = $state();
@@ -145,6 +153,7 @@
   let candidateGesture = "";
   let candidateCount = 0;
   const REQUIRED_FRAMES = 5;
+  const HAND_ACQUIRE_FRAMES = 8;
 
   // ── Spatial/world-model layer: temporal landmark filtering + quality gating ──
   const landmarkFilter = new LandmarkFilterBank();
@@ -439,8 +448,8 @@
       hands.setOptions({
         maxNumHands: 1,
         modelComplexity: 0,
-        minDetectionConfidence: 0.6,
-        minTrackingConfidence: 0.5,
+        minDetectionConfidence: MIN_RELIABLE_HAND_CONFIDENCE,
+        minTrackingConfidence: 0.65,
       });
 
       hands.onResults(onHandResults);
@@ -476,9 +485,9 @@
         },
         runningMode: "VIDEO",
         numHands: 1,
-        minHandDetectionConfidence: 0.4,
-        minHandPresenceConfidence: 0.4,
-        minTrackingConfidence: 0.4,
+        minHandDetectionConfidence: MIN_RELIABLE_HAND_CONFIDENCE,
+        minHandPresenceConfidence: MIN_RELIABLE_HAND_CONFIDENCE,
+        minTrackingConfidence: 0.65,
       });
       mpLoaded = true;
       return true;
@@ -825,6 +834,8 @@
     deactivateGazeTracking();
     lastWorldLandmarks = null;
     worldTracking = false;
+    handAcquiring = false;
+    handAcquireFrames = 0;
 
     // 3. Stop camera tracks AFTER MediaPipe is closed
     if (stream) {
@@ -980,11 +991,13 @@
     handednessScore: number | undefined,
   ) {
     lastWorldLandmarks = worldLandmarks;
-    worldTracking = Boolean(worldLandmarks && worldLandmarks.length >= 21);
 
-    if (!landmarks || landmarks.length === 0) {
+    if (!landmarks || !isReliableHandFrame(landmarks, handednessScore)) {
       clearLandmarks();
       handDetected = false;
+      handAcquiring = false;
+      handAcquireFrames = 0;
+      worldTracking = false;
       if (cursorModeActive && cursorRuntimePhase !== "error") {
         cursorRuntimePhase = "waiting";
         cursorRuntimeMessage = "Show one hand to the camera";
@@ -999,7 +1012,22 @@
       return;
     }
 
+    handAcquireFrames++;
+    if (handAcquireFrames < HAND_ACQUIRE_FRAMES) {
+      handDetected = false;
+      handAcquiring = true;
+      worldTracking = false;
+      currentGesture = "";
+      confidence = 0;
+      candidateGesture = "";
+      candidateCount = 0;
+      drawLandmarks(landmarks);
+      return;
+    }
+
     handDetected = true;
+    handAcquiring = false;
+    worldTracking = Boolean(worldLandmarks && worldLandmarks.length >= 21);
 
     // Update motion buffers — deliberately built from RAW (unfiltered) landmarks.
     // Swipe/circular/push-pull thresholds are already tuned against raw jitter;
@@ -1246,7 +1274,15 @@
     const effectiveThumbRatio = $settings.adaptive_calibration?.gesture_enabled
       ? gestureCalibration.getEffectiveThumbRatio(THUMB_EXTENDED_RATIO)
       : THUMB_EXTENDED_RATIO;
-    const thumbExtended = isThumbExtended(landmarks, handSize(landmarks), effectiveThumbRatio);
+    const thumbState3D = worldLandmarks ? classifyThumbState3D(worldLandmarks) : null;
+    const thumbExtended =
+      thumbState3D === null
+        ? isThumbExtended(landmarks, handSize(landmarks), effectiveThumbRatio)
+        : thumbState3D === "extended";
+    const thumbTucked =
+      thumbState3D === null
+        ? !isThumbExtended(landmarks, handSize(landmarks), effectiveThumbRatio)
+        : thumbState3D === "tucked";
 
     // Same calibration treatment for the pinch/OK-sign distance threshold.
     const effectivePinchThreshold = $settings.adaptive_calibration?.gesture_enabled
@@ -1342,7 +1378,7 @@
     // ═══════════════════════════════════════════
 
     // 🫳 Palm Down — all fingers extended, wrist higher than fingertips
-    if (indexUp && middleUp && ringUp && pinkyUp && thumbExtended) {
+    if (indexUp && middleUp && ringUp && pinkyUp && !thumbTucked) {
       const avgTipY =
         (landmarks[INDEX_TIP].y + landmarks[MIDDLE_TIP].y + landmarks[RING_TIP].y + landmarks[PINKY_TIP].y) / 4;
       if (avgTipY > landmarks[WRIST].y + 0.15) {
@@ -1355,7 +1391,7 @@
     }
 
     // 🖖 Vulcan Salute — all 4 fingers up, gap between middle+ring
-    if (indexUp && middleUp && ringUp && pinkyUp && !thumbExtended) {
+    if (indexUp && middleUp && ringUp && pinkyUp && thumbTucked) {
       if (dist(MIDDLE_TIP, RING_TIP) > 0.08) {
         return { name: "vulcan", confidence: 0.85 };
       }
@@ -1384,17 +1420,17 @@
     }
 
     // 🖕 Middle Finger — only middle extended
-    if (!indexUp && middleUp && !ringUp && !pinkyUp && !thumbExtended) {
+    if (!indexUp && middleUp && !ringUp && !pinkyUp && thumbTucked) {
       return { name: "middle_finger", confidence: 0.9 };
     }
 
     // 🌸 Pinky Up — only pinky extended
-    if (!indexUp && !middleUp && !ringUp && pinkyUp && !thumbExtended) {
+    if (!indexUp && !middleUp && !ringUp && pinkyUp && thumbTucked) {
       return { name: "pinky_up", confidence: 0.85 };
     }
 
     // 🤘 Devil Horns — index + pinky up, middle + ring down, thumb tucked
-    if (indexUp && !middleUp && !ringUp && pinkyUp && !thumbExtended) {
+    if (indexUp && !middleUp && !ringUp && pinkyUp && thumbTucked) {
       // Extra check: index and pinky spread
       if (dist(INDEX_TIP, PINKY_TIP) > 0.1) {
         return { name: "devil_horns", confidence: 0.82 };
@@ -1424,22 +1460,22 @@
     }
 
     // 👊 Fist — everything curled
-    if (!indexUp && !middleUp && !ringUp && !pinkyUp && !thumbExtended) {
+    if (!indexUp && !middleUp && !ringUp && !pinkyUp && thumbTucked) {
       return { name: "fist", confidence: 0.85 };
     }
 
     // ✋ Open Palm — everything extended (default orientation)
-    if (indexUp && middleUp && ringUp && pinkyUp && thumbExtended) {
+    if (indexUp && middleUp && ringUp && pinkyUp && !thumbTucked) {
       return { name: "palm", confidence: 0.9 };
     }
 
     // 🔆 Three Up — index + middle + ring, no pinky
-    if (indexUp && middleUp && ringUp && !pinkyUp && !thumbExtended) {
+    if (indexUp && middleUp && ringUp && !pinkyUp && thumbTucked) {
       return { name: "three_up", confidence: 0.78 };
     }
 
     // 🔅 Four Up — all 4 fingers, no thumb
-    if (indexUp && middleUp && ringUp && pinkyUp && !thumbExtended) {
+    if (indexUp && middleUp && ringUp && pinkyUp && thumbTucked) {
       return { name: "four_up", confidence: 0.78 };
     }
 
@@ -1523,121 +1559,23 @@
 
   function executeGestureAction(gesture: string) {
     const emoji = GESTURE_EMOJIS[gesture] || "🖐️";
-    switch (gesture) {
-      // ── Static Pose Actions ──
-      case "palm":
-        session.addSystemMessage(`${emoji} Stop / Cancel`);
-        break;
-      case "thumbs_up":
-        session.confirm(true);
-        session.addSystemMessage(`${emoji} Confirmed!`);
-        break;
-      case "thumbs_down":
-        session.confirm(false);
-        session.addSystemMessage(`${emoji} Denied!`);
-        break;
-      case "peace":
-        session.addSystemMessage(`${emoji} Peace! Toggling voice...`);
-        break;
-      case "fist":
-        session.addSystemMessage(`${emoji} Ready to execute!`);
-        break;
-      case "point_up":
-        session.addSystemMessage(`${emoji} Scroll up`);
-        break;
-      case "rock":
-        session.sendCommand("Show me my system info");
-        break;
-      case "ok":
-        session.addSystemMessage(`${emoji} OK! Acknowledged.`);
-        break;
-      case "finger_gun":
-        session.sendCommand("Take a screenshot and save it to the Desktop");
-        session.addSystemMessage(`${emoji} Screenshot!`);
-        break;
-      case "call_me":
-        session.addSystemMessage(`${emoji} Opening settings...`);
-        break;
-      case "pinch":
-        session.addSystemMessage(`${emoji} Pinch / Grab`);
-        break;
-      case "middle_finger":
-        session.sendCommand("Cancel all tasks absolutely immediately");
-        break;
-      case "pinky_up":
-        session.addSystemMessage(`${emoji} Fancy!`);
-        break;
-      case "vulcan":
-        session.sendCommand("Show detailed system diagnostics and status");
-        session.addSystemMessage(`${emoji} Live long and prosper.`);
-        break;
-      case "crossed_fingers":
-        session.sendCommand("Surprise me with something cool");
-        session.addSystemMessage(`${emoji} Feeling lucky...`);
-        break;
-      case "snap_ready":
-        session.sendCommand("Open my most used application");
-        session.addSystemMessage(`${emoji} Quick Launch!`);
-        break;
-      case "devil_horns":
-        session.sendCommand("Open the default music player and play music");
-        session.addSystemMessage(`${emoji} Rock on! Playing music...`);
-        break;
-      case "palm_down":
-        session.sendCommand("Set volume to 0");
-        session.addSystemMessage(`${emoji} Muted!`);
-        break;
-      case "palm_up":
-        session.sendCommand("Set volume to 50");
-        session.addSystemMessage(`${emoji} Unmuted! Volume at 50%`);
-        break;
-      case "three_up":
-        session.sendCommand("Increase screen brightness by 20 percent");
-        session.addSystemMessage(`${emoji} Brightness up!`);
-        break;
-      case "four_up":
-        session.sendCommand("Decrease screen brightness by 20 percent");
-        session.addSystemMessage(`${emoji} Brightness down!`);
-        break;
-
-      // ── Motion-Based Actions ──
-      case "swipe_left":
-        session.addSystemMessage(`${emoji} Previous tab`);
-        break;
-      case "swipe_right":
-        session.addSystemMessage(`${emoji} Next tab`);
-        break;
-      case "swipe_up":
-        session.addSystemMessage(`${emoji} Scroll up!`);
-        break;
-      case "swipe_down":
-        session.addSystemMessage(`${emoji} Scroll down!`);
-        break;
-      case "circular_cw":
-        session.sendCommand("Increase the system volume by 15 percent");
-        session.addSystemMessage(`${emoji} Volume Up!`);
-        break;
-      case "circular_ccw":
-        session.sendCommand("Decrease the system volume by 15 percent");
-        session.addSystemMessage(`${emoji} Volume Down!`);
-        break;
-      case "palm_push":
-        session.confirm(true);
-        session.addSystemMessage(`${emoji} AI Action Confirmed!`);
-        break;
-      case "palm_pull":
-        session.confirm(false);
-        session.addSystemMessage(`${emoji} AI Action Cancelled!`);
-        break;
-      case "two_finger_swipe_left":
-        session.sendCommand("Switch to the previous virtual desktop or workspace");
-        session.addSystemMessage(`${emoji} Workspace Left`);
-        break;
-      case "two_finger_swipe_right":
-        session.sendCommand("Switch to the next virtual desktop or workspace");
-        session.addSystemMessage(`${emoji} Workspace Right`);
-        break;
+    const action = defaultGestureAction(gesture);
+    if (action === "abort") {
+      void session.abort();
+      return;
     }
+    if (action === "confirm" || action === "deny") {
+      if ($session.confirmRequired) {
+        void session.confirm(action === "confirm");
+        session.addSystemMessage(`${emoji} ${action === "confirm" ? "Approval accepted." : "Approval denied."}`);
+      } else {
+        session.addSystemMessage(`${emoji} ${gesture.replace(/_/g, " ")} recognized · no approval is pending.`);
+      }
+      return;
+    }
+    session.addSystemMessage(
+      `${emoji} ${gesture.replace(/_/g, " ")} recognized · no default action runs. Bind this gesture in Settings to use it.`,
+    );
   }
 
   // ── Canvas Drawing ──
@@ -1830,16 +1768,20 @@
       role="status"
       title={worldTracking
         ? "MediaPipe Tasks is supplying real 3D world landmarks for orientation-independent finger detection"
-        : activeBackend === "tasks"
-          ? "The 3D model is ready; show one complete hand"
-          : "Compatibility backend active; enable Enhanced 3D Hand Tracking in Settings"}
+        : handAcquiring
+          ? "A possible hand is being verified before gesture actions are enabled"
+          : activeBackend === "tasks"
+            ? "The 3D model is ready; show one complete hand"
+            : "Compatibility backend active; enable Enhanced 3D Hand Tracking in Settings"}
     >
       <span class="spatial-status-dot"></span>
       {worldTracking
         ? "3D hand tracking"
-        : activeBackend === "tasks"
-          ? "3D ready · show hand"
-          : "2D compatibility mode"}
+        : handAcquiring
+          ? "3D verifying hand"
+          : activeBackend === "tasks"
+            ? "3D ready · show hand"
+            : "2D compatibility mode"}
     </div>
   {/if}
 
@@ -1867,7 +1809,7 @@
       <!-- Gesture count badge -->
       <div class="pip-badge">30+ gestures</div>
       <div class="pip-hand-badge" class:active={handDetected}>
-        {handDetected ? "Hand detected" : "Show hand"}
+        {handDetected ? "Hand detected" : handAcquiring ? "Hold hand steady" : "Show hand"}
       </div>
       {#if $settings.vision?.gaze_tracking_enabled}
         <div
