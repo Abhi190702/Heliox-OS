@@ -1,6 +1,6 @@
 import { writable, get } from "svelte/store";
 import { onNotification, offNotification, call } from "../api/daemon";
-import { speakText } from "../utils/tts";
+import { companion } from "./companion";
 
 /**
  * Live Execution Narrator store — consumes the two notification types the
@@ -68,7 +68,20 @@ function createNarration() {
 
     if (method === "execution_narration") {
       const text = String(p.text ?? "");
-      if (text) speakText(text);
+      if (text) {
+        companion.speak({
+          channel: "task_narration",
+          text,
+          taskId: String(p.task_id ?? p.plan_id ?? ""),
+          dedupeKey: [
+            "narration",
+            String(p.task_id ?? p.plan_id ?? ""),
+            String(p.phase ?? ""),
+            String(p.action_type ?? ""),
+            String(p.target ?? ""),
+          ].join(":"),
+        });
+      }
       return;
     }
 
@@ -82,7 +95,14 @@ function createNarration() {
         timeoutSeconds: Number(p.timeout_seconds ?? 120),
         preview: (p.preview as ActionPreviewPayload | undefined) ?? null,
       });
-      if (reason) speakText(reason);
+      if (reason) {
+        companion.speak({
+          channel: "approval_risk",
+          text: reason,
+          taskId: String(p.task_id ?? ""),
+          dedupeKey: `interrupt:${String(p.plan_id ?? "")}`,
+        });
+      }
       return;
     }
 
@@ -97,13 +117,23 @@ function createNarration() {
           : decision === "STOP"
             ? "I found a serious problem, so I stopped this task."
             : "I need to flag a concern before I continue.";
-      speakText(speech);
+      companion.speak({
+        channel: decision === "STOP" ? "emergency_stop" : "approval_risk",
+        text: speech,
+        taskId: String(p.task_id ?? ""),
+        dedupeKey: `plan-intervention:${String(p.plan_id ?? "")}:${decision}`,
+      });
       return;
     }
 
     if (method === "companion_interjection") {
       const mode = String(p.mode ?? "").toLowerCase();
-      speakText(mode === "stop" ? "Stopping now." : "I heard your correction. I am revising the task now.");
+      companion.speak({
+        channel: mode === "stop" ? "emergency_stop" : "user_speech",
+        text: mode === "stop" ? "Stopping now." : "I heard your correction. I am revising the task now.",
+        taskId: String(p.task_id ?? ""),
+        dedupeKey: `interjection:${String(p.task_id ?? "")}:${mode}`,
+      });
       return;
     }
 

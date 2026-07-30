@@ -9,8 +9,10 @@ vi.mock("../api/daemon", () => ({
   },
 }));
 
-vi.mock("../utils/tts", () => ({
-  speakText: vi.fn(),
+vi.mock("./companion", () => ({
+  companion: {
+    speak: vi.fn(),
+  },
 }));
 
 describe("supervision store", () => {
@@ -21,7 +23,7 @@ describe("supervision store", () => {
 
   it("shows and speaks a risk warning without exposing matched content", async () => {
     const { supervision } = await import("./supervision");
-    const { speakText } = await import("../utils/tts");
+    const { companion } = await import("./companion");
 
     capturedHandler!("supervision_risk_warning", {
       pattern: "destructive_sql",
@@ -36,7 +38,11 @@ describe("supervision store", () => {
       kind: "risk",
       pattern: "destructive_sql",
     });
-    expect(speakText).toHaveBeenCalledWith("Heads up — this looks like it might be: destructive sql.");
+    expect(companion.speak).toHaveBeenCalledWith({
+      channel: "approval_risk",
+      text: "Heads up — this looks like it might be: destructive sql.",
+      dedupeKey: "supervision-risk:destructive_sql",
+    });
   });
 
   it("shows cognitive coaching and dismisses it locally", async () => {

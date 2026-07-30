@@ -16,8 +16,10 @@ vi.mock("../api/daemon", () => ({
   call: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../utils/tts", () => ({
-  speakText: vi.fn(),
+vi.mock("./companion", () => ({
+  companion: {
+    speak: vi.fn(),
+  },
 }));
 
 describe("narration store", () => {
@@ -36,42 +38,57 @@ describe("narration store", () => {
 
   it("speaks ambient execution narration", async () => {
     const { narration: _narration } = await import("./narration");
-    const { speakText } = await import("../utils/tts");
+    const { companion } = await import("./companion");
 
     capturedHandler!("execution_narration", { text: "Starting: notify (Narrator Test)" });
 
-    expect(speakText).toHaveBeenCalledWith("Starting: notify (Narrator Test)");
+    expect(companion.speak).toHaveBeenCalledWith({
+      channel: "task_narration",
+      text: "Starting: notify (Narrator Test)",
+      taskId: "",
+      dedupeKey: "narration::::",
+    });
   });
 
   it("speaks only material companion interventions", async () => {
     const { narration: _narration } = await import("./narration");
-    const { speakText } = await import("../utils/tts");
+    const { companion } = await import("./companion");
 
     capturedHandler!("companion_plan_intervention", {
       decision: "REVISE",
       reason: "The proposed code step is unnecessary.",
     });
 
-    expect(speakText).toHaveBeenCalledWith("I found a problem with the plan, so I am correcting it before it runs.");
+    expect(companion.speak).toHaveBeenCalledWith({
+      channel: "approval_risk",
+      text: "I found a problem with the plan, so I am correcting it before it runs.",
+      taskId: "",
+      dedupeKey: "plan-intervention::REVISE",
+    });
 
-    vi.mocked(speakText).mockClear();
+    vi.mocked(companion.speak).mockClear();
     capturedHandler!("companion_plan_intervention", {
       decision: "CONTINUE",
       reason: "The plan is aligned.",
     });
-    expect(speakText).not.toHaveBeenCalled();
+    expect(companion.speak).not.toHaveBeenCalled();
   });
 
   it("speaks acknowledgement of a live user correction", async () => {
     const { narration: _narration } = await import("./narration");
-    const { speakText } = await import("../utils/tts");
+    const { companion } = await import("./companion");
 
     capturedHandler!("companion_interjection", {
       mode: "correct",
       message: "Correction received. Stopping the current step and revising the plan.",
     });
 
-    expect(speakText).toHaveBeenCalledWith("I heard your correction. I am revising the task now.");
+    expect(companion.speak).toHaveBeenCalledWith({
+      channel: "user_speech",
+      text: "I heard your correction. I am revising the task now.",
+      taskId: "",
+      dedupeKey: "interjection::correct",
+    });
   });
 
   it("parses a plain risk interrupt with no preview payload", async () => {

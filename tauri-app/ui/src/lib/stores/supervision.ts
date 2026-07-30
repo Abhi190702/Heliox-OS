@@ -1,6 +1,6 @@
 import { writable } from "svelte/store";
-import { onNotification } from "../api/daemon";
-import { speakText } from "../utils/tts";
+import { offNotification, onNotification } from "../api/daemon";
+import { companion } from "./companion";
 
 /**
  * User Manual Supervision store — consumes the two notification types
@@ -35,7 +35,7 @@ const DEFAULT_STATE: SupervisionAlertState = {
 function createSupervision() {
   const store = writable<SupervisionAlertState>({ ...DEFAULT_STATE });
 
-  onNotification((method, params) => {
+  const notificationHandler = (method: string, params: unknown) => {
     const p = (params ?? {}) as Record<string, unknown>;
 
     if (method === "supervision_risk_warning") {
@@ -46,7 +46,13 @@ function createSupervision() {
         message,
         pattern: String(p.pattern ?? ""),
       });
-      if (message) speakText(message);
+      if (message) {
+        companion.speak({
+          channel: "approval_risk",
+          text: message,
+          dedupeKey: `supervision-risk:${String(p.pattern ?? "")}`,
+        });
+      }
       return;
     }
 
@@ -58,9 +64,25 @@ function createSupervision() {
         message,
         pattern: "",
       });
-      if (message) speakText(message);
+      if (message) {
+        companion.speak({
+          channel: "background_insight",
+          text: message,
+          dedupeKey: `supervision-cognitive:${String(p.kind ?? "checkin")}`,
+        });
+      }
     }
-  });
+  };
+
+  onNotification(notificationHandler);
+  const hot = (
+    import.meta as ImportMeta & {
+      hot?: { dispose(callback: () => void): void };
+    }
+  ).hot;
+  if (hot) {
+    hot.dispose(() => offNotification(notificationHandler));
+  }
 
   function dismiss() {
     store.set({ ...DEFAULT_STATE });

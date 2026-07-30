@@ -3261,6 +3261,7 @@ class PilotServer:
             _notification(
                 "confirm_required",
                 {
+                    "task_id": get_experience_context().task_id,
                     "plan_id": plan_id,
                     "actions": [_dump_confirm_action(i, plan.actions[i]) for i in confirm_indices],
                     "reason": reason,

@@ -58,6 +58,10 @@ export function speakText(text: string, options: SpeakOptions = {}): void {
   void call<{ status: string }>("speak_text", { text: trimmed })
     .then((result) => {
       if (generation !== speechGeneration) return;
+      if (result.status === "cancelled" || result.status === "superseded") {
+        options.onEnd?.();
+        return;
+      }
       if (result.status !== "spoken" && result.status !== "interrupted") {
         throw new Error("Daemon rejected speech");
       }

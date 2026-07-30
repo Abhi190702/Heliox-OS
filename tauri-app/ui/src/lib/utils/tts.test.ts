@@ -71,6 +71,16 @@ describe("configured text-to-speech", () => {
     expect(speechSynthesisMock.speak).not.toHaveBeenCalled();
   });
 
+  it("does not resurrect superseded daemon speech through the browser", async () => {
+    callMock.mockResolvedValue({ status: "cancelled" });
+    const onEnd = vi.fn();
+
+    speakText("old sentence", { onEnd });
+    await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
+
+    expect(speechSynthesisMock.speak).not.toHaveBeenCalled();
+  });
+
   it("stops browser and daemon playback", () => {
     callMock.mockResolvedValue({ status: "stopped" });
 

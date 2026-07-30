@@ -11,8 +11,8 @@
    */
 
   import { session } from "../stores/session";
+  import { companion } from "../stores/companion";
   import AudioVisualizer from "./AudioVisualizer.svelte";
-  import { speakText as ttsSpeak, stopSpeech } from "../utils/tts";
   import { call, offNotification, onNotification } from "../api/daemon";
   import { onDestroy } from "svelte";
   import { get } from "svelte/store";
@@ -47,7 +47,8 @@
       // Human speech always owns the audio channel. This stops narration or
       // a task response before the recognized phrase is routed as a live
       // correction, preventing Heliox from talking over the user.
-      stopSpeaking();
+      companion.humanSpeechStarted();
+      isSpeaking = false;
     };
 
     rec.onresult = (event: any) => {
@@ -66,6 +67,7 @@
       interimTranscript = interim;
 
       if (final) {
+        companion.humanSpeechEnded();
         // Check for wake word in continuous mode
         if (wakeWordActive) {
           const lower = final.toLowerCase().trim();
@@ -94,8 +96,11 @@
     };
 
     rec.onerror = (event: any) => {
-      if (event.error === "no-speech") return; // Ignore no-speech
-      if (event.error === "aborted") return;
+      if (event.error === "no-speech" || event.error === "aborted") {
+        companion.humanSpeechEnded();
+        return;
+      }
+      companion.humanSpeechEnded();
       console.error("Speech recognition error:", event.error);
       error = `Mic error: ${event.error}`;
       // Do not retry automatically after a permission error, but keep the
@@ -112,6 +117,7 @@
       // Only restart if in wake word mode AND no error occurred AND voice is enabled
       isListening = false;
       pulseIntensity = 0;
+      companion.humanSpeechEnded();
     };
 
     return rec;
@@ -131,7 +137,8 @@
     }
     if (!recognition) return;
 
-    stopSpeaking();
+    companion.humanSpeechStarted();
+    isSpeaking = false;
     wakeWordActive = continuous;
     error = "";
     transcript = "";
@@ -161,6 +168,7 @@
     }
     isListening = false;
     pulseIntensity = 0;
+    companion.humanSpeechEnded();
   }
 
   async function toggleWakeWord() {
@@ -197,9 +205,12 @@
     const payload = (params ?? {}) as Record<string, unknown>;
     const status = String(payload.status ?? "");
     if (status === "wake_detected") {
+      companion.humanSpeechStarted();
+      companion.humanSpeechEnded();
       transcript = String(payload.transcript ?? "");
       pulseIntensity = 1;
     } else if (status === "timeout") {
+      companion.humanSpeechEnded();
       error = String(payload.message ?? "Voice command timed out.");
       pulseIntensity = 0;
     } else if (status === "listening") {
@@ -238,10 +249,10 @@
       if (!s.loading && s.messages.length > 0) {
         const lastMsg = s.messages[s.messages.length - 1];
         if (lastMsg.type === "result" || lastMsg.type === "system") {
-          speakText(lastMsg.text || "Done.");
+          speakText(lastMsg.text || "Done.", "final_answer");
           unsub();
         } else if (lastMsg.type === "error") {
-          speakText("Error: " + (lastMsg.text || "Something went wrong."));
+          speakText("Error: " + (lastMsg.text || "Something went wrong."), "task_failure");
           unsub();
         }
       }
@@ -252,8 +263,10 @@
   }
 
   // ── Text-to-Speech ──
-  function speakText(text: string) {
-    ttsSpeak(text, {
+  function speakText(text: string, channel: "final_answer" | "task_failure") {
+    companion.speak({
+      channel,
+      text,
       onStart: () => {
         isSpeaking = true;
       },
@@ -267,7 +280,7 @@
   }
 
   function stopSpeaking() {
-    stopSpeech();
+    companion.stopAll();
     isSpeaking = false;
   }
 

@@ -13,6 +13,7 @@ import {
   type DurableTaskReference,
 } from "../utils/chatSessions";
 import { settings } from "./settings";
+import { companion } from "./companion";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
 export type MessageType = "user" | "system" | "error" | "plan" | "result" | "assistant" | "git_conflict";
@@ -409,6 +410,12 @@ function createSession() {
           confirmSubmitting: false,
           confirmError: "",
         }));
+        companion.speak({
+          channel: "approval_risk",
+          text: String(p.reason ?? "").trim() || "I need your approval before I continue with this action.",
+          taskId: String(p.task_id ?? ""),
+          dedupeKey: `approval:${String(p.plan_id ?? "")}`,
+        });
         break;
 
       case "token_stream":
@@ -437,6 +444,12 @@ function createSession() {
         break;
 
       case "budget_exceeded":
+        companion.speak({
+          channel: "task_failure",
+          text: `I stopped this task because its budget was exceeded. ${String(p.error ?? "")}`.trim(),
+          taskId: String(p.task_id ?? ""),
+          dedupeKey: `budget:${String(p.task_id ?? "")}`,
+        });
         update((s) => ({
           ...s,
           budget: {
@@ -460,6 +473,12 @@ function createSession() {
         break;
 
       case "circuit_breaker_tripped":
+        companion.speak({
+          channel: "task_failure",
+          text: "I stopped this task after repeated provider failures.",
+          taskId: String(p.task_id ?? ""),
+          dedupeKey: `circuit-breaker:${String(p.task_id ?? "")}`,
+        });
         update((s) => ({
           ...s,
           budget: {
@@ -539,6 +558,11 @@ function createSession() {
       }
 
       case "proactive_suggestion":
+        companion.speak({
+          channel: "proactive_suggestion",
+          text: `${String(p.title ?? "I have a suggestion")}. ${String(p.description ?? "")}`.trim(),
+          dedupeKey: `suggestion:${String(p.suggestion_id ?? "")}`,
+        });
         update((s) => ({
           ...s,
           proactiveSuggestion: {

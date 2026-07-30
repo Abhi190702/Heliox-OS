@@ -19,7 +19,7 @@
   import { getSharedGestureCalibrationStore } from "../gesture/calibration";
   import { gazeRuntime, resetGazeRuntime } from "../stores/gazeRuntime";
   import { defaultHotkey, isNativeTauriRuntime, normalizeHotkeyValue } from "../hotkey";
-  import { speakText, stopSpeech } from "../utils/tts";
+  import { companion } from "../stores/companion";
 
   let {
     onOpenCommand = () => {},
@@ -432,7 +432,10 @@
   function testConfiguredVoice() {
     speechTesting = true;
     speechToast = "Testing the configured daemon voice…";
-    speakText("Heliox voice is ready.", {
+    companion.speak({
+      channel: "user_speech",
+      text: "Heliox voice is ready.",
+      dedupeKey: `voice-test:${Date.now()}`,
       onEnd: () => {
         speechTesting = false;
         speechToast = "Voice test completed.";
@@ -447,7 +450,7 @@
   }
 
   function stopConfiguredVoice() {
-    stopSpeech();
+    companion.stopAll();
     speechTesting = false;
     speechToast = "Voice test stopped.";
     setTimeout(() => (speechToast = ""), 5000);

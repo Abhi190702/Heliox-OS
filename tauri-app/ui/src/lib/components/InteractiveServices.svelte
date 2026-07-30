@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { call, offNotification, onNotification } from "../api/daemon";
+  import { companion } from "../stores/companion";
 
   let { onconfigure } = $props<{ onconfigure: () => void }>();
 
@@ -69,6 +70,15 @@
   let voiceActive = $derived(Boolean(narration.enabled && narration.narrate_steps));
   let interferenceActive = $derived(Boolean(narration.proactive_review_enabled || narration.live_corrections_enabled));
   let suggestionActive = $derived(Boolean(narration.follow_up_enabled));
+  let coordinatorDetail = $derived(
+    $companion.humanSpeaking
+      ? "Listening · companion speech paused"
+      : $companion.activeChannel
+        ? `Speaking · ${$companion.activeChannel.replaceAll("_", " ")}`
+        : $companion.queued > 0
+          ? `${$companion.queued} message${$companion.queued === 1 ? "" : "s"} queued`
+          : "Single priority voice ready",
+  );
   let interferenceDetail = $derived(
     lastCompanionDecision
       ? `Last review: ${lastCompanionDecision}`
@@ -126,6 +136,13 @@
         <small>{suggestionActive ? "Verified follow-ups ready" : "Follow-ups are off"}</small>
       </span>
     </div>
+    <div class="service active">
+      <span class="service-dot"></span>
+      <span class="service-copy">
+        <strong>Coordinator</strong>
+        <small>{coordinatorDetail}</small>
+      </span>
+    </div>
   </div>
 </section>
 
@@ -162,7 +179,7 @@
 
   .service-list {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 8px;
   }
 

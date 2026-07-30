@@ -29,6 +29,8 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
+from pilot.intelligence.experience import get_experience_context
+
 if TYPE_CHECKING:
     from pilot.actions import Action, ActionPlan, ActionResult
     from pilot.config import NarrationConfig, PilotConfig, PreviewConfig
@@ -74,6 +76,7 @@ class ExecutionNarrator:
         await self._broadcast_fn(
             "execution_narration",
             {
+                "task_id": get_experience_context().task_id,
                 "phase": "start",
                 "text": f"Starting: {_describe_action(action)}",
                 "action_type": action.action_type.value,
@@ -92,6 +95,7 @@ class ExecutionNarrator:
         await self._broadcast_fn(
             "execution_narration",
             {
+                "task_id": get_experience_context().task_id,
                 "phase": "complete",
                 "text": text,
                 "success": result.success,
@@ -203,6 +207,7 @@ class ExecutionNarrator:
         await self._broadcast_fn(
             "execution_interrupt",
             {
+                "task_id": get_experience_context().task_id,
                 "plan_id": plan_id,
                 "reason": reason,
                 "timeout_seconds": effective_timeout,
