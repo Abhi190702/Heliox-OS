@@ -678,6 +678,7 @@ def _validate_config_types(raw: dict) -> None:
             "follow_up_enabled": bool,
             "max_auto_revisions": int,
             "confirm_timeout_seconds": (int, float),
+            "advisory_timeout_seconds": (int, float),
         },
         "supervision": {
             "enabled": bool,

@@ -14,6 +14,7 @@ from pilot.actions import (
     VerificationResult,
 )
 from pilot.agents.execution_companion import CompanionFollowUp, CompanionReview, ExecutionCompanion
+from pilot.config import PilotConfig
 
 
 class _Model:
@@ -27,6 +28,25 @@ class _Model:
         if self.error:
             raise self.error
         return self.response
+
+
+def test_saved_companion_timeout_is_accepted_by_config_loader(tmp_path, monkeypatch):
+    from pilot import config as config_module
+
+    config_file = tmp_path / "config.toml"
+    restrictions_file = tmp_path / "restrictions.toml"
+    monkeypatch.setattr(config_module, "CONFIG_FILE", config_file)
+    monkeypatch.setattr(config_module, "RESTRICTIONS_FILE", restrictions_file)
+
+    config = PilotConfig()
+    config.narration.enabled = True
+    config.narration.advisory_timeout_seconds = 7
+    config.save()
+
+    loaded = PilotConfig.load()
+
+    assert loaded.narration.enabled is True
+    assert loaded.narration.advisory_timeout_seconds == 7
 
 
 def _plan() -> ActionPlan:
