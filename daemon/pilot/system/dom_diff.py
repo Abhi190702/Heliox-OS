@@ -590,7 +590,38 @@ async def assess_browser_action_target(action_type: str, action: Any) -> TargetA
 
     selector = getattr(params, "selector", "") if params else ""
     text = getattr(params, "text", "") if action_type == "browser_click_text" and params else ""
-    return assess_target(snapshot, selector=selector, text=text)
+    assessment = assess_target(snapshot, selector=selector, text=text)
+
+    # browser_click_text has a bounded semantic fallback at execution time.
+    # The preflight must use that same resolver; otherwise it pauses on
+    # "More information" even though the executor can safely and
+    # unambiguously map it to a visible "Learn more" control.
+    if (
+        action_type == "browser_click_text"
+        and text
+        and assessment.matchable
+        and (not assessment.found or not assessment.visible or assessment.ambiguous)
+    ):
+        from pilot.system.browser import _select_semantic_click_candidate
+
+        interactive_labels = [
+            node.text.strip()
+            for node in snapshot.nodes
+            if node.visible and node.tag in {"a", "button", "input", "select", "textarea"} and node.text.strip()
+        ]
+        semantic_match = _select_semantic_click_candidate(text, interactive_labels)
+        if semantic_match is not None:
+            _, matched_label = semantic_match
+            return TargetAssessment(
+                matchable=True,
+                found=True,
+                visible=True,
+                ambiguous=False,
+                match_count=1,
+                reason=f"semantic text target '{text}' resolves to visible control '{matched_label}'",
+            )
+
+    return assessment
 
 
 async def _attempt_action_on_clone(action_type: str, page: Any, params: Any) -> str | None:

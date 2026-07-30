@@ -26,6 +26,7 @@ from pilot.system.dom_diff import (
     DomUnchangedError,
     TargetAssessment,
     assert_dom_changed,
+    assess_browser_action_target,
     assess_target,
     diff_dom,
     dry_run_action,
@@ -653,6 +654,67 @@ class TestAssessTargetByText:
         result = assess_target(snapshot, text="Sign In")
         assert result.found is True
         assert result.visible is False
+
+
+class TestAssessBrowserActionTarget:
+    @pytest.mark.asyncio
+    async def test_click_text_uses_same_semantic_fallback_as_executor(self):
+        from pilot.actions import Action, ActionType, BrowserParams
+
+        snapshot = _snap(
+            [
+                _node("h1", text="Example Domain"),
+                _node("a", text="Learn more"),
+            ]
+        )
+        action = Action(
+            action_type=ActionType.BROWSER_CLICK_TEXT,
+            target="More information",
+            parameters=BrowserParams(text="More information"),
+        )
+
+        with (
+            patch("pilot.system.browser.has_active_session", return_value=True),
+            patch(
+                "pilot.system.browser.peek_current_dom_snapshot",
+                new=AsyncMock(return_value=snapshot),
+            ),
+        ):
+            result = await assess_browser_action_target("browser_click_text", action)
+
+        assert result is not None
+        assert result.found is True
+        assert result.visible is True
+        assert result.ambiguous is False
+        assert "Learn more" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_click_text_still_rejects_ambiguous_semantic_options(self):
+        from pilot.actions import Action, ActionType, BrowserParams
+
+        snapshot = _snap(
+            [
+                _node("a", text="Learn details"),
+                _node("button", text="Learn info"),
+            ]
+        )
+        action = Action(
+            action_type=ActionType.BROWSER_CLICK_TEXT,
+            target="Learn more",
+            parameters=BrowserParams(text="Learn more"),
+        )
+
+        with (
+            patch("pilot.system.browser.has_active_session", return_value=True),
+            patch(
+                "pilot.system.browser.peek_current_dom_snapshot",
+                new=AsyncMock(return_value=snapshot),
+            ),
+        ):
+            result = await assess_browser_action_target("browser_click_text", action)
+
+        assert result is not None
+        assert result.found is False
 
 
 class _FakeLocator:
