@@ -464,6 +464,60 @@ class Planner:
                 raw_input=user_input,
             )
 
+        # --- explicit browse -> semantic click -> title/paragraph report ---
+        # This common, fully specified read-only workflow does not need an
+        # LLM. Keeping it local avoids multi-minute retries when a configured
+        # model server is unhealthy, while every action still passes through
+        # normal validation, world-model assessment, and confirmation.
+        browser_url_match = re.search(
+            r"\b(?:navigate|go|visit|open|browse)(?:\s+to)?\s+"
+            r"(?P<url>https?://[^\s,]+)",
+            user_input,
+            flags=re.IGNORECASE,
+        )
+        semantic_click_match = re.search(
+            r"\bclick\s+(?:the\s+)?(?:link|button|option)?\s*"
+            r"(?:that\s+)?(?:means?|labeled?|called|named|with\s+(?:the\s+)?text)\s+"
+            r"[\"']?(?P<label>.+?)[\"']?"
+            r"(?=\s+even\s+if\b|,\s*then\b|\s+then\b|[.!?]?\s*$)",
+            user_input,
+            flags=re.IGNORECASE,
+        )
+        wants_page_report = "title" in text and ("paragraph" in text or "page text" in text)
+        if browser_url_match and semantic_click_match and wants_page_report:
+            url = browser_url_match.group("url").rstrip(".,!?")
+            label = semantic_click_match.group("label").strip(" \"'.,!?")
+            if label:
+                return ActionPlan(
+                    actions=[
+                        Action(
+                            action_type=ActionType.BROWSER_NAVIGATE,
+                            target=url,
+                            parameters=BrowserParams(url=url),
+                        ),
+                        Action(
+                            action_type=ActionType.BROWSER_CLICK_TEXT,
+                            target=label,
+                            parameters=BrowserParams(text=label),
+                        ),
+                        Action(
+                            action_type=ActionType.BROWSER_PAGE_INFO,
+                            target="current page",
+                            parameters=BrowserParams(),
+                        ),
+                        Action(
+                            action_type=ActionType.BROWSER_EXTRACT,
+                            target="p",
+                            parameters=BrowserParams(selector="p", multiple=False),
+                        ),
+                    ],
+                    explanation=(
+                        f"Navigate to {url}, choose the visible control that best matches "
+                        f"'{label}', then report the final page title and first visible paragraph"
+                    ),
+                    raw_input=user_input,
+                )
+
         # --- "open <url>" ---
         url_match = re.match(
             r"^(?:open|go to|navigate to|visit|launch|browse)\s+(https?://\S+|[\w.-]+\.\w{2,}(?:/\S*)?)$",
