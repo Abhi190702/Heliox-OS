@@ -60,10 +60,7 @@ _CLICK_INTENT_GROUPS = (
     frozenset({"register", "signup", "join", "create"}),
 )
 _CLICK_STOP_WORDS = frozenset({"a", "an", "and", "button", "link", "please", "the", "to"})
-_INTERACTIVE_SELECTOR = (
-    "a, button, [role='button'], [role='link'], "
-    "input[type='button'], input[type='submit']"
-)
+_INTERACTIVE_SELECTOR = "a, button, [role='button'], [role='link'], input[type='button'], input[type='submit']"
 
 
 async def _ensure_browser():
@@ -255,9 +252,9 @@ async def browser_click_text(text: str, exact: bool = False) -> str:
 
     try:
         if exact:
-            await page.click(f"text='{text}'", timeout=10000, no_wait_after=True)
+            await page.click(f"text='{text}'", timeout=1000, no_wait_after=True)
         else:
-            await page.click(f"text={text}", timeout=10000, no_wait_after=True)
+            await page.click(f"text={text}", timeout=1000, no_wait_after=True)
     except Exception as exc:
         if "timeout" not in str(exc).lower():
             raise
@@ -380,9 +377,7 @@ async def _find_semantic_click_candidate(page: Any, requested: str) -> tuple[Any
     selected = _select_semantic_click_candidate(requested, labels)
     if selected is None:
         available = ", ".join(dict.fromkeys(labels[:8])) or "none"
-        raise RuntimeError(
-            f"No unambiguous option matched '{requested}'. Visible options: {available}"
-        )
+        raise RuntimeError(f"No unambiguous option matched '{requested}'. Visible options: {available}")
     index, label = selected
     logger.info("browser_click_text: mapped requested label %r to visible option %r", requested, label)
     return visible_locators[index], label

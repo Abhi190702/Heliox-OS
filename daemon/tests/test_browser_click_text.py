@@ -91,7 +91,7 @@ async def test_click_text_dispatches_without_waiting_for_navigation(
         (
             expected_selector,
             {
-                "timeout": 10000,
+                "timeout": 1000,
                 "no_wait_after": True,
             },
         )
@@ -107,10 +107,13 @@ def test_semantic_click_match_maps_more_information_to_learn_more() -> None:
 
 
 def test_semantic_click_match_refuses_ambiguous_choices() -> None:
-    assert browser._select_semantic_click_candidate(
-        "Continue",
-        ["Proceed to checkout", "Proceed without account"],
-    ) is None
+    assert (
+        browser._select_semantic_click_candidate(
+            "Continue",
+            ["Proceed to checkout", "Proceed without account"],
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
