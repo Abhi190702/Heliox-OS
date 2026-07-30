@@ -72,6 +72,39 @@ def test_exact_labeled_findings_preserve_requested_result_shape():
     ]
 
 
+def test_exact_labeled_findings_select_matching_section_from_each_composite_result():
+    actions = [
+        Action(
+            action_type=ActionType.SYSTEM_INFO,
+            target=label,
+            parameters=SystemInfoParams(),
+        )
+        for label in ("Operating System", "CPU", "Memory", "Disk")
+    ]
+    plan = ActionPlan(
+        actions=actions,
+        explanation="Inspect four metrics.",
+        raw_input="Return exactly four labeled findings.",
+    )
+    composite = (
+        "=== Operating System ===\nrelease: 11\n"
+        "=== CPU ===\nAverage usage: 16%\n"
+        "=== Memory ===\nUsed: 84%\n"
+        "=== Disk ===\nC: 90%\n"
+        "=== Network ===\nConnected\n"
+    )
+    results = [ActionResult(action=action, success=True, output=composite) for action in actions]
+
+    message = success_message(plan, results, VerificationResult(passed=True), dry_run=False)
+
+    assert message.splitlines() == [
+        "1. Operating System: release: 11",
+        "2. CPU: Average usage: 16%",
+        "3. Memory: Used: 84%",
+        "4. Disk: C: 90%",
+    ]
+
+
 def test_exact_labeled_findings_split_one_composite_system_result():
     action = _action()
     plan = ActionPlan(

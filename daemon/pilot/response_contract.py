@@ -70,7 +70,7 @@ def success_message(
         findings = []
         for index, result in enumerate(results, start=1):
             label = _clean(result.action.target) or result.action.action_type.value.replace("_", " ").title()
-            output = _clean(result.output)
+            output = _matching_labeled_section(result.output, label)
             findings.append(f"{index}. {label}: {output or 'Verified.'}")
         return "\n".join(findings)
 
@@ -130,3 +130,31 @@ def _extract_labeled_sections(output: str) -> list[tuple[str, str]]:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(output)
         sections.append((_clean(match.group("label")), _clean(output[start:end])))
     return sections
+
+
+def _matching_labeled_section(output: str, target: str) -> str:
+    """Return only the composite tool section requested by an action target."""
+    sections = _extract_labeled_sections(output)
+    if not sections:
+        return _clean(output)
+
+    target_words = set(re.findall(r"[a-z0-9]+", target.lower()))
+    aliases = {
+        "os": {"operating", "system"},
+        "release": {"operating", "system"},
+        "ram": {"memory"},
+        "storage": {"disk"},
+    }
+    expanded_target = set(target_words)
+    for word in target_words:
+        expanded_target.update(aliases.get(word, set()))
+
+    best_content = ""
+    best_score = 0
+    for label, content in sections:
+        label_words = set(re.findall(r"[a-z0-9]+", label.lower()))
+        score = len(expanded_target & label_words)
+        if score > best_score:
+            best_content = content
+            best_score = score
+    return best_content or _clean(output)
