@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from pilot.config import DATA_DIR
 from pilot.db.redis_adapter import RedisCacheAdapter
 from pilot.models.cache import LLMCache
-from pilot.models.cloud import CloudClient
+from pilot.models.cloud import CloudClient, safe_provider_error
 from pilot.models.ollama import OllamaClient
 from pilot.models.rate_limiter import TokenBucketRateLimiter
 
@@ -267,8 +267,9 @@ class ModelRouter:
                 return response
 
             except Exception as e:
-                logger.error("Cloud API failed: %s", e)
-                raise RuntimeError(f"Cloud API Failed: {e}")
+                safe_error = safe_provider_error(e, self._config.model.cloud_provider)
+                logger.error("%s", safe_error)
+                raise RuntimeError(safe_error) from None
 
         # Try ollama or local backend
         if provider in ("ollama", "local"):
@@ -390,13 +391,18 @@ class ModelRouter:
 
             logger.warning("Falling back to cloud API — Ollama unavailable")
 
-            response = await self._cloud.generate(
-                prompt,
-                system=system,
-                json_mode=json_mode,
-                temperature=temperature,
-                stream_callback=stream_callback,
-            )
+            try:
+                response = await self._cloud.generate(
+                    prompt,
+                    system=system,
+                    json_mode=json_mode,
+                    temperature=temperature,
+                    stream_callback=stream_callback,
+                )
+            except Exception as e:
+                safe_error = safe_provider_error(e, self._config.model.cloud_provider)
+                logger.error("%s", safe_error)
+                raise RuntimeError(safe_error) from None
 
             if not stream_callback and model:
                 await self._cache.set(

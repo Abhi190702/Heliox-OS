@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING, Any
+
+import httpx
 
 from pilot.config import PilotConfig
 from pilot.system.http_client import create_httpx_client
@@ -41,6 +44,55 @@ DEFAULT_MODELS = {
 
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 3.0  # seconds
+_SECRET_VALUE = re.compile(r"(?i)(?P<prefix>(?:[?&](?:key|api[_-]?key|token)|authorization)\s*[=:]\s*)[^&\s]+")
+_GOOGLE_API_KEY = re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b")
+
+
+def safe_provider_error(error: Exception, provider: str) -> str:
+    """Return an actionable provider failure that never includes secrets or URLs."""
+    provider_name = provider.title() or "Cloud"
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        body = error.response.text.lower()
+        if status == 429:
+            detail = "quota or rate limit reached"
+        elif status in {401, 403}:
+            detail = "authentication was rejected"
+        elif status == 400 and ("api_key_invalid" in body or "api key not valid" in body):
+            detail = "the configured API key is invalid"
+        elif status == 400:
+            detail = "the request was rejected"
+        elif status >= 500:
+            detail = "the provider is temporarily unavailable"
+        else:
+            detail = "the provider rejected the request"
+        return f"{provider_name} API unavailable ({status}): {detail}."
+
+    message = str(error).strip() or error.__class__.__name__
+    message = _SECRET_VALUE.sub(lambda match: f"{match.group('prefix')}[redacted]", message)
+    message = _GOOGLE_API_KEY.sub("[redacted]", message)
+    message = re.sub(r"https?://\S+", "[provider endpoint]", message)
+    if "api unavailable" in message.lower():
+        return message[:240]
+    return f"{provider_name} API unavailable: {message[:200]}"
+
+
+def _is_rate_limit_error(error: Exception) -> bool:
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code == 429
+    err_str = str(error).lower()
+    return any(
+        keyword in err_str
+        for keyword in (
+            "429",
+            "quota",
+            "rate",
+            "exceeded",
+            "resource has been exhausted",
+            "too many requests",
+            "limit",
+        )
+    )
 
 
 class CloudClient:
@@ -111,31 +163,22 @@ class CloudClient:
                     return result
             except Exception as e:
                 last_error = e
-                err_str = str(e).lower()
-                # Rotate keys on rate limits, quota errors, or resource exhaustion
-                is_rate_limit = any(
-                    kw in err_str
-                    for kw in [
-                        "429",
-                        "quota",
-                        "rate",
-                        "exceeded",
-                        "resource has been exhausted",
-                        "too many requests",
-                        "limit",
-                    ]
-                )
+                is_rate_limit = _is_rate_limit_error(e)
                 if is_rate_limit and key_idx < len(api_keys) - 1:
                     logger.warning(
                         "API key %d/%d failed (%s), rotating to next key",
                         key_idx + 1,
                         len(api_keys),
-                        str(e)[:80],
+                        safe_provider_error(e, provider),
                     )
                     continue
-                raise  # Non-rate-limit errors or last key — propagate
+                raise RuntimeError(safe_provider_error(e, provider)) from None
 
-        raise last_error or RuntimeError(f"All {len(api_keys)} API keys exhausted for {provider}")
+        safe_error = safe_provider_error(
+            last_error or RuntimeError("all configured keys were exhausted"),
+            provider,
+        )
+        raise RuntimeError(safe_error) from None
 
     async def _call_gemini_native(
         self,
@@ -204,8 +247,7 @@ class CloudClient:
                     logger.error("Rate limited (429) by Gemini after %d retries", max_retries)
 
             if resp.status_code != 200:
-                error_body = resp.text[:300]
-                logger.error("Gemini API error %d: %s", resp.status_code, error_body)
+                logger.error("Gemini API request failed with status %d", resp.status_code)
                 resp.raise_for_status()
 
             data = resp.json()
