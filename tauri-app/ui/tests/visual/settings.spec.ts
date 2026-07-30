@@ -95,8 +95,8 @@ test.describe("Settings Panel", () => {
     await expect(section).toHaveScreenshot("settings-restrictions-section.png");
   });
 
-  test("learned risk world model exposes runtime status and saves its toggle", async ({ page }) => {
-    const section = page.locator(".settings-group").filter({ hasText: "Learned Risk World Model" });
+  test("hybrid world model exposes runtime status and saves its toggle", async ({ page }) => {
+    const section = page.locator(".settings-group").filter({ hasText: "Hybrid World Model" });
     await section.scrollIntoViewIfNeeded();
 
     await expect(section).toContainText("Loaded");
@@ -217,12 +217,12 @@ test.describe("Settings Panel", () => {
   });
 });
 
-test.describe("Learned Risk World Model compatibility", () => {
+test.describe("Hybrid World Model compatibility", () => {
   test("an outdated daemon never looks like an empty fallback model", async ({ page }) => {
     await gotoApp(page, { riskGateStatusMissing: true });
     await clickTab(page, "Settings");
 
-    const section = page.locator(".settings-group").filter({ hasText: "Learned Risk World Model" });
+    const section = page.locator(".settings-group").filter({ hasText: "Hybrid World Model" });
     await section.scrollIntoViewIfNeeded();
 
     await expect(section.getByRole("alert")).toContainText(
