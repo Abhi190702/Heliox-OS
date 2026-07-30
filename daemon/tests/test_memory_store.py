@@ -20,7 +20,14 @@ import pytest
 import pytest_asyncio
 
 from pilot.db.sqlite_pool import AsyncSqlitePool
+from pilot.memory.assembler import TemporalContextAssembler
+from pilot.memory.sliding_window import get_token_count
 from pilot.memory.store import SCHEMA_SQL, MemoryStore
+from pilot.memory.temporal import (
+    FactStatus,
+    MemoryProvenance,
+    TemporalMemoryStore,
+)
 
 # ---------------------------------------------------------------------------
 # Minimal stubs for ActionPlan and ActionResult
@@ -85,9 +92,15 @@ async def store(tmp_path):
     s._pool = pool
     s._chroma_collection = chroma_mock
     s._workspace_index = None
+    s._temporal = TemporalMemoryStore(tmp_path / "temporal.db")
+    await s._temporal.initialize()
+    s._context_assembler = TemporalContextAssembler(s._temporal)
 
     yield s
 
+    if s._temporal:
+        await s._temporal.close()
+        s._temporal = None
     if s._pool:
         await s._pool.close()
         s._pool = None
@@ -269,6 +282,26 @@ class TestRecord:
 
         assert len(called) >= 1
 
+    @pytest.mark.asyncio
+    async def test_record_creates_verified_temporal_episode(self, store, fake_plan, fake_results):
+        with patch("pilot.memory.store.asyncio.to_thread", new_callable=AsyncMock):
+            await store.record(
+                "search the web for release notes",
+                fake_plan,
+                fake_results,
+                session_id="chat-1",
+                task_id="task-1",
+            )
+
+        episodes = await store._temporal.query_episodes(
+            "release notes",
+            session_id="chat-1",
+        )
+
+        assert len(episodes) == 1
+        assert episodes[0].provenance == MemoryProvenance.VERIFIED_OUTCOME.value
+        assert "search the web" in episodes[0].text
+
 
 # ---------------------------------------------------------------------------
 # Tests: get_history()
@@ -390,6 +423,18 @@ class TestPreferences:
         assert prefs["language"] == "python"
 
     @pytest.mark.asyncio
+    async def test_set_preference_creates_provenance_labelled_fact(self, store):
+        await store.set_preference("editor", "vscode")
+
+        facts = await store._temporal.query_facts("editor", session_id="chat-1")
+
+        assert len(facts) == 1
+        fact = await store._temporal.get_fact(facts[0].memory_id)
+        assert fact is not None
+        assert fact.status == FactStatus.ACTIVE
+        assert fact.provenance == MemoryProvenance.SYSTEM_OBSERVATION
+
+    @pytest.mark.asyncio
     async def test_get_preferences_empty(self, store):
         """_get_preferences() returns empty dict when no prefs set."""
         prefs = await store._get_preferences()
@@ -477,6 +522,21 @@ class TestGetContext:
             result = await store.get_context("test query")
 
         assert isinstance(result, str)
+
+    @pytest.mark.asyncio
+    async def test_get_context_is_strictly_token_bounded(self, store):
+        store._chroma_collection = None
+        for index in range(20):
+            await store.set_preference(f"preference_{index}", "very long preference value " * 10)
+
+        result = await store.get_context(
+            "preference",
+            session_id="chat-1",
+            max_tokens=80,
+        )
+
+        assert get_token_count(result) <= 80
+        assert "source=" in result
 
 
 # ---------------------------------------------------------------------------

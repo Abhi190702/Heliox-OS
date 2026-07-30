@@ -1407,6 +1407,11 @@ class PilotServer:
             plan_id=self._active_plan_id or task.plan_id,
             terminal_response=response,
         )
+        if self._memory is not None:
+            await self._memory.clear_task_working(
+                session_id=task.session_id,
+                task_id=task.task_id,
+            )
 
     async def _handle_execute(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Run one interactive request while exposing an out-of-band control slot."""
@@ -1465,6 +1470,15 @@ class PilotServer:
                 user_id=context.user_id,
             ):
                 try:
+                    if self._memory is not None:
+                        await self._memory.put_working(
+                            session_id=context.session_id,
+                            task_id=context.task_id,
+                            key="current intent",
+                            value=str(params.get("input") or ""),
+                            priority=1.0,
+                            ttl_seconds=86400,
+                        )
                     if resume_token:
                         await ws.send(
                             _notification(
@@ -1612,13 +1626,12 @@ class PilotServer:
             return clean[: max(0, limit - 3)] + "..."
 
         def _record_memory(plan: Any, results: list[Any]) -> Any:
-            if chat_session_id == "default":
-                return self._memory.record(user_input, plan, results)
             return self._memory.record(
                 user_input,
                 plan,
                 results,
                 session_id=chat_session_id,
+                task_id=get_experience_context().task_id,
             )
 
         async def _record_planned_experience(plan: Any, plan_id: str, attempt: int) -> None:
@@ -1652,6 +1665,20 @@ class PilotServer:
                     },
                     provenance={"component": "Planner.plan"},
                     privacy_class=PrivacyClass.SENSITIVE,
+                )
+            if self._memory is not None:
+                await self._memory.put_working(
+                    session_id=chat_session_id,
+                    task_id=get_experience_context().task_id,
+                    key="current plan",
+                    value={
+                        "plan_id": plan_id,
+                        "attempt": attempt,
+                        "summary": plan.explanation,
+                        "action_count": len(plan.actions),
+                    },
+                    priority=0.9,
+                    ttl_seconds=86400,
                 )
 
         async def _emit_task_complete(status: str, summary: str) -> None:
@@ -3203,6 +3230,20 @@ class PilotServer:
                 plan_id=plan_id,
                 request=approval_request,
                 timeout_seconds=CONFIRM_TIMEOUT_SECONDS,
+            )
+        if self._memory is not None and self._active_task_id:
+            context = get_experience_context()
+            await self._memory.put_working(
+                session_id=context.session_id or "default",
+                task_id=self._active_task_id,
+                key="pending approval",
+                value={
+                    "plan_id": plan_id,
+                    "reason": reason,
+                    "action_count": len(confirm_indices),
+                },
+                priority=1.0,
+                ttl_seconds=CONFIRM_TIMEOUT_SECONDS,
             )
 
         await self._append_experience(
@@ -5646,6 +5687,18 @@ def handle_tool(tool_name, params):
             return {"error": "Both key and value required"}
         if self._subconscious:
             await self._subconscious.add_manual_preference(key, value)
+            if self._memory is not None:
+                from pilot.memory.temporal import MemoryProvenance, MemoryScope
+
+                await self._memory.remember_fact(
+                    subject="user",
+                    predicate=f"preference:{key}",
+                    value=value,
+                    scope=MemoryScope.USER,
+                    confidence=1.0,
+                    provenance=MemoryProvenance.EXPLICIT_USER,
+                    evidence_payload={"source": "persona_add_preference"},
+                )
             return {"status": "ok", "key": key, "value": value}
         return {"error": "Subconscious agent not initialized"}
 

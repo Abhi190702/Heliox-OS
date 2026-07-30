@@ -10,12 +10,25 @@ import contextlib
 import json
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import aiofiles.os
 
 from pilot.config import DATA_DIR, DB_FILE
 from pilot.db.sqlite_pool import AsyncSqlitePool
+from pilot.intelligence.experience import (
+    PrivacyClass,
+    get_experience_context,
+)
+from pilot.memory.assembler import TemporalContextAssembler
+from pilot.memory.sliding_window import get_token_count
+from pilot.memory.temporal import (
+    MemoryProvenance,
+    MemoryScope,
+    TemporalFact,
+    TemporalMemoryStore,
+)
 from pilot.models.router import ModelRouter
 
 if TYPE_CHECKING:
@@ -56,10 +69,14 @@ class MemoryStore:
         checkpoint_interval_seconds: int = 300,
         pruning_interval_seconds: int = 3600,
         pruning_min_memories: int = 10,
+        temporal_db_file: str | Path | None = None,
     ) -> None:
         self._pool: AsyncSqlitePool | None = None
         self._chroma_collection: Any = None
         self._workspace_index = None
+        self._temporal: TemporalMemoryStore | None = None
+        self._context_assembler: TemporalContextAssembler | None = None
+        self._temporal_db_file = Path(temporal_db_file) if temporal_db_file else None
 
         self._checkpoint_task: asyncio.Task[None] | None = None
         self._checkpoint_interval_seconds = checkpoint_interval_seconds
@@ -83,6 +100,11 @@ class MemoryStore:
                 await db.execute("ALTER TABLE action_history ADD COLUMN session_id TEXT NOT NULL DEFAULT 'default'")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_history_session ON action_history(session_id, id)")
             await db.commit()
+
+        temporal_path = self._temporal_db_file or Path(DB_FILE).with_name("temporal_memory.db")
+        self._temporal = TemporalMemoryStore(temporal_path)
+        await self._temporal.initialize()
+        self._context_assembler = TemporalContextAssembler(self._temporal)
 
         await asyncio.to_thread(self._init_chroma)
 
@@ -272,6 +294,8 @@ class MemoryStore:
         results: list[ActionResult],
         *,
         session_id: str = "default",
+        task_id: str = "",
+        provenance_event_id: str = "",
     ) -> None:
         """Record an executed plan and its results."""
         if not self._pool:
@@ -321,15 +345,67 @@ class MemoryStore:
             except Exception:
                 logger.debug("ChromaDB write failed", exc_info=True)
 
+        if self._temporal is not None:
+            context = get_experience_context()
+            effective_session_id = session_id or context.session_id or "default"
+            effective_task_id = task_id or context.task_id
+            action_types = sorted(
+                {
+                    str(getattr(getattr(action, "action_type", ""), "value", ""))
+                    for action in getattr(plan, "actions", [])
+                    if getattr(getattr(action, "action_type", ""), "value", "")
+                }
+            )
+            result_summaries = [
+                {
+                    "success": bool(getattr(result, "success", False)),
+                    "error": str(getattr(result, "error", "") or "")[:300],
+                }
+                for result in results
+            ]
+            await self._temporal.record_episode(
+                session_id=effective_session_id,
+                task_id=effective_task_id,
+                summary=(f"Request: {user_input[:500]}. Plan: {str(getattr(plan, 'explanation', ''))[:500]}"),
+                outcome="success" if success else "failure",
+                tags=action_types,
+                importance=0.65 if success else 0.8,
+                provenance_event_id=provenance_event_id,
+                payload={"results": result_summaries},
+            )
+
     async def get_context(
         self,
         query: str,
         n_results: int = 5,
         *,
         session_id: str | None = None,
+        task_id: str | None = None,
+        max_tokens: int = 2000,
     ) -> str:
-        """Retrieve relevant context for a query using semantic search."""
+        """Retrieve ranked memory context without exceeding the token budget."""
         parts: list[str] = []
+        max_tokens = max(0, int(max_tokens))
+        context = get_experience_context()
+        effective_session_id = session_id or context.session_id or "default"
+        effective_task_id = task_id if task_id is not None else context.task_id
+
+        if self._context_assembler is not None:
+            assembled = await self._context_assembler.assemble(
+                query,
+                session_id=effective_session_id,
+                task_id=effective_task_id,
+                max_tokens=max_tokens,
+            )
+            if assembled.text:
+                parts.append(assembled.text)
+
+        def _append_if_fits(line: str) -> bool:
+            candidate = "\n".join([*parts, line])
+            if get_token_count(candidate) > max_tokens:
+                return False
+            parts.append(line)
+            return True
 
         if self._chroma_collection is not None:
             try:
@@ -338,18 +414,19 @@ class MemoryStore:
                     "n_results": n_results,
                 }
                 if session_id is not None:
-                    query_args["where"] = {"session_id": session_id}
+                    query_args["where"] = {"session_id": effective_session_id}
                 results = await asyncio.to_thread(self._chroma_collection.query, **query_args)
 
                 if results["documents"] and results["documents"][0]:
-                    parts.append("Related past requests:")
-
                     for doc, meta in zip(
                         results["documents"][0],
                         results["metadatas"][0],
                         strict=False,
                     ):
-                        parts.append(f'  - "{doc}" (result: {meta.get("explanation", "N/A")})')
+                        _append_if_fits(
+                            "- [legacy episode; source=semantic history] "
+                            f'"{doc}" (result: {meta.get("explanation", "N/A")})'
+                        )
 
             except Exception:
                 logger.debug("ChromaDB query failed", exc_info=True)
@@ -358,10 +435,8 @@ class MemoryStore:
             prefs = await self._get_preferences()
 
             if prefs:
-                parts.append("User preferences:")
-
                 for k, v in prefs.items():
-                    parts.append(f"  - {k}: {v}")
+                    _append_if_fits(f"- [legacy preference; source=stored setting] {k}: {v}")
 
         return "\n".join(parts) if parts else ""
 
@@ -411,7 +486,15 @@ class MemoryStore:
             for r in rows
         ]
 
-    async def set_preference(self, key: str, value: str) -> None:
+    async def set_preference(
+        self,
+        key: str,
+        value: str,
+        *,
+        provenance: MemoryProvenance = MemoryProvenance.SYSTEM_OBSERVATION,
+        confidence: float = 0.75,
+        event_id: str = "",
+    ) -> None:
         if not self._pool:
             return
 
@@ -429,6 +512,55 @@ class MemoryStore:
             )
 
             await db.commit()
+
+        if self._temporal is not None:
+            await self._temporal.remember_fact(
+                subject="user",
+                predicate=f"preference:{key}",
+                value=value,
+                scope=MemoryScope.USER,
+                confidence=confidence,
+                provenance=provenance,
+                event_id=event_id,
+                privacy_class=PrivacyClass.SENSITIVE,
+            )
+
+    async def remember_fact(self, **kwargs: Any) -> TemporalFact | None:
+        """Store a provenance-labelled temporal fact when temporal memory is active."""
+        if self._temporal is None:
+            return None
+        return await self._temporal.remember_fact(**kwargs)
+
+    async def put_working(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        key: str,
+        value: Any,
+        priority: float = 0.5,
+        ttl_seconds: float = 3600,
+    ) -> None:
+        """Upsert short-lived task state for bounded planner context."""
+        if self._temporal is None:
+            return
+        await self._temporal.put_working(
+            session_id=session_id,
+            task_id=task_id,
+            key=key,
+            value=value,
+            priority=priority,
+            ttl_seconds=ttl_seconds,
+        )
+
+    async def clear_task_working(self, *, session_id: str, task_id: str) -> int:
+        """Forget completed task state while keeping its verified episode."""
+        if self._temporal is None:
+            return 0
+        return await self._temporal.clear_task_working(
+            session_id=session_id,
+            task_id=task_id,
+        )
 
     async def get_preference(self, key: str) -> str | None:
         """Return the stored value for *key*, or None if not found."""
@@ -499,6 +631,11 @@ class MemoryStore:
             await self._pool.close()
 
             self._pool = None
+
+        if self._temporal is not None:
+            await self._temporal.close()
+            self._temporal = None
+            self._context_assembler = None
 
         if self._pruning_task:
             self._pruning_task.cancel()

@@ -183,6 +183,9 @@ class _FakeMemory:
     async def record(self, *args, **kwargs):
         return None
 
+    async def put_working(self, *args, **kwargs):
+        return None
+
 
 def _server_ready_for_handle_execute(executor, plan: ActionPlan | None = None) -> PilotServer:
     """Builds a PilotServer with just enough wired up to drive

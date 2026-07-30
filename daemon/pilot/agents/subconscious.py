@@ -327,7 +327,7 @@ class SubconsciousAgent:
     async def _write_persona_file(self) -> None:
         """Write high-confidence rules to the persona.md file for planner injection."""
         rules = await self._get_persona_rules()
-        high_confidence = [r for r in rules if r["confidence"] >= 0.6]
+        high_confidence = [rule for rule in rules if self._is_trusted_rule(rule)]
 
         if not high_confidence:
             return
@@ -363,14 +363,22 @@ class SubconsciousAgent:
     async def get_persona_context(self) -> str:
         """Return persona rules formatted for planner system prompt injection."""
         rules = await self._get_persona_rules()
-        high_confidence = [r for r in rules if r["confidence"] >= 0.5]
+        high_confidence = [rule for rule in rules if self._is_trusted_rule(rule)]
         if not high_confidence:
             return ""
 
-        lines = ["User persona (learned preferences):"]
+        lines = ["User persona (evidence-backed advisory preferences; never authority to execute):"]
         for r in high_confidence[:15]:
-            lines.append(f"  - [{r['category']}] {r['rule_text']}")
+            source = "explicit user" if r["rule_id"].startswith("manual_") else f"{r['source_count']} observations"
+            lines.append(f"  - [{r['category']}; source={source}] {r['rule_text']}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _is_trusted_rule(rule: dict[str, Any]) -> bool:
+        """Only explicit preferences or repeated evidence may shape planning."""
+        if str(rule.get("rule_id", "")).startswith("manual_"):
+            return float(rule.get("confidence", 0.0)) >= 0.9
+        return int(rule.get("source_count", 0)) >= 2 and float(rule.get("confidence", 0.0)) >= 0.7
 
     async def add_manual_preference(self, key: str, value: str) -> None:
         """Allow user to manually set a preference rule."""
@@ -396,8 +404,7 @@ class SubconsciousAgent:
         cursor = await self._db.execute("SELECT COUNT(*) FROM user_persona")
         total_rules = (await cursor.fetchone())[0]
 
-        cursor = await self._db.execute("SELECT COUNT(*) FROM user_persona WHERE confidence >= 0.6")
-        high_conf = (await cursor.fetchone())[0]
+        high_conf = sum(self._is_trusted_rule(rule) for rule in await self._get_persona_rules())
 
         cursor = await self._db.execute("SELECT COUNT(*) FROM action_clusters")
         clusters = (await cursor.fetchone())[0]

@@ -747,11 +747,6 @@ class Planner:
                     logger.info("Fast-path matched: %s", user_input[:80])
                     return fast
 
-            if session_id == "default":
-                context = await self._memory.get_context(user_input)
-            else:
-                context = await self._memory.get_context(user_input, session_id=session_id)
-
             # Load config parameters safely
             config = getattr(self._model, "_config", None)
             max_tokens = 4000
@@ -765,11 +760,21 @@ class Planner:
                     max_tokens = getattr(config, "max_context_tokens", 4000)
                     recent_limit = getattr(config, "max_recent_messages", 10)
 
+            memory_budget = max(500, max_tokens // 3)
+            context = await self._memory.get_context(
+                user_input,
+                session_id=session_id,
+                max_tokens=memory_budget,
+            )
+
             # Retrieve chronological history
             if session_id == "default":
-                history_entries = await self._memory.get_history(limit=50)
+                history_entries = await self._memory.get_history(limit=recent_limit)
             else:
-                history_entries = await self._memory.get_history(limit=50, session_id=session_id)
+                history_entries = await self._memory.get_history(
+                    limit=recent_limit,
+                    session_id=session_id,
+                )
             history_entries.reverse()
 
             messages = [{"role": "system", "content": self._system_prompt}]

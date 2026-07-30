@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -27,6 +28,33 @@ class TrackingMemory:
     async def get_context(self, query: str) -> str:  # noqa: ARG002
         self.context_calls += 1
         return ""
+
+
+class PlanningMemory:
+    def __init__(self) -> None:
+        self.context_kwargs: dict[str, Any] = {}
+        self.history_kwargs: dict[str, Any] = {}
+
+    async def get_context(self, query: str, **kwargs: Any) -> str:  # noqa: ARG002
+        self.context_kwargs = kwargs
+        return ""
+
+    async def get_history(self, **kwargs: Any) -> list[dict[str, Any]]:
+        self.history_kwargs = kwargs
+        return []
+
+
+class PlanningModel:
+    def __init__(self) -> None:
+        self._config = SimpleNamespace(
+            memory=SimpleNamespace(
+                max_context_tokens=3000,
+                max_recent_messages=7,
+            )
+        )
+
+    async def generate(self, *args: Any, **kwargs: Any) -> str:  # noqa: ARG002
+        return '{"explanation":"No action needed.","actions":[]}'
 
 
 @pytest.mark.asyncio
@@ -57,3 +85,24 @@ async def test_cpu_usage_uses_short_sample_interval(monkeypatch: pytest.MonkeyPa
 
     assert "Average usage" in output
     assert intervals == [0.1]
+
+
+@pytest.mark.asyncio
+async def test_planner_bounds_memory_and_raw_history() -> None:
+    memory = PlanningMemory()
+    planner = Planner(PlanningModel(), memory)  # type: ignore[arg-type]
+
+    plan = await planner.plan(
+        "Analyze the project dependency graph and explain the result",
+        session_id="chat-42",
+    )
+
+    assert plan.error is None
+    assert memory.context_kwargs == {
+        "session_id": "chat-42",
+        "max_tokens": 1000,
+    }
+    assert memory.history_kwargs == {
+        "limit": 7,
+        "session_id": "chat-42",
+    }
