@@ -31,10 +31,7 @@
 
   async function refresh() {
     try {
-      const [nextNarration, nextRiskGate] = await Promise.all([
-        call("narration_status"),
-        call("risk_gate_status"),
-      ]);
+      const [nextNarration, nextRiskGate] = await Promise.all([call("narration_status"), call("risk_gate_status")]);
       narration = nextNarration as NarrationStatus;
       riskGate = nextRiskGate as RiskGateStatus;
       reachable = true;
@@ -70,9 +67,7 @@
   });
 
   let voiceActive = $derived(Boolean(narration.enabled && narration.narrate_steps));
-  let interferenceActive = $derived(
-    Boolean(narration.proactive_review_enabled || narration.live_corrections_enabled),
-  );
+  let interferenceActive = $derived(Boolean(narration.proactive_review_enabled || narration.live_corrections_enabled));
   let suggestionActive = $derived(Boolean(narration.follow_up_enabled));
   let interferenceDetail = $derived(
     lastCompanionDecision
