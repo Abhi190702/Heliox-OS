@@ -27,10 +27,13 @@ from pilot.actions import (
     DBusParams,
     DiskManageParams,
     DownloadParams,
+    ElementDetectionParams,
     EmptyParams,
     EnvParams,
     FileIntelParams,
     FileParams,
+    GitParams,
+    GitResolveParams,
     GnomeSettingParams,
     KeyboardParams,
     LogAnalyzeParams,
@@ -52,6 +55,7 @@ from pilot.actions import (
     SystemInfoParams,
     TriggerParams,
     VolumeParams,
+    WasmCallParams,
     WifiParams,
     WindowParams,
 )
@@ -164,7 +168,21 @@ FILE OPERATIONS:
 - file_delete — Params: {{"path": "C:\\path\\file.txt"}}
 - file_move, file_copy — Params: {{"path": "C:\\source.txt", "destination": "C:\\destination.txt"}}
 - file_list, file_search — Params: {{"path": "C:\\path"}}
-- directory_summary, file_permissions
+- directory_summary, directory_size, file_permissions
+- file_hash uses {{"path": "C:\\path\\file.bin", "hash_algorithm": "sha256"}}
+- file_compare uses {{"path": "C:\\first.bin", "destination": "C:\\second.bin", "hash_algorithm": "sha256"}}
+
+GIT REPOSITORY OPERATIONS:
+- git_status, git_diff, git_log use {{"repo_path": "C:\\path\\repo", "staged": false, "limit": 20}}
+- git_branch uses {{"repo_path": "C:\\path\\repo", "name": "feature/name", "create": true}}
+- git_stage uses {{"repo_path": "C:\\path\\repo", "files": ["src/file.py"]}}
+- git_commit uses {{"repo_path": "C:\\path\\repo", "files": ["src/file.py"], "message": "fix: describe change"}}
+- git_push uses {{"repo_path": "C:\\path\\repo", "remote": "origin", "branch": "main", "force": false}}
+- git_resolve uses {{"path": "C:\\path\\file.py", "full_block": "<<<<<<<...>>>>>>>", "resolved_code": "..."}}
+
+PLUGIN RUNTIMES:
+- plugin_call invokes an approved marketplace tool with {{"tool": "tool_name", "args": {{}}}}
+- wasm_call invokes only a reviewed WASM plugin tool with {{"tool": "tool_name", "args": {{}}}}
 
 SYSTEM ADMINISTRATION / PACKAGE / SERVICE / PROCESS / POWER:
 ... (all standard commands apply)
@@ -1569,6 +1587,10 @@ class Planner:
             ActionType.FILE_COPY,
             ActionType.FILE_LIST,
             ActionType.FILE_SEARCH,
+            ActionType.DIRECTORY_SUMMARY,
+            ActionType.DIRECTORY_SIZE,
+            ActionType.FILE_HASH,
+            ActionType.FILE_COMPARE,
             ActionType.FILE_PERMISSIONS,
         }
         package_types = {
@@ -1588,6 +1610,18 @@ class Planner:
 
         if action_type in file_types:
             return FileParams(**params)
+        if action_type == ActionType.GIT_RESOLVE:
+            return GitResolveParams(**params)
+        if action_type in {
+            ActionType.GIT_STATUS,
+            ActionType.GIT_DIFF,
+            ActionType.GIT_LOG,
+            ActionType.GIT_BRANCH,
+            ActionType.GIT_STAGE,
+            ActionType.GIT_COMMIT,
+            ActionType.GIT_PUSH,
+        }:
+            return GitParams(**params)
         if action_type in package_types:
             return PackageParams(**params)
         if action_type in service_types:
@@ -1720,6 +1754,8 @@ class Planner:
         }
         if action_type in vision_types:
             return ScreenVisionParams(**params)
+        if action_type == ActionType.SCREEN_DETECT_ELEMENTS:
+            return ElementDetectionParams(**params)
 
         browser_types = {
             ActionType.BROWSER_NAVIGATE,
@@ -1784,5 +1820,7 @@ class Planner:
         }
         if action_type in api_types:
             return ApiRequestParams(**params)
+        if action_type in {ActionType.WASM_CALL, ActionType.PLUGIN_CALL}:
+            return WasmCallParams(**params)
 
         raise ValueError(f"Unknown action type: {action_type}")

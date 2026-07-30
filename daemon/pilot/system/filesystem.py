@@ -7,6 +7,7 @@ Cross-platform with Windows-aware path handling.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import shutil
@@ -132,6 +133,89 @@ async def file_search(path: str, pattern: str) -> str:
     if not items:
         return f"No files matching '{pattern}' in {path}"
     return f"Found {len(items)} matches:\n" + "\n".join(items)
+
+
+async def file_hash(path: str, algorithm: str = "sha256") -> str:
+    """Calculate a cryptographic digest without loading the whole file."""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+    if not p.is_file():
+        raise ValueError(f"Not a file: {path}")
+    if algorithm not in {"sha256", "sha512", "blake2b"}:
+        raise ValueError(f"Unsupported hash algorithm: {algorithm}")
+
+    def _hash() -> str:
+        digest = hashlib.new(algorithm)
+        with p.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    digest = await asyncio.to_thread(_hash)
+    return f"{algorithm}:{digest}  {path}"
+
+
+async def file_compare(source: str, destination: str, algorithm: str = "sha256") -> str:
+    """Compare two files by size and cryptographic digest."""
+    src = Path(source)
+    dst = Path(destination)
+    for candidate, label in ((src, "Source"), (dst, "Destination")):
+        if not candidate.exists():
+            raise FileNotFoundError(f"{label} file not found: {candidate}")
+        if not candidate.is_file():
+            raise ValueError(f"{label} is not a file: {candidate}")
+
+    def _digest(path: Path) -> str:
+        digest = hashlib.new(algorithm)
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    source_size, destination_size = await asyncio.gather(
+        asyncio.to_thread(src.stat),
+        asyncio.to_thread(dst.stat),
+    )
+    source_digest, destination_digest = await asyncio.gather(
+        asyncio.to_thread(_digest, src),
+        asyncio.to_thread(_digest, dst),
+    )
+    identical = source_size.st_size == destination_size.st_size and source_digest == destination_digest
+    return (
+        f"{'Identical' if identical else 'Different'}: {source} <> {destination}\n"
+        f"{algorithm}: {source_digest} <> {destination_digest}"
+    )
+
+
+async def directory_size(path: str, max_entries: int = 100_000) -> str:
+    """Calculate a bounded recursive directory size and file count."""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Path not found: {path}")
+    if not p.is_dir():
+        raise ValueError(f"Not a directory: {path}")
+    entry_limit = max(1, min(int(max_entries), 1_000_000))
+
+    def _measure() -> tuple[int, int, int]:
+        total_bytes = 0
+        file_count = 0
+        skipped = 0
+        for item in p.rglob("*"):
+            if file_count >= entry_limit:
+                skipped += 1
+                continue
+            try:
+                if item.is_file():
+                    total_bytes += item.stat().st_size
+                    file_count += 1
+            except (OSError, PermissionError):
+                skipped += 1
+        return total_bytes, file_count, skipped
+
+    total_bytes, file_count, skipped = await asyncio.to_thread(_measure)
+    suffix = f"; {skipped} entries skipped or beyond the limit" if skipped else ""
+    return f"{path}: {_format_size(total_bytes)} across {file_count} files{suffix}"
 
 
 def _format_size(size: int) -> str:

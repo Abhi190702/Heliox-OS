@@ -18,6 +18,7 @@ from pilot.actions import (
     DBusParams,
     DownloadParams,
     FileParams,
+    GitParams,
     GitResolveParams,
     GnomeSettingParams,
     LogAnalyzeParams,
@@ -162,7 +163,15 @@ NO_TARGET_REQUIRED = {
     ActionType.SSH_COMMAND,
     ActionType.SSH_SCRIPT,
     ActionType.GIT_RESOLVE,
+    ActionType.GIT_STATUS,
+    ActionType.GIT_DIFF,
+    ActionType.GIT_LOG,
+    ActionType.GIT_BRANCH,
+    ActionType.GIT_STAGE,
+    ActionType.GIT_COMMIT,
+    ActionType.GIT_PUSH,
     ActionType.WASM_CALL,
+    ActionType.PLUGIN_CALL,
 }
 
 # File action types
@@ -174,6 +183,10 @@ FILE_ACTION_TYPES = {
     ActionType.FILE_COPY,
     ActionType.FILE_LIST,
     ActionType.FILE_SEARCH,
+    ActionType.DIRECTORY_SUMMARY,
+    ActionType.DIRECTORY_SIZE,
+    ActionType.FILE_HASH,
+    ActionType.FILE_COMPARE,
     ActionType.FILE_PERMISSIONS,
 }
 
@@ -219,6 +232,11 @@ class ActionValidator:
 
         elif isinstance(params, GitResolveParams):
             self._sanitizer.validate_path(params.path, idx)
+
+        elif isinstance(params, GitParams):
+            self._sanitizer.validate_path(params.repo_path, idx)
+            for file_path in params.files:
+                self._sanitizer.validate_path(file_path, idx)
 
         elif isinstance(params, PackageParams):
             self._sanitizer.validate_package_name(params.name, idx)

@@ -22,8 +22,20 @@ class ActionType(StrEnum):
     FILE_LIST = "file_list"
     FILE_SEARCH = "file_search"
     DIRECTORY_SUMMARY = "directory_summary"
+    DIRECTORY_SIZE = "directory_size"
+    FILE_HASH = "file_hash"
+    FILE_COMPARE = "file_compare"
     FILE_PERMISSIONS = "file_permissions"
     GIT_RESOLVE = "git_resolve"
+
+    # -- Git repository operations --
+    GIT_STATUS = "git_status"
+    GIT_DIFF = "git_diff"
+    GIT_LOG = "git_log"
+    GIT_BRANCH = "git_branch"
+    GIT_STAGE = "git_stage"
+    GIT_COMMIT = "git_commit"
+    GIT_PUSH = "git_push"
 
     # -- Package management --
     PACKAGE_INSTALL = "package_install"
@@ -256,6 +268,12 @@ READ_ONLY_ACTIONS = {
     ActionType.FILE_LIST,
     ActionType.FILE_SEARCH,
     ActionType.DIRECTORY_SUMMARY,
+    ActionType.DIRECTORY_SIZE,
+    ActionType.FILE_HASH,
+    ActionType.FILE_COMPARE,
+    ActionType.GIT_STATUS,
+    ActionType.GIT_DIFF,
+    ActionType.GIT_LOG,
     ActionType.PACKAGE_SEARCH,
     ActionType.SERVICE_STATUS,
     ActionType.GNOME_SETTING_READ,
@@ -362,6 +380,8 @@ SYSTEM_MODIFY_ACTIONS = {
     ActionType.SHELL_COMMAND,
     ActionType.CALENDAR_SYNC,
     ActionType.CALENDAR_CREATE_EVENT,
+    ActionType.GIT_COMMIT,
+    ActionType.GIT_PUSH,
     # State-changing browser actions — previously hardcoded to ALWAYS_SAFE
     # regardless of what they actually did (see the ALWAYS_SAFE set below).
     # Navigating, clicking, typing, selecting, and submitting forms can
@@ -401,6 +421,7 @@ IRREVERSIBLE_ACTIONS = {
     # Arbitrary script execution can exfiltrate data before a snapshot
     # rollback would ever have a chance to matter.
     ActionType.BROWSER_EXECUTE_JS,
+    ActionType.GIT_PUSH,
 }
 
 
@@ -417,12 +438,28 @@ class FileParams(BaseModel):
     max_entries: int = 200  # For directory_summary
     ignore_dirs: list[str] = Field(default_factory=lambda: [".git", "node_modules"])  # For directory_summary
     permissions: str | None = None  # e.g. "755" for file_permissions
+    hash_algorithm: Literal["sha256", "sha512", "blake2b"] = "sha256"
 
 
 class GitResolveParams(BaseModel):
     path: str = ""
     full_block: str = ""
     resolved_code: str = ""
+
+
+class GitParams(BaseModel):
+    """Validated parameters for repository-scoped Git actions."""
+
+    repo_path: str = "."
+    name: str = ""
+    create: bool = True
+    files: list[str] = Field(default_factory=list)
+    message: str = ""
+    remote: str = "origin"
+    branch: str = ""
+    force: bool = False
+    limit: int = 20
+    staged: bool = False
 
 
 class PackageParams(BaseModel):
@@ -886,6 +923,7 @@ ActionParameters = (
     | ElementDetectionParams
     | WasmCallParams
     | SkillRunParams
+    | GitParams
     | GitResolveParams
     | EmptyParams
 )

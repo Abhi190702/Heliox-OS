@@ -32,6 +32,7 @@ from pilot.actions import (
     EnvParams,
     FileIntelParams,
     FileParams,
+    GitParams,
     GitResolveParams,
     GnomeSettingParams,
     KeyboardParams,
@@ -142,8 +143,19 @@ class Executor:
             ActionType.FILE_LIST: self._exec_file_list,
             ActionType.FILE_SEARCH: self._exec_file_search,
             ActionType.DIRECTORY_SUMMARY: self._exec_directory_summary,
+            ActionType.DIRECTORY_SIZE: self._exec_directory_size,
+            ActionType.FILE_HASH: self._exec_file_hash,
+            ActionType.FILE_COMPARE: self._exec_file_compare,
             ActionType.FILE_PERMISSIONS: self._exec_file_permissions,
             ActionType.GIT_RESOLVE: self._exec_git_resolve,
+            # -- Git repository operations --
+            ActionType.GIT_STATUS: self._exec_git_action,
+            ActionType.GIT_DIFF: self._exec_git_action,
+            ActionType.GIT_LOG: self._exec_git_action,
+            ActionType.GIT_BRANCH: self._exec_git_action,
+            ActionType.GIT_STAGE: self._exec_git_action,
+            ActionType.GIT_COMMIT: self._exec_git_action,
+            ActionType.GIT_PUSH: self._exec_git_action,
             # -- Package operations --
             ActionType.PACKAGE_INSTALL: self._exec_package_install,
             ActionType.PACKAGE_REMOVE: self._exec_package_remove,
@@ -300,7 +312,7 @@ class Executor:
             ActionType.WORKSPACE_INDEX: self._exec_workspace_index,
             ActionType.WORKSPACE_SEARCH: self._exec_workspace_search,
             ActionType.WASM_CALL: self._exec_wasm_call,
-            ActionType.PLUGIN_CALL: self._exec_wasm_call,
+            ActionType.PLUGIN_CALL: self._exec_plugin_call,
             ActionType.LOG_ANALYZE: self._exec_log_analyze,
         }
 
@@ -1308,6 +1320,26 @@ class Executor:
             ignore_dirs=params.ignore_dirs,
         )
 
+    async def _exec_directory_size(self, action: Action) -> str:
+        from pilot.system.filesystem import directory_size
+
+        params: FileParams = action.parameters  # type: ignore[assignment]
+        return await directory_size(params.path, max_entries=params.max_entries)
+
+    async def _exec_file_hash(self, action: Action) -> str:
+        from pilot.system.filesystem import file_hash
+
+        params: FileParams = action.parameters  # type: ignore[assignment]
+        return await file_hash(params.path, params.hash_algorithm)
+
+    async def _exec_file_compare(self, action: Action) -> str:
+        from pilot.system.filesystem import file_compare
+
+        params: FileParams = action.parameters  # type: ignore[assignment]
+        if not params.destination:
+            raise ValueError("file_compare requires a destination")
+        return await file_compare(params.path, params.destination, params.hash_algorithm)
+
     async def _exec_file_permissions(self, action: Action) -> str:
         from pilot.system.filesystem import file_permissions
 
@@ -1327,6 +1359,22 @@ class Executor:
         new_content = content.replace(params.full_block, params.resolved_code)
         await asyncio.to_thread(p.write_text, new_content, "utf-8")
         return f"Successfully resolved git conflict in {params.path}"
+
+    async def _exec_git_action(self, action: Action) -> str:
+        """Run a validated repository operation through the Git tool adapter."""
+        import json
+
+        from pilot.agents.git_agent import GitAgent
+
+        params: GitParams = action.parameters  # type: ignore[assignment]
+        payload = params.model_dump()
+        if action.action_type == ActionType.GIT_COMMIT and not params.message.strip():
+            raise ValueError("git_commit requires an explicit commit message")
+        agent = GitAgent(repo_path=params.repo_path)
+        result = await agent.execute(action.action_type.value, payload)
+        if not result.get("success"):
+            raise RuntimeError(str(result.get("output") or "Git operation failed"))
+        return json.dumps(result, ensure_ascii=False)
 
     # ======================================================================
     # PACKAGE OPERATIONS
@@ -2543,6 +2591,26 @@ class Executor:
         tool_name = params.tool or action.target
         if not tool_name:
             raise ValueError("wasm_call requires a tool name (either in target or parameters)")
+        if self._plugin_registry is None:
+            raise RuntimeError("Plugin registry not initialized in Executor")
+        result = await asyncio.to_thread(
+            self._plugin_registry.call_wasm_tool,
+            tool_name,
+            params.args,
+        )
+        if "error" in result:
+            raise RuntimeError(f"WASM tool execution failed: {result['error']}")
+        return json.dumps(result)
+
+    async def _exec_plugin_call(self, action: Action) -> str:
+        """Run an approved Python or WASM marketplace tool through its broker."""
+        import asyncio
+        import json
+
+        params: WasmCallParams = action.parameters  # type: ignore[assignment]
+        tool_name = params.tool or action.target
+        if not tool_name:
+            raise ValueError("plugin_call requires a tool name (either in target or parameters)")
         if self._plugin_registry is None:
             raise RuntimeError("Plugin registry not initialized in Executor")
         result = await asyncio.to_thread(

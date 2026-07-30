@@ -416,7 +416,7 @@ async def test_wasm_executor_integration(default_config, tmp_path: Path):
 
     # Mock plugin registry
     mock_registry = MagicMock()
-    mock_registry.call_tool.return_value = {"status": "success", "result": 123}
+    mock_registry.call_wasm_tool.return_value = {"status": "success", "result": 123}
     executor.set_plugin_registry(mock_registry)
 
     # 1. Success case
@@ -434,24 +434,22 @@ async def test_wasm_executor_integration(default_config, tmp_path: Path):
     assert len(results) == 1
     assert results[0].success is True
     assert json.loads(results[0].output) == {"status": "success", "result": 123}
-    mock_registry.call_tool.assert_called_once_with(
+    mock_registry.call_wasm_tool.assert_called_once_with(
         "my_wasm_tool",
         {"x": 42},
-        approved=True,
     )
 
     # 2. Failure case (registry returns error)
     mock_registry.reset_mock()
-    mock_registry.call_tool.return_value = {"error": "Some WASM trap/panic"}
+    mock_registry.call_wasm_tool.return_value = {"error": "Some WASM trap/panic"}
 
     results = await executor.execute(plan)
     assert len(results) == 1
     assert results[0].success is False
-    assert "Plugin tool execution failed: Some WASM trap/panic" in results[0].error
-    mock_registry.call_tool.assert_called_once_with(
+    assert "WASM tool execution failed: Some WASM trap/panic" in results[0].error
+    mock_registry.call_wasm_tool.assert_called_once_with(
         "my_wasm_tool",
         {"x": 42},
-        approved=True,
     )
 
 
