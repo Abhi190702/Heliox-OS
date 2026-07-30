@@ -428,6 +428,7 @@ class PilotServer:
         self._memory: Any = None
         self._experience_ledger: ExperienceLedger | None = None
         self._online_learning: Any = None
+        self._strategy_evolution: Any = None
         self._active_experience_context = ExperienceContext()
         self._vault: Any = None
         self._permission_audit: Any = None
@@ -735,6 +736,14 @@ class PilotServer:
 
         self._prompt_improver = PromptImprover()
         await self._prompt_improver.initialize(str(DB_FILE))
+        from pilot.intelligence.strategy_evolution import StrategyEvolutionLab
+
+        self._strategy_evolution = StrategyEvolutionLab(
+            DATA_DIR / "strategy_evolution.db",
+            model_router=model_router,
+        )
+        await self._strategy_evolution.initialize()
+        self._strategy_evolution.set_experience_ledger(self._experience_ledger)
 
         # Plugin Ecosystem
         from pilot.plugins import PluginRegistry
@@ -1023,6 +1032,17 @@ class PilotServer:
             "simulate_plan": self._handle_simulate_plan,
             "prompt_strategies": self._handle_prompt_strategies,
             "prompt_stats": self._handle_prompt_stats,
+            "strategy_evolution_status": self._handle_strategy_evolution_status,
+            "strategy_candidates": self._handle_strategy_candidates,
+            "strategy_propose": self._handle_strategy_propose,
+            "strategy_reflect": self._handle_strategy_reflect,
+            "strategy_record_isolated": self._handle_strategy_record_isolated,
+            "strategy_start_shadow": self._handle_strategy_start_shadow,
+            "strategy_record_shadow": self._handle_strategy_record_shadow,
+            "strategy_start_canary": self._handle_strategy_start_canary,
+            "strategy_record_canary": self._handle_strategy_record_canary,
+            "strategy_promote": self._handle_strategy_promote,
+            "strategy_rollback": self._handle_strategy_rollback,
             "plugin_list": self._handle_plugin_list,
             "plugin_tools": self._handle_plugin_tools,
             "plugin_toggle": self._handle_plugin_toggle,
@@ -1928,6 +1948,12 @@ class PilotServer:
             mem_phase = await emit.phase_start("memory_recall", MEMORY_SEARCH_STARTED)
 
         improvement_ctx = await self._reflector.get_improvement_context(user_input)
+        if self._strategy_evolution is not None:
+            promoted_strategy = await self._strategy_evolution.get_active_text("planner.primary")
+            if promoted_strategy:
+                improvement_ctx = (
+                    f"{improvement_ctx}\n\nAdmin-promoted planner strategy:\n{promoted_strategy}"
+                ).strip()
 
         if emit:
             await emit.thought(
@@ -5177,6 +5203,175 @@ class PilotServer:
             return await self._prompt_improver.get_stats()
         return {"error": "Prompt improver not initialized"}
 
+    async def _handle_strategy_evolution_status(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"enabled": False, "message": "Strategy evolution is not initialized"}
+        return await self._strategy_evolution.status()
+
+    async def _handle_strategy_candidates(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"candidates": [], "message": "Strategy evolution is not initialized"}
+        stage = params.get("stage")
+        candidates = await self._strategy_evolution.list_candidates(
+            stage=str(stage) if stage else None,
+            limit=int(params.get("limit", 100)),
+        )
+        return {
+            "candidates": [
+                candidate.to_dict(include_content=bool(params.get("include_content", False)))
+                for candidate in candidates
+            ]
+        }
+
+    async def _handle_strategy_propose(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"status": "error", "message": "Strategy evolution is not initialized"}
+        candidate = await self._strategy_evolution.propose(
+            artifact_type=str(params.get("artifact_type", "")),
+            component=str(params.get("component", "")),
+            content=str(params.get("content", "")),
+            rationale=str(params.get("rationale", "")),
+            parent_candidate_id=str(params.get("parent_candidate_id", "")),
+            source_trace_ids=tuple(params.get("source_trace_ids", ())),
+            source="admin",
+        )
+        return {"status": "candidate", "candidate": candidate.to_dict(include_content=True)}
+
+    async def _handle_strategy_reflect(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"status": "error", "message": "Strategy evolution is not initialized"}
+        candidate = await self._strategy_evolution.reflect_candidate(
+            artifact_type=str(params.get("artifact_type", "")),
+            component=str(params.get("component", "")),
+            base_content=str(params.get("base_content", "")),
+            diagnostics=tuple(params.get("diagnostics", ())),
+            source_trace_ids=tuple(params.get("source_trace_ids", ())),
+            parent_candidate_id=str(params.get("parent_candidate_id", "")),
+        )
+        return {"status": "candidate", "candidate": candidate.to_dict(include_content=True)}
+
+    async def _handle_strategy_start_shadow(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"status": "error", "message": "Strategy evolution is not initialized"}
+        candidate = await self._strategy_evolution.start_shadow(str(params.get("candidate_id", "")))
+        return {"status": candidate.stage.value, "candidate": candidate.to_dict()}
+
+    async def _handle_strategy_record_isolated(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"status": "error", "message": "Strategy evolution is not initialized"}
+        baseline_results = params.get("baseline_results", ())
+        candidate_results = params.get("candidate_results", ())
+        if not isinstance(baseline_results, list) or not isinstance(candidate_results, list):
+            raise ValueError("baseline_results and candidate_results must be arrays")
+        candidate = await self._strategy_evolution.record_isolated_attestation(
+            str(params.get("candidate_id", "")),
+            harness_run_id=str(params.get("harness_run_id", "")),
+            baseline_results=baseline_results,
+            candidate_results=candidate_results,
+        )
+        return {"status": candidate.stage.value, "candidate": candidate.to_dict()}
+
+    async def _handle_strategy_record_shadow(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"status": "error", "message": "Strategy evolution is not initialized"}
+        candidate = await self._strategy_evolution.record_shadow_evaluation(
+            str(params.get("candidate_id", "")),
+            sample_count=int(params.get("sample_count", 0)),
+            baseline_score=float(params.get("baseline_score", 0.0)),
+            candidate_score=float(params.get("candidate_score", 0.0)),
+            safety_incidents=int(params.get("safety_incidents", 0)),
+        )
+        return {"status": candidate.stage.value, "candidate": candidate.to_dict()}
+
+    async def _handle_strategy_start_canary(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"status": "error", "message": "Strategy evolution is not initialized"}
+        candidate = await self._strategy_evolution.start_canary(
+            str(params.get("candidate_id", "")),
+            actor=str(params.get("actor", "")),
+            consent_confirmed=bool(params.get("consent_confirmed", False)),
+        )
+        return {"status": candidate.stage.value, "candidate": candidate.to_dict()}
+
+    async def _handle_strategy_record_canary(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"status": "error", "message": "Strategy evolution is not initialized"}
+        candidate = await self._strategy_evolution.record_canary_evaluation(
+            str(params.get("candidate_id", "")),
+            sample_count=int(params.get("sample_count", 0)),
+            baseline_score=float(params.get("baseline_score", 0.0)),
+            candidate_score=float(params.get("candidate_score", 0.0)),
+            safety_incidents=int(params.get("safety_incidents", 0)),
+        )
+        return {"status": candidate.stage.value, "candidate": candidate.to_dict()}
+
+    async def _handle_strategy_promote(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"status": "error", "message": "Strategy evolution is not initialized"}
+        assignment = await self._strategy_evolution.promote(
+            str(params.get("candidate_id", "")),
+            actor=str(params.get("actor", "")),
+            confirmation=str(params.get("confirmation", "")),
+        )
+        return {"status": "promoted", "assignment": assignment.to_dict()}
+
+    async def _handle_strategy_rollback(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._strategy_evolution is None:
+            return {"status": "error", "message": "Strategy evolution is not initialized"}
+        assignment = await self._strategy_evolution.rollback(
+            str(params.get("component", "")),
+            actor=str(params.get("actor", "")),
+            confirmation=str(params.get("confirmation", "")),
+        )
+        return {
+            "status": "rolled_back",
+            "assignment": assignment.to_dict() if assignment is not None else None,
+        }
+
     # -- Plugin Ecosystem --
 
     async def _handle_plugin_list(self, params: dict, ws: ServerConnection) -> dict:
@@ -5956,6 +6151,9 @@ def handle_tool(tool_name, params):
         if hasattr(self, "_prompt_improver") and self._prompt_improver:
             if hasattr(self._prompt_improver, "close"):
                 await self._prompt_improver.close()
+        if self._strategy_evolution is not None:
+            await self._strategy_evolution.close()
+            self._strategy_evolution = None
         if hasattr(self, "_reflector") and self._reflector:
             if hasattr(self._reflector, "close"):
                 await self._reflector.close()
