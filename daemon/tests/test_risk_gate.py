@@ -108,6 +108,8 @@ def test_status_reports_model_metadata_and_sanitized_last_evaluation():
     assert status["validation_mae"]
     assert status["embedding_size"] == EMBEDDING_SIZE
     assert status["learnable_action_types"]
+    assert status["prediction_contract"]["contract_version"] == "world-prediction-v1"
+    assert status["prediction_contract"]["ui_jepa"]["mode"] == "shadow"
     assert set(status["last_evaluation"]) == {
         "evaluated_at",
         "action_count",
@@ -116,4 +118,53 @@ def test_status_reports_model_metadata_and_sanitized_last_evaluation():
         "worst_action_type",
         "prediction_sources",
         "prediction_confidence",
+        "predictions",
     }
+    prediction = status["last_evaluation"]["predictions"][0]
+    assert prediction["action_type"] == "file_read"
+    assert prediction["sources"] == ["structured_rules", "rule"]
+
+
+def test_prediction_contract_covers_browser_transition(monkeypatch):
+    monkeypatch.setattr(
+        "pilot.security.risk_gate.capture_os_snapshot",
+        lambda: OsSnapshot(
+            proc_count=100,
+            disk_usage_fraction=0.5,
+            memory_usage_fraction=0.5,
+            disk_path="/",
+        ),
+    )
+    gate = RiskGate(weights_path="/nonexistent.npz")
+
+    gate.evaluate_plan(_plan(ActionType.BROWSER_NAVIGATE), PilotConfig())
+
+    prediction = gate.last_evaluation["predictions"][0]
+    assert prediction["action_type"] == "browser_navigate"
+    assert prediction["expected_effects"][0]["domain"] == "browser"
+    assert prediction["predicted_state"]["browser"]["dom_state"] == "requires_observation"
+
+
+def test_repeated_verified_failures_add_historical_caution(monkeypatch):
+    monkeypatch.setattr(
+        "pilot.security.risk_gate.capture_os_snapshot",
+        lambda: OsSnapshot(
+            proc_count=100,
+            disk_usage_fraction=0.5,
+            memory_usage_fraction=0.5,
+            disk_path="/",
+        ),
+    )
+    gate = RiskGate(weights_path="/nonexistent.npz")
+    for _ in range(3):
+        gate.record_outcome(ActionType.BROWSER_CLICK_TEXT, False)
+
+    risk, reasons = gate.evaluate_plan(
+        _plan(ActionType.BROWSER_CLICK_TEXT),
+        PilotConfig(),
+    )
+
+    assert risk >= 0.3
+    assert "verified browser_click_text executions failed" in reasons[0]
+    prediction = gate.last_evaluation["predictions"][0]
+    assert "verified_history" in prediction["sources"]

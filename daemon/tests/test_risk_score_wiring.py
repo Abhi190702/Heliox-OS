@@ -60,6 +60,8 @@ def test_gate_enabled_catches_protected_path_heuristic_alone_would_miss():
     assert assessment.requires_confirmation is True
     assert "touches a protected path/package: /etc" in assessment.reasons
     assert assessment.prediction_sources
+    assert assessment.predictions[0]["action_type"] == "file_delete"
+    assert assessment.prediction_contract["contract_version"] == "world-prediction-v1"
     assert assessment.to_dict()["requires_confirmation"] is True
 
 

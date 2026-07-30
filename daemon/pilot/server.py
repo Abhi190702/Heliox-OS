@@ -614,6 +614,9 @@ class PilotServer:
             skill_registry=self._skill_registry,
         )
         self._executor.set_experience_ledger(self._experience_ledger)
+        from pilot.security.risk_gate import get_risk_gate
+
+        self._executor.set_world_model_outcome_recorder(get_risk_gate().record_outcome)
         self._executor.set_durable_task_store(self._durable_tasks)
         self._verifier = Verifier(model_router)
 

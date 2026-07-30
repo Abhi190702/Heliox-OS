@@ -19,6 +19,11 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from pilot.intelligence.world_model import (
+    HistoricalFailureRisk,
+    HybridWorldModel,
+    WorldState,
+)
 from pilot.security.risk_model import EMBEDDING_SIZE, LEARNABLE_ACTION_TYPES, RiskTransitionModel
 from pilot.security.risk_observation import NOMINAL_PROC_CAPACITY, capture_os_snapshot
 from pilot.security.risk_safety import score_outcome
@@ -35,7 +40,13 @@ class RiskGate:
 
     def __init__(self, weights_path: str | None = None) -> None:
         self._transition = RiskTransitionModel(weights_path)
+        self._world_model = HybridWorldModel()
+        self._history = HistoricalFailureRisk()
         self._last_evaluation: dict[str, object] | None = None
+
+    def record_outcome(self, action_type: object, success: bool) -> None:
+        """Feed only observed execution outcomes into historical caution."""
+        self._history.record(action_type, success)
 
     @property
     def available(self) -> bool:
@@ -69,6 +80,8 @@ class RiskGate:
             ),
             "embedding_size": EMBEDDING_SIZE,
             "learnable_action_types": sorted(action_type.value for action_type in LEARNABLE_ACTION_TYPES),
+            "prediction_contract": self._world_model.status(),
+            "historical_risk": self._history.status(),
             "last_evaluation": self._last_evaluation,
         }
 
@@ -84,6 +97,7 @@ class RiskGate:
                 "worst_action_type": None,
                 "prediction_sources": [],
                 "prediction_confidence": None,
+                "predictions": [],
             }
             return 0.0, []
 
@@ -100,7 +114,12 @@ class RiskGate:
         worst_action_type: str | None = None
         worst_sources: list[str] = []
         worst_prediction_confidence: float | None = None
+        world_predictions: list[dict[str, object]] = []
         for action in plan.actions:
+            contract_prediction = self._world_model.predict(
+                WorldState.from_os_snapshot(simulated),
+                action,
+            )
             learned_or_rule = self._transition.predict(simulated, action)
             deterministic = self._transition.predict_rule(simulated, action)
             candidates = [learned_or_rule]
@@ -113,9 +132,14 @@ class RiskGate:
             )
             cumulative_proc_delta += step_proc_delta
 
+            action_risk = 0.0
+            action_reasons: list[str] = []
             for outcome in candidates:
                 cumulative_outcome = replace(outcome, proc_count_delta_normalized=cumulative_proc_delta)
                 risk, reasons = score_outcome(action, cumulative_outcome, config)
+                if risk > action_risk or not action_reasons:
+                    action_risk = risk
+                    action_reasons = reasons
                 if risk > worst_risk or worst_action_type is None:
                     worst_risk = risk
                     worst_reasons = reasons
@@ -124,6 +148,51 @@ class RiskGate:
                     worst_prediction_confidence = (
                         learned_or_rule.confidence if learned_or_rule.source != "rule" else None
                     )
+
+            historical_risk, historical_reason = self._history.score(action.action_type)
+            if historical_risk > action_risk:
+                action_risk = historical_risk
+                action_reasons = [historical_reason]
+            if historical_risk > worst_risk:
+                worst_risk = historical_risk
+                worst_reasons = [historical_reason]
+                worst_action_type = action.action_type.value
+                worst_sources = ["verified_history"]
+                worst_prediction_confidence = min(
+                    1.0,
+                    self._history.status()["samples"] / 10.0,
+                )
+
+            contract_payload = contract_prediction.to_dict()
+            contract_payload["sources"] = list(
+                dict.fromkeys(
+                    [
+                        *contract_payload["sources"],
+                        *(candidate.source for candidate in candidates),
+                    ]
+                )
+            )
+            contract_payload["risk_score"] = action_risk
+            if historical_risk > 0:
+                contract_payload["sources"] = list(dict.fromkeys([*contract_payload["sources"], "verified_history"]))
+                contract_payload["risk_evidence"].append(
+                    {
+                        "source": "verified_history",
+                        "score": historical_risk,
+                        "reason": historical_reason,
+                        "deterministic": False,
+                    }
+                )
+            contract_payload["risk_evidence"].extend(
+                {
+                    "source": "risk_transition",
+                    "score": action_risk,
+                    "reason": reason,
+                    "deterministic": "rule" in contract_payload["sources"],
+                }
+                for reason in action_reasons
+            )
+            world_predictions.append(contract_payload)
 
             simulated = replace(
                 simulated,
@@ -142,6 +211,7 @@ class RiskGate:
             "worst_action_type": worst_action_type,
             "prediction_sources": worst_sources,
             "prediction_confidence": worst_prediction_confidence,
+            "predictions": world_predictions,
         }
         return worst_risk, worst_reasons
 

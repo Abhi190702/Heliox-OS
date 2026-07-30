@@ -127,6 +127,7 @@ class Executor:
         self._broadcast: Any = None
         self._speech: Any = None
         self._experience_ledger: ExperienceLedger | None = None
+        self._world_model_outcome_recorder: Any = None
         self._durable_task_store: DurableTaskStore | None = None
         self._last_output = ""  # For output chaining between steps
         self._largest_output = ""  # Largest output from any step in the pipeline
@@ -365,6 +366,10 @@ class Executor:
         """Wire the canonical action ledger into every executor ingress."""
 
         self._experience_ledger = ledger
+
+    def set_world_model_outcome_recorder(self, recorder: Any) -> None:
+        """Wire verified execution outcomes into historical world-model risk."""
+        self._world_model_outcome_recorder = recorder
 
     def set_durable_task_store(self, store: DurableTaskStore) -> None:
         """Wire exactly-once execution claims for durable interactive tasks."""
@@ -636,6 +641,15 @@ class Executor:
                 provenance={"component": "Executor.execute", "attempt_id": attempt_id},
                 privacy_class=PrivacyClass.SENSITIVE,
             )
+            if (
+                callback_observed
+                and self._world_model_outcome_recorder is not None
+                and not (result.output or "").startswith("(dry run)")
+            ):
+                self._world_model_outcome_recorder(
+                    result.action.action_type,
+                    result.success,
+                )
 
         async def _on_recorded_action_complete(result: ActionResult) -> None:
             completed_result_ids.add(id(result))

@@ -45,6 +45,8 @@ class PlanRiskAssessment:
     prediction_sources: list[str] = field(default_factory=list)
     weights_loaded: bool = False
     model_version: str = "disabled"
+    predictions: list[dict[str, Any]] = field(default_factory=list)
+    prediction_contract: dict[str, Any] = field(default_factory=dict)
 
     @property
     def requires_confirmation(self) -> bool:
@@ -113,6 +115,10 @@ def assess_plan_risk(plan: ActionPlan, config: PilotConfig | None = None) -> Pla
             prediction_sources=[str(source) for source in latest.get("prediction_sources", [])],
             weights_loaded=gate.available,
             model_version=str(gate.status(enabled=True)["model_version"]),
+            predictions=[
+                dict(prediction) for prediction in latest.get("predictions", []) if isinstance(prediction, dict)
+            ],
+            prediction_contract=dict(gate.status(enabled=True).get("prediction_contract", {})),
         )
     except Exception:
         logger.warning("Learned Risk Gate evaluation failed (non-fatal), using heuristic_risk() alone", exc_info=True)

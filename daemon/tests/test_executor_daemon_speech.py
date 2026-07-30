@@ -11,11 +11,11 @@ notification, or the phrase would be spoken twice).
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pilot.actions import Action, ActionType, EmptyParams
+from pilot.actions import Action, ActionPlan, ActionType, EmptyParams
 from pilot.agents.executor import Executor
 from pilot.config import PilotConfig
 from pilot.security.audit import AuditLogger
@@ -166,3 +166,28 @@ async def test_stress_gate_uses_shared_priority_speech_when_wired(tmp_path):
         "approval_risk",
         "stress-gate:cpu_usage",
     )
+
+
+@pytest.mark.asyncio
+async def test_real_action_outcome_feeds_historical_world_model(tmp_path):
+    ex = _executor(tmp_path)
+    recorder = MagicMock()
+    ex.set_world_model_outcome_recorder(recorder)
+
+    results = await ex.execute(ActionPlan(actions=[_action()], raw_input="cpu"))
+
+    assert results[0].success is True
+    recorder.assert_called_once_with(ActionType.CPU_USAGE, True)
+
+
+@pytest.mark.asyncio
+async def test_dry_run_does_not_train_historical_world_model(tmp_path):
+    ex = _executor(tmp_path)
+    ex._config.security.dry_run = True
+    recorder = MagicMock()
+    ex.set_world_model_outcome_recorder(recorder)
+
+    results = await ex.execute(ActionPlan(actions=[_action()], raw_input="cpu"))
+
+    assert results[0].output.startswith("(dry run)")
+    recorder.assert_not_called()

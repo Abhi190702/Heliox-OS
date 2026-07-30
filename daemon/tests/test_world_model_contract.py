@@ -12,6 +12,7 @@ from pilot.actions import (
 )
 from pilot.intelligence.world_model import (
     EffectDomain,
+    HistoricalFailureRisk,
     HybridWorldModel,
     StructuredTransitionPredictor,
     UiJepaPredictor,
@@ -223,3 +224,16 @@ def test_hybrid_model_fuses_visual_and_structured_predictions(tmp_path) -> None:
         "predict_latent_transition",
     }
     assert "latent_transition" in prediction.predicted_state.ui
+
+
+def test_historical_failure_risk_waits_for_repeated_real_outcomes() -> None:
+    history = HistoricalFailureRisk()
+
+    history.record(ActionType.BROWSER_CLICK_TEXT, False)
+    history.record(ActionType.BROWSER_CLICK_TEXT, False)
+    assert history.score(ActionType.BROWSER_CLICK_TEXT) == (0.0, "")
+
+    history.record(ActionType.BROWSER_CLICK_TEXT, False)
+    score, reason = history.score(ActionType.BROWSER_CLICK_TEXT)
+    assert score >= 0.3
+    assert "3 of 3 verified" in reason

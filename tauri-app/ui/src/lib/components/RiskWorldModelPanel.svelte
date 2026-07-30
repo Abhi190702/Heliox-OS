@@ -10,6 +10,41 @@
     worst_action_type: string | null;
     prediction_sources: string[];
     prediction_confidence: number | null;
+    predictions: Array<{
+      action_type: string;
+      uncertainty: number;
+      sources: string[];
+      expected_effects: Array<{ domain: string; operation: string; target: string }>;
+    }>;
+  }
+
+  interface PredictionContract {
+    contract_version: string;
+    structured_model_version: string;
+    ui_jepa: {
+      weights_loaded: boolean;
+      model_version: string;
+      training_samples: number;
+      validation_error: number | null;
+      validated_for_gating: boolean;
+      latent_dimension: number;
+      mode: "shadow" | "gating";
+    };
+  }
+
+  interface RiskStatus {
+    status?: string;
+    enabled: boolean;
+    weights_loaded: boolean;
+    model_version: string;
+    training_samples: number;
+    validation_samples: number;
+    calibrated: boolean;
+    validation_mae: { disk_delta: number; process_delta: number } | null;
+    embedding_size: number;
+    learnable_action_types: string[];
+    prediction_contract: PredictionContract;
+    last_evaluation: LastEvaluation | null;
   }
 
   let enabled = $state(false);
@@ -23,6 +58,7 @@
   let embeddingSize = $state(0);
   let actionTypes = $state<string[]>([]);
   let lastEvaluation = $state<LastEvaluation | null>(null);
+  let predictionContract = $state<PredictionContract | null>(null);
   let loading = $state(true);
   let statusAvailable = $state(false);
   let saving = $state(false);
@@ -31,18 +67,7 @@
 
   onMount(loadStatus);
 
-  function applyStatus(result: {
-    enabled: boolean;
-    weights_loaded: boolean;
-    model_version: string;
-    training_samples: number;
-    validation_samples: number;
-    calibrated: boolean;
-    validation_mae: { disk_delta: number; process_delta: number } | null;
-    embedding_size: number;
-    learnable_action_types: string[];
-    last_evaluation: LastEvaluation | null;
-  }) {
+  function applyStatus(result: RiskStatus) {
     enabled = result.enabled ?? false;
     runtimeEnabled = result.enabled ?? false;
     weightsLoaded = result.weights_loaded ?? false;
@@ -53,6 +78,7 @@
     validationMae = result.validation_mae ?? null;
     embeddingSize = result.embedding_size ?? 0;
     actionTypes = result.learnable_action_types ?? [];
+    predictionContract = result.prediction_contract ?? null;
     lastEvaluation = result.last_evaluation ?? null;
     statusAvailable = true;
   }
@@ -69,19 +95,7 @@
     loading = true;
     error = "";
     try {
-      const result = (await call("risk_gate_status")) as {
-        status?: string;
-        enabled: boolean;
-        weights_loaded: boolean;
-        model_version: string;
-        training_samples: number;
-        validation_samples: number;
-        calibrated: boolean;
-        validation_mae: { disk_delta: number; process_delta: number } | null;
-        embedding_size: number;
-        learnable_action_types: string[];
-        last_evaluation: LastEvaluation | null;
-      };
+      const result = (await call("risk_gate_status")) as RiskStatus;
       if (result.status && result.status !== "ok") {
         throw new Error("The daemon rejected the world-model status request.");
       }
@@ -99,19 +113,7 @@
     saved = false;
     error = "";
     try {
-      const result = (await call("risk_gate_config_update", { enabled })) as {
-        status?: string;
-        enabled: boolean;
-        weights_loaded: boolean;
-        model_version: string;
-        training_samples: number;
-        validation_samples: number;
-        calibrated: boolean;
-        validation_mae: { disk_delta: number; process_delta: number } | null;
-        embedding_size: number;
-        learnable_action_types: string[];
-        last_evaluation: LastEvaluation | null;
-      };
+      const result = (await call("risk_gate_config_update", { enabled })) as RiskStatus;
       if (result.status && result.status !== "ok") {
         throw new Error("The daemon rejected the world-model setting.");
       }
@@ -137,8 +139,8 @@
 <div class="world-model-panel">
   <div class="panel-header">
     <div>
-      <h3>Learned Risk World Model</h3>
-      <span class="subtitle">Pre-execution disk and process-impact prediction</span>
+      <h3>Hybrid World Model</h3>
+      <span class="subtitle">Structured OS/UI transitions, learned risk, and optional UI-JEPA</span>
     </div>
     <button
       class="toggle"
@@ -193,6 +195,20 @@
         <span class="status-label">Calibration</span>
         <strong class:ready={calibrated}>{calibrated ? "Active" : "Unavailable"}</strong>
       </div>
+      <div class="status-card">
+        <span class="status-label">Prediction contract</span>
+        <strong class:ready={Boolean(predictionContract)}>
+          {predictionContract?.contract_version ?? "Unavailable"}
+        </strong>
+      </div>
+      <div class="status-card">
+        <span class="status-label">UI-JEPA</span>
+        <strong class:ready={predictionContract?.ui_jepa.weights_loaded ?? false}>
+          {predictionContract?.ui_jepa.weights_loaded
+            ? `${predictionContract.ui_jepa.mode} · ${predictionContract.ui_jepa.training_samples.toLocaleString()} samples`
+            : "Optional · no weights staged"}
+        </strong>
+      </div>
     </div>
 
     <div class="model-meta">
@@ -216,6 +232,7 @@
           <span>{lastEvaluation.action_count} actions</span>
           <span>{lastEvaluation.worst_action_type ?? "no action"}</span>
           <span>{lastEvaluation.prediction_sources.join(" + ") || "rule"}</span>
+          <span>{lastEvaluation.predictions?.length ?? 0} structured predictions</span>
           {#if lastEvaluation.prediction_confidence != null}
             <span>{formatScore(lastEvaluation.prediction_confidence)} model confidence</span>
           {/if}
