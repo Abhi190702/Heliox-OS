@@ -232,6 +232,27 @@ async def test_evaluator_penalizes_duplicate_action_attempts(ledger):
 
 
 @pytest.mark.asyncio
+async def test_missing_required_event_is_a_hard_failure(ledger):
+    trace = await _valid_success_trace(ledger)
+    scenario = EvaluationScenario(
+        "approval-required",
+        "Approval evidence is mandatory.",
+        ("success",),
+        required_event_types=(ExperienceEventType.APPROVAL_RESOLVED,),
+    )
+
+    report = TraceEvaluator().evaluate(
+        scenario,
+        trace,
+        EnvironmentSnapshot({}),
+        EnvironmentSnapshot({}),
+    )
+
+    assert report.passed is False
+    assert "required event approval_resolved is missing" in report.violations
+
+
+@pytest.mark.asyncio
 async def test_harness_captures_before_and_after_real_state(ledger):
     state = {"files": {"report.txt": {"exists": False}}}
     probe = MappingEnvironmentProbe(lambda: state)
@@ -298,9 +319,12 @@ def test_default_release_suite_covers_every_required_scenario():
     assert set(scenarios) == {
         "delayed_approval",
         "denied_approval",
-        "expired_or_disconnected_approval",
+        "expired_approval",
+        "disconnected_approval",
         "daemon_restart_during_task",
-        "cancellation_during_phases",
+        "cancellation_during_planning",
+        "cancellation_during_execution",
+        "cancellation_during_verification",
         "simple_browser_navigation",
         "ambiguous_ui_target",
         "long_multi_application_task",
@@ -312,6 +336,103 @@ def test_default_release_suite_covers_every_required_scenario():
         "malicious_plugin_or_prompt_injection",
     }
     assert all(scenario.description for scenario in scenarios.values())
+    assert all(scenario.state_assertions for scenario in scenarios.values())
+
+
+def _state_satisfying(scenario: EvaluationScenario) -> EnvironmentSnapshot:
+    values: dict = {}
+    for assertion in scenario.state_assertions:
+        current = values
+        for segment in assertion.path[:-1]:
+            current = current.setdefault(segment, {})
+        if assertion.operator == StateOperator.NOT_EXISTS:
+            continue
+        current[assertion.path[-1]] = assertion.expected
+    return EnvironmentSnapshot(values)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario_id", sorted(default_release_scenarios()))
+async def test_every_release_scenario_accepts_its_valid_causal_fixture(ledger, scenario_id):
+    scenario = default_release_scenarios()[scenario_id]
+    task_id = f"scenario:{scenario_id}"
+    with experience_scope(task_id=task_id):
+        await ledger.append(
+            ExperienceEventType.INTENT,
+            idempotency_key=f"{task_id}:intent",
+        )
+        for source in scenario.required_observation_sources:
+            await ledger.append(
+                ExperienceEventType.OBSERVATION,
+                idempotency_key=f"{task_id}:observation:{source}",
+                source=source,
+            )
+
+        required = set(scenario.required_event_types)
+        if ExperienceEventType.APPROVAL_REQUESTED in required:
+            await ledger.append(
+                ExperienceEventType.APPROVAL_REQUESTED,
+                idempotency_key=f"{task_id}:approval_requested",
+            )
+        for decision in scenario.required_approval_decisions:
+            await ledger.append(
+                ExperienceEventType.APPROVAL_RESOLVED,
+                idempotency_key=f"{task_id}:approval:{decision}",
+                payload={"decision": decision},
+            )
+        if ExperienceEventType.WORLD_PREDICTION in required:
+            await ledger.append(
+                ExperienceEventType.WORLD_PREDICTION,
+                idempotency_key=f"{task_id}:prediction",
+            )
+        if ExperienceEventType.USER_CORRECTION in required:
+            await ledger.append(
+                ExperienceEventType.USER_CORRECTION,
+                idempotency_key=f"{task_id}:correction",
+            )
+            await ledger.append(
+                ExperienceEventType.PLAN_CREATED,
+                idempotency_key=f"{task_id}:revised_plan",
+            )
+        elif ExperienceEventType.PLAN_CREATED in required:
+            await ledger.append(
+                ExperienceEventType.PLAN_CREATED,
+                idempotency_key=f"{task_id}:plan",
+            )
+
+        needs_action = ExperienceEventType.ACTION_COMPLETED in required and scenario.max_started_actions != 0
+        if needs_action:
+            await ledger.append(
+                ExperienceEventType.CANDIDATE_ACTION,
+                idempotency_key=f"{task_id}:candidate",
+                action_id=f"{task_id}:action",
+            )
+            await ledger.append(
+                ExperienceEventType.ACTION_STARTED,
+                idempotency_key=f"{task_id}:started",
+                action_id=f"{task_id}:action",
+            )
+            await ledger.append(
+                ExperienceEventType.ACTION_COMPLETED,
+                idempotency_key=f"{task_id}:completed",
+                action_id=f"{task_id}:action",
+                payload={"success": True, "callback_observed": True},
+            )
+
+        await ledger.append(
+            ExperienceEventType.OUTCOME_VERIFIED,
+            idempotency_key=f"{task_id}:terminal",
+            payload={
+                "status": scenario.expected_terminal_statuses[0],
+                "duration_ms": 10,
+            },
+        )
+
+    trace = await ExperienceTrace.from_ledger(ledger, task_id)
+    snapshot = _state_satisfying(scenario)
+    report = TraceEvaluator().evaluate(scenario, trace, snapshot, snapshot)
+
+    assert report.passed is True, report.violations
 
 
 @pytest.mark.asyncio
