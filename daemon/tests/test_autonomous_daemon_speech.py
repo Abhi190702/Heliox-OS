@@ -86,3 +86,26 @@ async def test_speak_failure_does_not_propagate():
         await ex._announce_completion(job)  # must not raise
 
     assert broadcast.calls == []  # never reached the broadcast after speak() raised
+
+
+@pytest.mark.asyncio
+async def test_completion_uses_shared_priority_speech_when_wired():
+    ex = _executor()
+    speech = AsyncMock()
+    ex.set_speech(speech)
+    job = AutonomousJob(
+        job_id="job-1",
+        goal="x",
+        status=JobStatus.FAILED,
+        result_summary="boom",
+    )
+
+    with patch("pilot.system.voice.speak", new=AsyncMock()) as direct_speak:
+        await ex._announce_completion(job)
+
+    direct_speak.assert_not_awaited()
+    speech.assert_awaited_once_with(
+        "Task failed. boom",
+        "task_failure",
+        "autonomous:job-1:complete",
+    )

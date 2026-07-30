@@ -118,6 +118,8 @@ export function createCompanionCoordinator(
     active = utterance;
     publish();
     adapter.speak(utterance.text, {
+      channel: utterance.channel,
+      dedupeKey: utterance.key,
       onStart: utterance.onStart,
       onEnd: () => finish(utterance.id),
       onError: () => finish(utterance.id, true),

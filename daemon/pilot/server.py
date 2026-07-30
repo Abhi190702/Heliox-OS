@@ -46,6 +46,11 @@ from pilot.intelligence.experience import (
     stable_action_idempotency_key,
 )
 from pilot.logger import ColorFormatter
+from pilot.system.companion_speech import (
+    CompanionSpeechCoordinator,
+    SpeechChannel,
+    SpeechOutcome,
+)
 from pilot.workflows.durable_tasks import (
     ApprovalConflict,
     ApprovalStatus,
@@ -436,6 +441,7 @@ class PilotServer:
         self._stress_gate: Any = None
         self._intent_predictor: Any = None
         self._voice_listener: Any = None
+        self._speech_coordinator = CompanionSpeechCoordinator()
         self._autonomous: Any = None
         self._self_healing: Any = None
         self._self_healing_started_monitors: set[str] = set()
@@ -634,6 +640,7 @@ class PilotServer:
         self._agent_gateway = AgentGateway(self.config, permissions, self._destructive_critic, self._gateway_audit)
         self._executor.set_gateway(self._agent_gateway)
         self._executor.set_broadcast(self._broadcast_notification)
+        self._executor.set_speech(self._speak_companion_text)
 
         # Advanced agent components
         self._reflector = Reflector(model_router)
@@ -822,6 +829,7 @@ class PilotServer:
                 screen_vision=self._screen_vision,
             )
             self._autonomous.set_broadcast(self._broadcast_notification)
+            self._autonomous.set_speech(self._speak_companion_text)
             logger.info("AutonomousExecutor initialized")
         except Exception:
             logger.warning("AutonomousExecutor init failed (non-critical)", exc_info=True)
@@ -1037,6 +1045,7 @@ class PilotServer:
             "list_audio_input_devices": self._handle_list_audio_input_devices,
             "speak_text": self._handle_speak_text,
             "stop_speech": self._handle_stop_speech,
+            "companion_speech_status": self._handle_companion_speech_status,
             "reset_wake_calibration": self._handle_reset_wake_calibration,
             "list_wake_variants": self._handle_list_wake_variants,
             "autonomous_submit": self._handle_autonomous_submit,
@@ -5931,6 +5940,7 @@ def handle_tool(tool_name, params):
         if self._tts_warmup_task and not self._tts_warmup_task.done():
             self._tts_warmup_task.cancel()
             await asyncio.gather(self._tts_warmup_task, return_exceptions=True)
+        await self._speech_coordinator.close()
         if hasattr(self, "_prompt_improver") and self._prompt_improver:
             if hasattr(self._prompt_improver, "close"):
                 await self._prompt_improver.close()
@@ -6218,7 +6228,33 @@ def handle_tool(tool_name, params):
         await self._voice_gesture_workflows.start(goal, InvocationSource.VOICE)
         return True
 
-    async def _speak_voice_response(self, text: str) -> bool:
+    async def _speak_companion_text(
+        self,
+        text: str,
+        channel: SpeechChannel | str = SpeechChannel.FINAL_ANSWER,
+        dedupe_key: str = "",
+    ) -> SpeechOutcome:
+        """Route daemon speech through the single companion audio authority."""
+        recorder = getattr(self._voice_listener, "_recorder", None)
+        if not self.config.voice.barge_in_enabled:
+            recorder = None
+        outcome = await self._speech_coordinator.speak(
+            text,
+            channel=channel,
+            dedupe_key=dedupe_key,
+            recorder=recorder,
+        )
+        if outcome.status == "interrupted":
+            await self._broadcast_notification("voice_status", {"status": "interrupted"})
+        return outcome
+
+    async def _speak_voice_response(
+        self,
+        text: str,
+        *,
+        channel: SpeechChannel | str = SpeechChannel.FINAL_ANSWER,
+        dedupe_key: str = "",
+    ) -> bool:
         """Speaks a voice-pipeline response, interruptible via barge-in
         when the continuous voice listener's VAD recorder is active and
         `config.voice.barge_in_enabled` is on (see speak_interruptible in
@@ -6226,19 +6262,12 @@ def handle_tool(tool_name, params):
         otherwise. Returns True if the user started talking mid-playback
         and cut it off early.
         """
-        from pilot.system.voice import speak, speak_interruptible
-
-        recorder = getattr(self._voice_listener, "_recorder", None)
-        if self.config.voice.barge_in_enabled and recorder is not None:
-            interrupted = await speak_interruptible(text, recorder=recorder)
-        else:
-            await speak(text)
-            interrupted = False
-
-        if interrupted:
-            await self._broadcast_notification("voice_status", {"status": "interrupted"})
-
-        return interrupted
+        outcome = await self._speak_companion_text(
+            text,
+            channel=channel,
+            dedupe_key=dedupe_key,
+        )
+        return outcome.status == "interrupted"
 
     async def _voice_command_dispatch(self, command_text: str) -> None:
         """Called by ContinuousVoiceListener when a voice command is recognized.
@@ -6315,7 +6344,11 @@ def handle_tool(tool_name, params):
                         "language": language,
                     },
                 )
-                await self._speak_voice_response(f"Sorry, I couldn't process that. {plan.error[:100]}")
+                await self._speak_voice_response(
+                    f"Sorry, I couldn't process that. {plan.error[:100]}",
+                    channel=SpeechChannel.TASK_FAILURE,
+                    dedupe_key=f"voice-plan-error:{command_text.casefold()}",
+                )
                 return
 
             await self._broadcast_notification(
@@ -6403,7 +6436,11 @@ def handle_tool(tool_name, params):
             spoken = result_text[:300] if len(result_text) < 300 else result_text[:297] + "..."
             if companion_follow_up:
                 spoken = f"{spoken} {companion_follow_up.spoken_text()}"
-            await self._speak_voice_response(spoken)
+            await self._speak_voice_response(
+                spoken,
+                channel=SpeechChannel.FINAL_ANSWER,
+                dedupe_key=f"voice-result:{command_text.casefold()}",
+            )
 
         except Exception as e:
             logger.error("Voice command execution failed: %s", e)
@@ -6419,7 +6456,11 @@ def handle_tool(tool_name, params):
             )
 
             try:
-                await self._speak_voice_response("Sorry, something went wrong while executing your request.")
+                await self._speak_voice_response(
+                    "Sorry, something went wrong while executing your request.",
+                    channel=SpeechChannel.TASK_FAILURE,
+                    dedupe_key=f"voice-exception:{command_text.casefold()}",
+                )
             except Exception:
                 pass
 
@@ -6536,24 +6577,38 @@ def handle_tool(tool_name, params):
             self.config.voice.tts_engine,
             len(text.strip()),
         )
+        channel = params.get("channel", SpeechChannel.FINAL_ANSWER.value)
         try:
-            interrupted = await self._speak_voice_response(text.strip())
-        except asyncio.CancelledError:
-            # A newer utterance or stop_speech intentionally superseded this
-            # request. Still answer its JSON-RPC caller so no promise lingers.
-            return {"status": "cancelled", "message": "Speech superseded"}
-        if interrupted:
+            resolved_channel = SpeechChannel(channel)
+        except ValueError:
+            return {"status": "error", "message": f"Unknown speech channel: {channel}"}
+        outcome = await self._speak_companion_text(
+            text.strip(),
+            channel=resolved_channel,
+            dedupe_key=str(params.get("dedupe_key", "")).strip(),
+        )
+        if outcome.status == "spoken":
+            logger.info("Companion speech completed (engine=%s)", self.config.voice.tts_engine)
+            return {"status": "spoken", "message": f"Spoken: {text.strip()[:80]}..."}
+        if outcome.status == "interrupted":
             logger.info("Companion speech interrupted by user")
-            return {"status": "interrupted", "message": "Speech interrupted by user"}
-        logger.info("Companion speech completed (engine=%s)", self.config.voice.tts_engine)
-        return {"status": "spoken", "message": f"Spoken: {text.strip()[:80]}..."}
+        return {"status": outcome.status, "message": outcome.message}
 
     async def _handle_stop_speech(self, params: dict, ws: ServerConnection) -> dict:
         """Immediately stop daemon-side TTS playback."""
         from pilot.system.voice import stop_speaking
 
+        cancelled = await self._speech_coordinator.stop_all()
         message = await stop_speaking()
-        return {"status": "stopped", "message": message}
+        return {"status": "stopped", "message": message, "cancelled": cancelled}
+
+    async def _handle_companion_speech_status(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        """Expose the one-channel coordinator state for diagnostics and UI."""
+        return {"status": "ok", **self._speech_coordinator.status()}
 
     async def _handle_reset_wake_calibration(self, params: dict, ws: ServerConnection) -> dict:
         """Clear all learned wake-word calibration data.

@@ -135,12 +135,17 @@ class AutonomousExecutor:
         self._decomposer = decomposer
         self._screen_vision = screen_vision
         self._broadcast: Callable[[str, Any], Coroutine[Any, Any, None]] | None = None
+        self._speech: Callable[[str, str, str], Coroutine[Any, Any, Any]] | None = None
         self._jobs: dict[str, AutonomousJob] = {}
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
 
     def set_broadcast(self, fn: Callable[[str, Any], Coroutine[Any, Any, None]]) -> None:
         """Set the WebSocket broadcast function."""
         self._broadcast = fn
+
+    def set_speech(self, fn: Callable[[str, str, str], Coroutine[Any, Any, Any]]) -> None:
+        """Set the shared companion speech coordinator."""
+        self._speech = fn
 
     async def submit(
         self, goal: str, source: str = "text", scope_override: TaskScopeOverride | None = None
@@ -246,17 +251,32 @@ class AutonomousExecutor:
         trace. daemon_speech is display-only; the frontend must never also
         call speakText() for it, or the phrase would be spoken twice."""
         try:
-            from pilot.system.voice import speak
-
             if job.status == JobStatus.SUCCESS:
                 announcement = f"Task complete. {job.result_summary}"
             elif job.status == JobStatus.PARTIAL:
                 announcement = f"Task partially complete. {job.result_summary}"
             else:
                 announcement = f"Task failed. {job.result_summary}"
-            await speak(announcement)
+            if self._speech:
+                channel = "final_answer" if job.status == JobStatus.SUCCESS else "task_failure"
+                await self._speech(
+                    announcement,
+                    channel,
+                    f"autonomous:{job.job_id}:complete",
+                )
+            else:
+                from pilot.system.voice import speak
+
+                await speak(announcement)
             if self._broadcast:
-                await self._broadcast("daemon_speech", {"text": announcement, "source": "autonomous_job"})
+                await self._broadcast(
+                    "daemon_speech",
+                    {
+                        "text": announcement,
+                        "source": "autonomous_job",
+                        "task_id": job.job_id,
+                    },
+                )
         except Exception:
             pass
 

@@ -145,3 +145,24 @@ async def test_speak_failure_does_not_propagate_or_skip_the_pause(tmp_path):
     assert broadcast.calls == []  # never reached the broadcast after speak() raised
     mock_sleep.assert_awaited_once_with(10)
     assert result.success is True  # execution still proceeds after the (failed) announcement
+
+
+@pytest.mark.asyncio
+async def test_stress_gate_uses_shared_priority_speech_when_wired(tmp_path):
+    ex = _executor(tmp_path)
+    ex._stress_gate = _FakeStressGate(gated=True)
+    speech = AsyncMock()
+    ex.set_speech(speech)
+
+    with (
+        patch("pilot.system.voice.speak", new=AsyncMock()) as direct_speak,
+        patch("asyncio.sleep", new=AsyncMock()),
+    ):
+        await ex._execute_single(_action(), snapshot_id=None)
+
+    direct_speak.assert_not_awaited()
+    speech.assert_awaited_once_with(
+        "Your focus state is low. Confirming in 10 seconds.",
+        "approval_risk",
+        "stress-gate:cpu_usage",
+    )

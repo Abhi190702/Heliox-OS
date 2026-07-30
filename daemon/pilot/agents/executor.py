@@ -125,6 +125,7 @@ class Executor:
         self._simulation_sandbox = SimulationSandbox(allowed_commands=config.restrictions.sandbox_allowed_commands)
         self._narrator: Any = None
         self._broadcast: Any = None
+        self._speech: Any = None
         self._experience_ledger: ExperienceLedger | None = None
         self._durable_task_store: DurableTaskStore | None = None
         self._last_output = ""  # For output chaining between steps
@@ -355,6 +356,10 @@ class Executor:
         notification so the frontend shows a matching text bubble instead
         of the phrase having zero visual trace)."""
         self._broadcast = fn
+
+    def set_speech(self, fn: Any) -> None:
+        """Wire the shared companion speech coordinator."""
+        self._speech = fn
 
     def set_experience_ledger(self, ledger: ExperienceLedger) -> None:
         """Wire the canonical action ledger into every executor ingress."""
@@ -1166,14 +1171,28 @@ class Executor:
 
                 phrase = "Your focus state is low. Confirming in 10 seconds."
                 try:
-                    from pilot.system.voice import speak
+                    if self._speech:
+                        await self._speech(
+                            phrase,
+                            "approval_risk",
+                            f"stress-gate:{action.action_type.value}",
+                        )
+                    else:
+                        from pilot.system.voice import speak
 
-                    await speak(phrase, rate=160)
+                        await speak(phrase, rate=160)
                     if self._broadcast is not None:
                         # Display-only: the daemon already spoke `phrase` on
                         # its own OS audio above -- must not also trigger
                         # frontend speechSynthesis, or it would speak twice.
-                        await self._broadcast("daemon_speech", {"text": phrase, "source": "stress_gate"})
+                        await self._broadcast(
+                            "daemon_speech",
+                            {
+                                "text": phrase,
+                                "source": "stress_gate",
+                                "action_type": action.action_type.value,
+                            },
+                        )
                 except Exception:
                     pass
                 await asyncio.sleep(10)

@@ -7,6 +7,8 @@ import { call } from "../api/daemon";
  */
 
 export interface SpeakOptions {
+  channel?: string;
+  dedupeKey?: string;
   rate?: number;
   pitch?: number;
   volume?: number;
@@ -55,10 +57,19 @@ export function speakText(text: string, options: SpeakOptions = {}): void {
   window.speechSynthesis?.cancel();
   options.onStart?.();
 
-  void call<{ status: string }>("speak_text", { text: trimmed })
+  const params: Record<string, string> = { text: trimmed };
+  if (options.channel) params.channel = options.channel;
+  if (options.dedupeKey) params.dedupe_key = options.dedupeKey;
+
+  void call<{ status: string }>("speak_text", params)
     .then((result) => {
       if (generation !== speechGeneration) return;
-      if (result.status === "cancelled" || result.status === "superseded") {
+      if (
+        result.status === "cancelled" ||
+        result.status === "superseded" ||
+        result.status === "duplicate" ||
+        result.status === "dropped"
+      ) {
         options.onEnd?.();
         return;
       }
