@@ -45,6 +45,8 @@ class ExperienceEventType(StrEnum):
     EVOLUTION_CANDIDATE = "evolution_candidate"
     EVOLUTION_EVALUATION = "evolution_evaluation"
     EVOLUTION_PROMOTION_REQUEST = "evolution_promotion_request"
+    AGENT_MESH_OUTCOME = "agent_mesh_outcome"
+    AGENT_MESH_HANDOFF = "agent_mesh_handoff"
 
 
 class PrivacyClass(StrEnum):

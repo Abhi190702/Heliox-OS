@@ -22,6 +22,7 @@ from enum import IntEnum
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from pilot.actions import ActionPlan, ActionResult, ActionType
+from pilot.agents.agent_mesh import AgentBudgetExceeded, AssignmentLease
 from pilot.agents.base_agent import (
     AgentMessage,
     AgentRole,
@@ -36,6 +37,7 @@ from pilot.models.budget_tracker import (
     ActionBudgetExceededError,
     BudgetExceededError,
     TaskBudgetExceededError,
+    current_agent_id,
     current_task_id,
 )
 from pilot.security.gateway import mark_critic_already_reviewed
@@ -55,6 +57,7 @@ class PrioritizedTask:
 
 
 if TYPE_CHECKING:
+    from pilot.agents.agent_mesh import AgentMesh
     from pilot.models.budget_tracker import BudgetTracker
     from pilot.models.router import ModelRouter
     from pilot.security.gateway import TaskScopeOverride
@@ -73,8 +76,16 @@ class AgentOrchestrator:
     tasks, it coordinates parallel or sequential execution and merges results.
     """
 
-    def __init__(self, model_router: ModelRouter):
+    def __init__(
+        self,
+        model_router: ModelRouter,
+        *,
+        agent_mesh: AgentMesh | None = None,
+    ):
+        from pilot.agents.agent_mesh import AgentMesh
+
         self._model = model_router
+        self._mesh = agent_mesh or AgentMesh()
         self._agents: dict[AgentRole, BaseAgent] = {}
         self._action_registry: dict[ActionType, AgentRole] = {}
         self._message_log: list[AgentMessage] = []
@@ -162,11 +173,15 @@ class AgentOrchestrator:
     def register_agent(self, agent: BaseAgent) -> None:
         """Register a specialist agent and index its capabilities."""
         agent.attach_orchestrator(self)
-        self._agents[agent.role] = agent
+        # Multiple providers may share one gateway role. Keep the first as
+        # the compatibility primary while retaining every provider in the
+        # capability mesh.
+        self._agents.setdefault(agent.role, agent)
+        self._mesh.register_agent(agent)
 
         # Index action types → agent role
         for cap in agent.get_capabilities():
-            self._action_registry[cap.action_type] = agent.role
+            self._action_registry.setdefault(cap.action_type, agent.role)
 
         # Auto-wire ThreatContainmentBridge to the ForensicsAgent
         if agent.role == AgentRole.FORENSICS and self._threat_bridge is not None:
@@ -184,6 +199,9 @@ class AgentOrchestrator:
         """Remove an agent from the registry."""
         agent = self._agents.pop(role, None)
         if agent:
+            for specialist in list(self._mesh.status()["specialists"]):
+                if specialist["role"] == role.value and specialist["source"] == "builtin":
+                    self._mesh.unregister(specialist["agent_key"])
             # Clean up action registry
             self._action_registry = {at: r for at, r in self._action_registry.items() if r != role}
             logger.info("Unregistered agent %s", role.value)
@@ -328,7 +346,58 @@ class AgentOrchestrator:
                 self._budget_tracker.end_task(task_id)
             if self._circuit_breaker:
                 self._circuit_breaker.reset(task_id)
+            self._mesh.release_task(task_id)
             current_task_id.reset(ctx_token)
+
+    async def execute_independent_plans(
+        self,
+        requests: list[tuple[str, ActionPlan]],
+        *,
+        independence_attested: bool,
+        cancel_event: asyncio.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run only explicitly independent plans with bounded fan-out.
+
+        The ordinary action path remains sequential. Callers must attest that
+        these plans have no output/data dependency, and all branches share one
+        cancellation event so a safety or budget stop propagates.
+        """
+        from pilot.agents.agent_mesh import MAX_HANDOFF_FANOUT
+
+        if not independence_attested:
+            raise ValueError("parallel execution requires an explicit independence attestation")
+        if not requests:
+            return []
+        if len(requests) > MAX_HANDOFF_FANOUT:
+            raise ValueError(f"parallel execution fan-out exceeds {MAX_HANDOFF_FANOUT}")
+        shared_cancel = cancel_event or asyncio.Event()
+
+        async def run_branch(index: int, user_input: str, plan: ActionPlan) -> dict[str, Any]:
+            if shared_cancel.is_set():
+                return {"index": index, "status": "cancelled", "results": []}
+            try:
+                results = await self.execute_plan(
+                    user_input,
+                    plan,
+                    cancel_event=shared_cancel,
+                    plan_id=f"parallel-{uuid.uuid4()}",
+                )
+                return {
+                    "index": index,
+                    "status": "completed",
+                    "results": results,
+                }
+            except Exception as exc:
+                shared_cancel.set()
+                return {
+                    "index": index,
+                    "status": "failed",
+                    "error": str(exc),
+                    "results": [],
+                }
+
+        branches = [run_branch(index, user_input, plan) for index, (user_input, plan) in enumerate(requests)]
+        return list(await asyncio.gather(*branches))
 
     async def _execute_plan_inner(
         self,
@@ -356,7 +425,7 @@ class AgentOrchestrator:
                 },
             )
         # Process actions in order, grouping consecutive same-agent actions
-        action_order = self._build_execution_order(plan, routing)
+        action_order = self._build_execution_order(plan, routing, task_id=task_id)
         prior_last_output = ""
         prior_largest_output = ""
 
@@ -366,7 +435,15 @@ class AgentOrchestrator:
                 logger.info("Orchestrator: cancel_event set â€” halting plan execution")
                 break
 
-            role, indices = batch
+            provider, indices = batch
+            if isinstance(provider, AgentRole):
+                role = provider
+                agent = self._agents.get(role)
+                agent_key = self._mesh.key_for_agent(agent) if agent is not None else None
+            else:
+                agent_key = provider
+                agent = self._mesh.agent_for(agent_key)
+                role = agent.role if agent is not None else AgentRole.SYSTEM
 
             # Circuit breaker pre-check — bail if too many consecutive failures
             if self._circuit_breaker:
@@ -398,10 +475,10 @@ class AgentOrchestrator:
                         cancel_event.set()
                     break
 
-            agent = self._agents.get(role)
             if agent is None:
                 # Fallback to system agent
                 agent = self._agents.get(AgentRole.SYSTEM)
+                agent_key = self._mesh.key_for_agent(agent) if agent is not None else None
                 if agent is None:
                     logger.error("No agent available for role %s", role.value)
                     continue
@@ -419,26 +496,65 @@ class AgentOrchestrator:
                 for action in batch_actions:
                     await on_action_start(action)
 
+            lease: AssignmentLease | None = None
+            if agent_key is not None:
+                try:
+                    lease = self._mesh.begin_assignment(
+                        task_id=task_id,
+                        agent_key=agent_key,
+                        action_type=",".join(action.action_type.value for action in batch_actions),
+                        action_count=len(batch_actions),
+                    )
+                except AgentBudgetExceeded as exc:
+                    logger.warning("Specialist budget rejected assignment: %s", exc)
+                    for idx in indices:
+                        all_results[idx] = ActionResult(
+                            action=plan.actions[idx],
+                            success=False,
+                            error=f"Specialist budget exceeded: {exc}",
+                        )
+                    if cancel_event:
+                        cancel_event.set()
+                    break
+
             # Execute via the specialist agent. Wrap with budget exception
             # handling: if a per-action / per-task / monthly cap fires inside
             # the agent's LLM calls, we halt the plan cleanly instead of
             # letting the exception escape and leave the task in limbo.
             try:
-                results = await agent.handle_task(
-                    user_input,
-                    sub_plan,
-                    context={
-                        "initial_last_output": prior_last_output,
-                        "initial_largest_output": prior_largest_output,
-                        "user_confirmed": user_confirmed,
-                    },
-                    scope_override=scope_override,
-                )
+                agent_context_token = current_agent_id.set(agent_key)
+                if agent_key is not None and self._budget_tracker is not None:
+                    contract = self._mesh.contract_for(agent_key)
+                    if contract is not None:
+                        self._budget_tracker.start_agent_budget(
+                            task_id,
+                            agent_key,
+                            contract.budget.max_tokens_per_task,
+                        )
+                try:
+                    results = await agent.handle_task(
+                        user_input,
+                        sub_plan,
+                        context={
+                            "initial_last_output": prior_last_output,
+                            "initial_largest_output": prior_largest_output,
+                            "user_confirmed": user_confirmed,
+                        },
+                        scope_override=scope_override,
+                    )
+                finally:
+                    current_agent_id.reset(agent_context_token)
             except (
                 ActionBudgetExceededError,
                 TaskBudgetExceededError,
                 BudgetExceededError,
             ) as exc:
+                if lease is not None:
+                    await self._mesh.complete_assignment(
+                        lease,
+                        success=False,
+                        error=str(exc),
+                    )
                 logger.warning(
                     "Budget exhausted mid-plan (task_id=%s): %s",
                     task_id,
@@ -467,6 +583,21 @@ class AgentOrchestrator:
                 if cancel_event:
                     cancel_event.set()
                 break
+            except Exception as exc:
+                if lease is not None:
+                    await self._mesh.complete_assignment(
+                        lease,
+                        success=False,
+                        error=str(exc),
+                    )
+                raise
+            else:
+                if lease is not None:
+                    await self._mesh.complete_assignment(
+                        lease,
+                        success=bool(results) and all(result.success for result in results),
+                        error="; ".join(result.error or "" for result in results if not result.success),
+                    )
 
             # Map results back to original indices
             # Map results back to original indices and update breaker state
@@ -504,7 +635,9 @@ class AgentOrchestrator:
         self,
         plan: ActionPlan,
         routing: dict[AgentRole, list[int]],
-    ) -> list[tuple[AgentRole, list[int]]]:
+        *,
+        task_id: str = "",
+    ) -> list[tuple[AgentRole | str, list[int]]]:
         """Build execution batches preserving action order.
 
         Groups consecutive actions for the same agent, but maintains
@@ -513,22 +646,32 @@ class AgentOrchestrator:
         if not plan.actions:
             return []
 
-        batches: list[tuple[AgentRole, list[int]]] = []
-        current_role: AgentRole | None = None
+        batches: list[tuple[AgentRole | str, list[int]]] = []
+        current_provider: AgentRole | str | None = None
         current_indices: list[int] = []
 
         for i in range(len(plan.actions)):
-            role = self._action_registry.get(plan.actions[i].action_type, AgentRole.SYSTEM)
-            if role != current_role:
+            action_type = plan.actions[i].action_type
+            selected = self._mesh.select_provider(
+                action_type,
+                task_id=task_id or "routing-preview",
+            )
+            provider: AgentRole | str
+            if selected is not None:
+                provider = selected[0]
+            else:
+                provider = self._action_registry.get(action_type, AgentRole.SYSTEM)
+            if provider != current_provider:
                 if current_indices:
-                    batches.append((current_role, current_indices))  # type: ignore
-                current_role = role
+                    assert current_provider is not None
+                    batches.append((current_provider, current_indices))
+                current_provider = provider
                 current_indices = [i]
             else:
                 current_indices.append(i)
 
-        if current_indices and current_role is not None:
-            batches.append((current_role, current_indices))
+        if current_indices and current_provider is not None:
+            batches.append((current_provider, current_indices))
 
         return batches
 
@@ -544,6 +687,18 @@ class AgentOrchestrator:
                 await agent.receive_message(message)
             return None
 
+        exact_target = self._mesh.agent_for(message.recipient)
+        if exact_target is not None:
+            if message.msg_type == "handoff" or message.delegation_depth:
+                await self._mesh.authorize_handoff(
+                    root_id=message.root_id or message.correlation_id or message.id,
+                    sender=message.sender,
+                    recipient=message.recipient,
+                    depth=message.delegation_depth,
+                    lineage=message.lineage,
+                )
+            return await exact_target.receive_message(message)
+
         # Find target agent by role
         target_role = None
         for role in AgentRole:
@@ -552,7 +707,18 @@ class AgentOrchestrator:
                 break
 
         if target_role and target_role in self._agents:
-            return await self._agents[target_role].receive_message(message)
+            target = self._agents[target_role]
+            if message.msg_type == "handoff" or message.delegation_depth:
+                target_key = self._mesh.key_for_agent(target)
+                if target_key is not None:
+                    await self._mesh.authorize_handoff(
+                        root_id=message.root_id or message.correlation_id or message.id,
+                        sender=message.sender,
+                        recipient=target_key,
+                        depth=message.delegation_depth,
+                        lineage=message.lineage,
+                    )
+            return await target.receive_message(message)
 
         logger.warning("Message to unknown agent: %s", message.recipient)
         return None
@@ -611,37 +777,91 @@ class AgentOrchestrator:
 
         return agent
 
+    async def spawn_registered_agent(
+        self,
+        agent_name: str,
+        **kwargs: Any,
+    ) -> BaseAgent | None:
+        """Spawn any discovered specialist class without a role switch."""
+        import inspect
+
+        from pilot.agents.registry import AgentRegistry
+
+        agent_class = AgentRegistry.get_agent_class(agent_name)
+        if agent_class is None:
+            return None
+        stable_key = f"builtin:{agent_class.__module__}.{agent_class.__name__}"
+        existing = self._mesh.agent_for(stable_key)
+        if existing is not None:
+            return existing
+        signature = inspect.signature(agent_class.__init__)
+        accepted = {name for name in signature.parameters if name != "self"}
+        accepts_var_kw = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values()
+        )
+        filtered = kwargs if accepts_var_kw else {key: value for key, value in kwargs.items() if key in accepted}
+        try:
+            agent = agent_class(**filtered)
+            self.register_agent(agent)
+            await agent.start()
+            return agent
+        except Exception:
+            logger.exception("Failed to spawn discovered specialist %s", agent_name)
+            return None
+
     # ── Lifecycle ──
 
     async def start_all(self) -> None:
         """Start all registered agents."""
-        for agent in self._agents.values():
+        for agent in self._mesh.executable_agents():
             await agent.start()
 
     async def stop_all(self) -> None:
         """Stop all registered agents."""
-        for agent in self._agents.values():
+        for agent in self._mesh.executable_agents():
             await agent.stop()
 
     # ── Stats & Diagnostics ──
 
     def get_all_stats(self) -> dict[str, Any]:
         """Return statistics for all registered agents."""
+        mesh_status = self._mesh.status()
         return {
-            "agents": {role.value: agent.get_stats() for role, agent in self._agents.items()},
-            "total_agents": len(self._agents),
+            "agents": {
+                specialist["agent_key"]: {
+                    **specialist["performance"],
+                    "role": specialist["role"],
+                    "display_name": specialist["display_name"],
+                    "source": specialist["source"],
+                }
+                for specialist in mesh_status["specialists"]
+            },
+            "total_agents": mesh_status["total_specialists"],
+            "executable_agents": mesh_status["executable_specialists"],
             "registered_actions": len(self._action_registry),
             "message_count": len(self._message_log),
+            "mesh": mesh_status,
         }
 
     def get_all_capabilities(self) -> dict[str, list[str]]:
         """Return all capabilities grouped by agent."""
         return {
-            role.value: [c.action_type.value for c in agent.get_capabilities()] for role, agent in self._agents.items()
+            specialist["agent_key"]: list(specialist["capabilities"])
+            for specialist in self._mesh.status()["specialists"]
         }
 
     def get_input_routing_summary(self, user_input: str) -> dict[str, Any]:
         """Legacy compatibility — route by user input keywords (like old MultiAgentRouter)."""
+        mesh_matches = self._mesh.route_text(user_input)
+        if mesh_matches:
+            assigned = [match["role"] for match in mesh_matches]
+            return {
+                "input": user_input,
+                "assigned_agents": assigned,
+                "assigned_specialists": mesh_matches,
+                "is_multi_agent": len(assigned) > 1,
+                "routing_basis": "capability_contract",
+            }
         input_lower = user_input.lower()
         scores: dict[AgentRole, int] = {}
 

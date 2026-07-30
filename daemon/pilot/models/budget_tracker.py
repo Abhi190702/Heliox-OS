@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS token_usage (
     input_tokens  INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
     cost_usd      REAL NOT NULL DEFAULT 0.0,
-    task_id       TEXT
+    task_id       TEXT,
+    agent_id      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_token_usage_month ON token_usage(month);
 CREATE INDEX IF NOT EXISTS idx_token_usage_task ON token_usage(task_id);
@@ -50,6 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_task ON token_usage(task_id);
 # the migration; it's wrapped in try/except since SQLite < 3.35 doesn't
 # support IF NOT EXISTS on ADD COLUMN and the column may already be there.
 TASK_ID_MIGRATION_SQL = "ALTER TABLE token_usage ADD COLUMN task_id TEXT"
+AGENT_ID_MIGRATION_SQL = "ALTER TABLE token_usage ADD COLUMN agent_id TEXT"
 
 
 class BudgetExceededError(RuntimeError):
@@ -78,6 +80,7 @@ class ActionBudgetExceededError(BudgetExceededError):
 # asyncio.create_task() inherits contextvars by default, so fire-and-forget
 # record_usage tasks still see the right task_id.
 current_task_id: ContextVar[str | None] = ContextVar("current_task_id", default=None)
+current_agent_id: ContextVar[str | None] = ContextVar("current_agent_id", default=None)
 
 
 @dataclass
@@ -97,6 +100,17 @@ class TaskBudget:
     exceeded: bool = False
 
 
+@dataclass
+class AgentTokenBudget:
+    """Per-specialist token allowance within one active task."""
+
+    task_id: str
+    agent_id: str
+    token_cap: int
+    tokens_used: int = 0
+    exceeded: bool = False
+
+
 class BudgetTracker:
     """Tracks cumulative LLM token spend and enforces a monthly USD limit."""
 
@@ -110,6 +124,7 @@ class BudgetTracker:
         self._monthly_cost: float = 0.0
         self._cost_month: str = _current_month()
         self._tasks: dict[str, TaskBudget] = {}
+        self._agent_tasks: dict[tuple[str, str], AgentTokenBudget] = {}
         self._lock = asyncio.Lock()
 
     async def initialize(self) -> None:
@@ -124,6 +139,11 @@ class BudgetTracker:
             except Exception as exc:
                 if "duplicate column" not in str(exc).lower():
                     logger.warning("task_id column migration: %s", exc)
+            try:
+                await db.execute(AGENT_ID_MIGRATION_SQL)
+            except Exception as exc:
+                if "duplicate column" not in str(exc).lower():
+                    logger.warning("agent_id column migration: %s", exc)
             await db.commit()
         self._monthly_cost = await self._load_monthly_cost()
         self._cost_month: str = _current_month()
@@ -201,6 +221,8 @@ class BudgetTracker:
     def end_task(self, task_id: str) -> TaskBudget | None:
         """Remove a task from active tracking. Returns the final TaskBudget."""
         budget = self._tasks.pop(task_id, None)
+        for key in [key for key in self._agent_tasks if key[0] == task_id]:
+            del self._agent_tasks[key]
         if budget:
             logger.info(
                 "BudgetTracker: ended task %s (tokens=%d, usd=%.4f, exceeded=%s)",
@@ -241,6 +263,20 @@ class BudgetTracker:
                 f"(${task.usd_spent:.4f} >= ${task.usd_cap:.4f}). "
                 f"Increase max_usd_per_task or split the task."
             )
+        agent_id = current_agent_id.get()
+        if agent_id:
+            agent_budget = self._agent_tasks.get((task_id, agent_id))
+            if (
+                agent_budget is not None
+                and agent_budget.token_cap > 0
+                and agent_budget.tokens_used >= agent_budget.token_cap
+            ):
+                agent_budget.exceeded = True
+                raise TaskBudgetExceededError(
+                    f"Specialist {agent_id} exceeded its token budget "
+                    f"({agent_budget.tokens_used} >= {agent_budget.token_cap}). "
+                    "Use a smaller handoff or a different specialist."
+                )
 
     def get_task_budget(self, task_id: str | None = None) -> TaskBudget | None:
         """Return the live TaskBudget for a task, or None if not tracked."""
@@ -249,6 +285,30 @@ class BudgetTracker:
         if not task_id:
             return None
         return self._tasks.get(task_id)
+
+    def start_agent_budget(
+        self,
+        task_id: str,
+        agent_id: str,
+        token_cap: int,
+    ) -> AgentTokenBudget:
+        key = (task_id, agent_id)
+        budget = self._agent_tasks.get(key)
+        if budget is None:
+            budget = AgentTokenBudget(
+                task_id=task_id,
+                agent_id=agent_id,
+                token_cap=max(0, int(token_cap)),
+            )
+            self._agent_tasks[key] = budget
+        return budget
+
+    def get_agent_budget(
+        self,
+        task_id: str,
+        agent_id: str,
+    ) -> AgentTokenBudget | None:
+        return self._agent_tasks.get((task_id, agent_id))
 
     async def record_usage(
         self,
@@ -269,15 +329,26 @@ class BudgetTracker:
         now = datetime.now(UTC).isoformat()
         month = _current_month()
         task_id = current_task_id.get()
+        agent_id = current_agent_id.get()
 
         async with self._lock:
             async with self._pool.write() as db:
                 await db.execute(
                     """INSERT INTO token_usage
                        (timestamp, month, provider, model, input_tokens,
-                        output_tokens, cost_usd, task_id)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (now, month, provider, model, input_tokens, output_tokens, cost, task_id),
+                        output_tokens, cost_usd, task_id, agent_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        now,
+                        month,
+                        provider,
+                        model,
+                        input_tokens,
+                        output_tokens,
+                        cost,
+                        task_id,
+                        agent_id,
+                    ),
                 )
                 await db.commit()
 
@@ -293,6 +364,8 @@ class BudgetTracker:
                 task = self._tasks[task_id]
                 task.tokens_used += input_tokens + output_tokens
                 task.usd_spent += cost
+            if task_id and agent_id and (task_id, agent_id) in self._agent_tasks:
+                self._agent_tasks[(task_id, agent_id)].tokens_used += input_tokens + output_tokens
 
     async def get_stats(self) -> dict:
         """Return current-month usage summary."""

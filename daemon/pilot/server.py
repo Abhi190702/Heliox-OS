@@ -415,6 +415,7 @@ class PilotServer:
         self._multi_agent: Any = None
         self._background: Any = None
         self._orchestrator: Any = None
+        self._agent_mesh: Any = None
         self._fusion: Any = None
         self._reasoning: Any = None
         self._decomposer: Any = None
@@ -662,7 +663,15 @@ class PilotServer:
         self._background.register_builtin_monitors()
 
         # Multi-Agent Orchestrator — register all specialist agents
-        self._orchestrator = AgentOrchestrator(model_router)
+        from pilot.agents.agent_mesh import AgentMesh
+
+        self._agent_mesh = AgentMesh(DATA_DIR / "agent_mesh.db")
+        await self._agent_mesh.initialize()
+        self._agent_mesh.set_experience_ledger(self._experience_ledger)
+        self._orchestrator = AgentOrchestrator(
+            model_router,
+            agent_mesh=self._agent_mesh,
+        )
         self._orchestrator.set_broadcast(self._broadcast_notification)
         self._orchestrator.set_budget_tracker(self._budget_tracker)
         self._orchestrator.set_circuit_breaker(self._circuit_breaker)
@@ -698,10 +707,15 @@ class PilotServer:
             logger.warning("ThreatContainmentBridge init failed (non-critical)", exc_info=True)
         # ── End Threat Containment Bridge ──────────────────────────────────
 
-        from pilot.agents.rss_agent import RssAgent
+        from pilot.agents.base_agent import AgentRole
 
-        self._rss_agent = RssAgent(model_router, self._memory, self.config, self._background)
-        self._orchestrator.register_agent(self._rss_agent)
+        self._rss_agent = self._orchestrator.get_agent(AgentRole.RSS)
+        if self._rss_agent is None:
+            from pilot.agents.rss_agent import RssAgent
+
+            self._rss_agent = RssAgent(model_router, self._memory, self.config, self._background)
+            self._orchestrator.register_agent(self._rss_agent)
+            await self._rss_agent.start()
 
         # Multimodal Fusion Engine — voice + gesture intent fusion
         from pilot.multimodal.fusion import MultimodalFusionEngine
@@ -762,6 +776,7 @@ class PilotServer:
 
         self._plugin_registry = PluginRegistry()
         plugin_count = self._plugin_registry.discover()
+        self._agent_mesh.refresh_plugins(self._plugin_registry.get_all_plugins())
         logger.info("Plugins loaded: %d", plugin_count)
         self._executor.set_plugin_registry(self._plugin_registry)
         self._plugin_marketplace = GitHubMarketplace(
@@ -1031,6 +1046,7 @@ class PilotServer:
             "agent_stats": self._handle_agent_stats,
             "agent_capabilities": self._handle_agent_capabilities,
             "agent_spawn": self._handle_agent_spawn,
+            "agent_mesh_status": self._handle_agent_mesh_status,
             "voice_event": self._handle_voice_event,
             "gesture_event": self._handle_gesture_event,
             "gaze_event": self._handle_gaze_event,
@@ -4934,6 +4950,15 @@ class PilotServer:
             return self._orchestrator.get_all_capabilities()
         return {"error": "Orchestrator not initialized"}
 
+    async def _handle_agent_mesh_status(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._agent_mesh is None:
+            return {"enabled": False, "message": "Agent mesh is not initialized"}
+        return self._agent_mesh.status()
+
     async def _handle_agent_spawn(self, params: dict, ws: ServerConnection) -> dict:
         """Dynamically spawn a new specialist agent.
 
@@ -4944,6 +4969,25 @@ class PilotServer:
         Returns:
             A dict with status and optionally agent_id.
         """
+        agent_name = str(params.get("agent_name", "")).strip()
+        if agent_name and self._orchestrator:
+            agent = await self._orchestrator.spawn_registered_agent(
+                agent_name,
+                executor=self._executor,
+                background_manager=self._background,
+                model_router=self._model_router,
+                config=self.config,
+                vault=self._vault,
+                memory=self._memory,
+            )
+            if agent:
+                return {
+                    "status": "spawned",
+                    "agent_id": agent.agent_id,
+                    "agent_name": agent.__class__.__name__,
+                }
+            return {"status": "error", "message": f"Unknown or unavailable specialist: {agent_name}"}
+
         role_str = params.get("role", "")
         from pilot.agents.base_agent import AgentRole
 
@@ -5539,6 +5583,8 @@ class PilotServer:
         """Keep the planner's plugin tool inventory synchronized."""
         if self._planner and self._plugin_registry:
             self._planner.set_plugin_context(self._plugin_registry.get_tools_for_planner())
+        if getattr(self, "_agent_mesh", None) and self._plugin_registry:
+            self._agent_mesh.refresh_plugins(self._plugin_registry.get_all_plugins())
 
     async def _handle_plugin_market_list(self, params: dict, ws: ServerConnection) -> dict:
         """Return the approved GitHub catalog plus local-only plugins."""
@@ -6304,6 +6350,9 @@ def handle_tool(tool_name, params):
             await self._reflector.close()
         if self._memory:
             await self._memory.close()
+        if self._agent_mesh is not None:
+            await self._agent_mesh.close()
+            self._agent_mesh = None
         if self._experience_ledger:
             await self._experience_ledger.close()
             self._experience_ledger = None

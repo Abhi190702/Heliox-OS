@@ -82,6 +82,11 @@ class AgentMessage:
     payload: dict[str, Any] = field(default_factory=dict)
     priority: MessagePriority = MessagePriority.NORMAL
     correlation_id: str | None = None  # links response to original request
+    root_id: str = ""
+    delegation_depth: int = 0
+    lineage: tuple[str, ...] = ()
+    context_refs: tuple[str, ...] = ()
+    partial_results: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
 
     def reply(self, payload: dict[str, Any], msg_type: str = "response") -> AgentMessage:
@@ -93,6 +98,10 @@ class AgentMessage:
             action=self.action,
             payload=payload,
             correlation_id=self.id,
+            root_id=self.root_id or self.id,
+            delegation_depth=self.delegation_depth,
+            lineage=self.lineage,
+            context_refs=self.context_refs,
         )
 
 

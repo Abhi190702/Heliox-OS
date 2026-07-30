@@ -14,6 +14,7 @@ from pilot.models.budget_tracker import (
     BudgetTracker,
     TaskBudget,
     TaskBudgetExceededError,
+    current_agent_id,
     current_task_id,
 )
 
@@ -96,6 +97,25 @@ async def test_record_usage_updates_task_totals(tracker):
     budget = tracker.get_task_budget("task-abc")
     assert budget.tokens_used == 700
     assert budget.usd_spent > 0  # openai is non-free
+
+
+@pytest.mark.asyncio
+async def test_specialist_token_budget_is_isolated_and_enforced(tracker):
+    tracker.start_task("task-abc")
+    agent_budget = tracker.start_agent_budget("task-abc", "builtin:research", 100)
+    task_token = current_task_id.set("task-abc")
+    agent_token = current_agent_id.set("builtin:research")
+    try:
+        await tracker.record_usage("openai", "gpt-4", input_tokens=80, output_tokens=20)
+        with pytest.raises(TaskBudgetExceededError, match=r"Specialist .* token budget"):
+            tracker.check_task_budget()
+    finally:
+        current_agent_id.reset(agent_token)
+        current_task_id.reset(task_token)
+
+    assert agent_budget.tokens_used == 100
+    tracker.end_task("task-abc")
+    assert tracker.get_agent_budget("task-abc", "builtin:research") is None
 
 
 @pytest.mark.asyncio
