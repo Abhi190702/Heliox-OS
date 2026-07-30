@@ -83,6 +83,30 @@ async def test_idempotency_returns_existing_event_without_duplicate(ledger):
 
 
 @pytest.mark.asyncio
+async def test_subscribers_receive_only_newly_inserted_events(ledger):
+    received = []
+
+    async def consume(event):
+        received.append(event)
+
+    ledger.subscribe(consume)
+    await ledger.append(
+        ExperienceEventType.OBSERVATION,
+        idempotency_key="subscriber-observation",
+        payload={"active_app": "editor"},
+    )
+    await ledger.append(
+        ExperienceEventType.OBSERVATION,
+        idempotency_key="subscriber-observation",
+        payload={"active_app": "different retry payload"},
+    )
+    await ledger.drain_subscribers()
+
+    assert len(received) == 1
+    assert received[0].payload == {"active_app": "editor"}
+
+
+@pytest.mark.asyncio
 async def test_idempotency_key_cannot_alias_a_different_event_identity(ledger):
     await ledger.append(
         ExperienceEventType.INTENT,

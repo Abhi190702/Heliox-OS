@@ -64,6 +64,20 @@ async def test_repeated_dismissals_temporarily_suppress_pattern(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_unanswered_suggestion_expires_as_ignored_feedback(tmp_path):
+    engine = ProactiveSuggestionEngine(feedback_path=tmp_path / "feedback.json")
+    suggestion = _suggestion("terminal_error", 1)
+    suggestion.timestamp = time.time() - engine._ignore_after_seconds - 1
+    engine._pending_suggestions.append(suggestion)
+
+    await engine._expire_ignored_suggestions(time.time())
+
+    assert suggestion not in engine._pending_suggestions
+    assert suggestion in engine._suggestion_history
+    assert engine.get_learning_status()["patterns"]["terminal_error"]["ignored"] == 1
+
+
+@pytest.mark.asyncio
 async def test_accept_handler_fails_closed_without_guarded_executor(tmp_path):
     engine = ProactiveSuggestionEngine(feedback_path=tmp_path / "feedback.json")
     suggestion = _suggestion("terminal_error", 1)

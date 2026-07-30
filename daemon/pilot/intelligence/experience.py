@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import logging
 import re
 import uuid
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -18,6 +20,7 @@ from typing import Any
 from pilot.db.sqlite_pool import AsyncSqlitePool
 
 SCHEMA_VERSION = 1
+logger = logging.getLogger("pilot.intelligence.experience")
 
 
 class ExperienceEventType(StrEnum):
@@ -263,6 +266,18 @@ class ExperienceLedger:
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = Path(db_path)
         self._pool: AsyncSqlitePool | None = None
+        self._subscribers: list[Callable[[ExperienceEvent], Awaitable[None]]] = []
+        self._subscriber_tasks: set[asyncio.Task[None]] = set()
+
+    def subscribe(self, callback: Callable[[ExperienceEvent], Awaitable[None]]) -> None:
+        """Receive newly inserted events without gaining mutation authority."""
+
+        if callback not in self._subscribers:
+            self._subscribers.append(callback)
+
+    def unsubscribe(self, callback: Callable[[ExperienceEvent], Awaitable[None]]) -> None:
+        if callback in self._subscribers:
+            self._subscribers.remove(callback)
 
     async def initialize(self) -> None:
         if self._pool is not None:
@@ -344,7 +359,7 @@ class ExperienceLedger:
                 sequence_row = await sequence_cursor.fetchone()
                 await sequence_cursor.close()
                 await db.commit()
-                return ExperienceEvent(
+                event = ExperienceEvent(
                     event_id=event_id,
                     sequence=int(sequence_row[0]),
                     event_type=event_kind,
@@ -363,6 +378,8 @@ class ExperienceLedger:
                     confidence=confidence,
                     privacy_class=privacy,
                 )
+                self._publish(event)
+                return event
 
             existing_cursor = await db.execute(
                 f"SELECT {_SELECT_COLUMNS} FROM experience_events WHERE idempotency_key = ?",
@@ -434,9 +451,31 @@ class ExperienceLedger:
         return [self._event_from_row(row) for row in rows]
 
     async def close(self) -> None:
+        await self.drain_subscribers()
         if self._pool is not None:
             await self._pool.close()
             self._pool = None
+
+    async def drain_subscribers(self) -> None:
+        """Wait for advisory consumers without allowing their failure to block shutdown."""
+
+        if self._subscriber_tasks:
+            await asyncio.gather(*tuple(self._subscriber_tasks), return_exceptions=True)
+
+    def _publish(self, event: ExperienceEvent) -> None:
+        for callback in tuple(self._subscribers):
+            task = asyncio.create_task(callback(event))
+            self._subscriber_tasks.add(task)
+            task.add_done_callback(self._subscriber_done)
+
+    def _subscriber_done(self, task: asyncio.Task[None]) -> None:
+        self._subscriber_tasks.discard(task)
+        if task.cancelled():
+            return
+        try:
+            task.result()
+        except Exception:
+            logger.warning("Experience subscriber failed", exc_info=True)
 
     def _require_pool(self) -> AsyncSqlitePool:
         if self._pool is None:

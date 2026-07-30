@@ -427,6 +427,7 @@ class PilotServer:
         self._screen_vision: Any = None
         self._memory: Any = None
         self._experience_ledger: ExperienceLedger | None = None
+        self._online_learning: Any = None
         self._active_experience_context = ExperienceContext()
         self._vault: Any = None
         self._permission_audit: Any = None
@@ -591,6 +592,11 @@ class PilotServer:
 
         self._experience_ledger = ExperienceLedger(EXPERIENCE_DB_FILE)
         await self._experience_ledger.initialize()
+        from pilot.intelligence.online_learning import VerifiedOnlineLearner
+
+        self._online_learning = VerifiedOnlineLearner(DATA_DIR / "online_learning_state.json")
+        await self._online_learning.initialize(self._experience_ledger)
+        self._experience_ledger.subscribe(self._online_learning.consume)
 
         # ── Plan History Audit Log ──
         self._plan_history = PlanHistoryStore()
@@ -953,6 +959,7 @@ class PilotServer:
             self._proactive = ProactiveSuggestionEngine(screen_vision=self._screen_vision)
             self._proactive.set_broadcast(self._broadcast_notification)
             self._proactive.set_experience_ledger(self._experience_ledger)
+            self._proactive.set_online_learner(self._online_learning)
             asyncio.create_task(self._proactive.start())
             logger.info("ProactiveSuggestionEngine auto-started")
         except Exception:
@@ -1076,6 +1083,8 @@ class PilotServer:
             "proactive_stats": self._handle_proactive_stats,
             "proactive_learning_status": self._handle_proactive_learning_status,
             "proactive_learning_reset": self._handle_proactive_learning_reset,
+            "online_learning_status": self._handle_online_learning_status,
+            "online_learning_reset": self._handle_online_learning_reset,
             "proactive_accept": self._handle_proactive_accept,
             "proactive_dismiss": self._handle_proactive_dismiss,
             "budget_stats": self._handle_budget_stats,
@@ -7046,6 +7055,36 @@ def handle_tool(tool_name, params):
             }
         self._proactive.reset_learning()
         return self._proactive.get_learning_status()
+
+    async def _handle_online_learning_status(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        """Return the bounded online learner's evidence and privacy state."""
+
+        if self._online_learning is None:
+            return {
+                "enabled": False,
+                "message": "Verified online learning is not initialized",
+            }
+        return self._online_learning.status()
+
+    async def _handle_online_learning_reset(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        """Forget online model state without mutating the audit ledger."""
+
+        if self._online_learning is None:
+            return {
+                "enabled": False,
+                "message": "Verified online learning is not initialized",
+            }
+        if self._proactive is not None:
+            self._proactive.reset_learning()
+        return await self._online_learning.reset()
 
     async def _handle_proactive_accept(self, params: dict, ws: ServerConnection) -> dict:
         """Accept a proactive suggestion — execute the suggested action.

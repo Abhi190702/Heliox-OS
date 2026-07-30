@@ -40,6 +40,7 @@ from pilot.intelligence.experience import (
 
 if TYPE_CHECKING:
     from pilot.agents.screen_vision import ScreenContext, ScreenVisionAgent
+    from pilot.intelligence.online_learning import VerifiedOnlineLearner
 
 logger = logging.getLogger("pilot.agents.proactive")
 
@@ -56,6 +57,7 @@ class Suggestion:
     pattern_id: str = ""
     learned_relevance: float = 0.5
     priority: str = "low"  # low, medium, high
+    context_app: str = ""
     timestamp: float = field(default_factory=time.time)
     dismissed: bool = False
     accepted: bool = False
@@ -70,6 +72,7 @@ class Suggestion:
             "pattern_id": self.pattern_id,
             "learned_relevance": round(self.learned_relevance, 3),
             "priority": self.priority,
+            "context_app": self.context_app,
             "timestamp": self.timestamp,
         }
 
@@ -179,13 +182,20 @@ class ProactiveSuggestionEngine:
         self._feedback_path = feedback_path or (DATA_DIR / "proactive_feedback.json")
         self._feedback: dict[str, dict[str, float | int]] = self._load_feedback()
         self._experience_ledger: ExperienceLedger | None = None
+        self._online_learner: VerifiedOnlineLearner | None = None
         self._last_observation_key = ""
+        self._ignore_after_seconds = 15 * 60
 
     def set_broadcast(self, fn: Callable[[str, Any], Coroutine[Any, Any, None]]) -> None:
         self._broadcast = fn
 
     def set_experience_ledger(self, ledger: ExperienceLedger) -> None:
         self._experience_ledger = ledger
+
+    def set_online_learner(self, learner: VerifiedOnlineLearner) -> None:
+        """Use verified adaptation for ranking only; execution remains guarded."""
+
+        self._online_learner = learner
 
     async def _append_experience(self, event_type: ExperienceEventType, **kwargs: Any) -> None:
         if self._experience_ledger is None:
@@ -237,6 +247,8 @@ class ProactiveSuggestionEngine:
                         "suggestion_id": s.suggestion_id,
                         "pattern_id": s.pattern_id,
                         "decision": "accepted",
+                        "context_app": s.context_app,
+                        "priority": s.priority,
                     },
                     confidence=s.learned_relevance,
                     provenance={"component": "ProactiveSuggestionEngine.accept_suggestion"},
@@ -260,6 +272,8 @@ class ProactiveSuggestionEngine:
                         "suggestion_id": s.suggestion_id,
                         "pattern_id": s.pattern_id,
                         "decision": "dismissed",
+                        "context_app": s.context_app,
+                        "priority": s.priority,
                     },
                     confidence=s.learned_relevance,
                     provenance={"component": "ProactiveSuggestionEngine.dismiss_suggestion"},
@@ -287,13 +301,14 @@ class ProactiveSuggestionEngine:
 
     async def _check_patterns(self, current: Any) -> None:
         """Check all patterns against the current screen state."""
+        now = time.time()
+        await self._expire_ignored_suggestions(now)
         # Keep one visible decision at a time. Generating more while the user
         # considers the current card would create hidden pending items and
         # corrupt accept/dismiss learning.
         if self._pending_suggestions:
             return
 
-        now = time.time()
         app_lower = current.active_app.lower()
         title_lower = current.active_window_title.lower()
 
@@ -328,6 +343,16 @@ class ProactiveSuggestionEngine:
             shown = int(learned.get("shown", 0))
             last_feedback = float(learned.get("last_feedback", 0.0))
             learned_relevance = (accepted + 1) / (shown + 2)
+            adaptation_state = "candidate"
+            if self._online_learner is not None:
+                adaptation = self._online_learner.score_suggestion(
+                    pattern_id=str(pattern["id"]),
+                    app_name=app_lower,
+                    priority=str(pattern.get("priority", "low")),
+                )
+                adaptation_state = adaptation.state
+                if adaptation.state == "promoted":
+                    learned_relevance = adaptation.probability
 
             # Repeated rejection suppresses this pattern for a week. A future
             # accepted suggestion lifts suppression automatically.
@@ -367,7 +392,12 @@ class ProactiveSuggestionEngine:
                 trigger_reason=f"Detected {app_lower} with context: {title_lower[:60]}",
                 pattern_id=pattern["id"],
                 learned_relevance=learned_relevance,
-                priority=("high" if accepted >= dismissed + 2 else pattern.get("priority", "low")),
+                priority=(
+                    "high"
+                    if learned_relevance >= 0.72 and adaptation_state == "promoted"
+                    else pattern.get("priority", "low")
+                ),
+                context_app=app_lower,
             )
 
             # Mark cooldown
@@ -403,6 +433,33 @@ class ProactiveSuggestionEngine:
             # Only one suggestion per cycle
             break
 
+    async def _expire_ignored_suggestions(self, now: float) -> None:
+        """Turn an untouched card into explicit negative evidence after a bounded wait."""
+
+        expired = [
+            suggestion
+            for suggestion in self._pending_suggestions
+            if now - suggestion.timestamp >= self._ignore_after_seconds
+        ]
+        for suggestion in expired:
+            self._pending_suggestions.remove(suggestion)
+            self._suggestion_history.append(suggestion)
+            self._record_feedback(suggestion.pattern_id, "ignored")
+            await self._append_experience(
+                ExperienceEventType.SUGGESTION_FEEDBACK,
+                idempotency_key=f"suggestion:{suggestion.suggestion_id}:feedback",
+                source="proactive",
+                payload={
+                    "suggestion_id": suggestion.suggestion_id,
+                    "pattern_id": suggestion.pattern_id,
+                    "decision": "ignored",
+                    "context_app": suggestion.context_app,
+                    "priority": suggestion.priority,
+                },
+                confidence=suggestion.learned_relevance,
+                provenance={"component": "ProactiveSuggestionEngine._expire_ignored_suggestions"},
+            )
+
     def get_stats(self) -> dict[str, Any]:
         """Return engine statistics."""
         return {
@@ -423,6 +480,7 @@ class ProactiveSuggestionEngine:
                     "shown": int(values.get("shown", 0)),
                     "accepted": int(values.get("accepted", 0)),
                     "dismissed": int(values.get("dismissed", 0)),
+                    "ignored": int(values.get("ignored", 0)),
                     "learned_relevance": round(
                         (int(values.get("accepted", 0)) + 1) / (int(values.get("shown", 0)) + 2),
                         3,
@@ -449,11 +507,17 @@ class ProactiveSuggestionEngine:
         return {}
 
     def _record_feedback(self, pattern_id: str, event: str) -> None:
-        if not pattern_id or event not in {"shown", "accepted", "dismissed"}:
+        if not pattern_id or event not in {"shown", "accepted", "dismissed", "ignored"}:
             return
         values = self._feedback.setdefault(
             pattern_id,
-            {"shown": 0, "accepted": 0, "dismissed": 0, "last_feedback": 0.0},
+            {
+                "shown": 0,
+                "accepted": 0,
+                "dismissed": 0,
+                "ignored": 0,
+                "last_feedback": 0.0,
+            },
         )
         values[event] = int(values.get(event, 0)) + 1
         if event != "shown":
