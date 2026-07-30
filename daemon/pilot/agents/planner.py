@@ -420,6 +420,27 @@ class Planner:
 
         text = user_input.strip().lower()
 
+        # --- explicitly supplied Python code (never synthesize code locally) ---
+        code_match = re.search(
+            r"```(?:python|py)\s*(?P<code>.*?)```",
+            user_input,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if code_match and re.search(r"\b(?:run|execute)\b", text):
+            code = code_match.group("code").strip()
+            if code:
+                return ActionPlan(
+                    actions=[
+                        Action(
+                            action_type=ActionType.CODE_EXECUTE,
+                            target="supplied Python code",
+                            parameters=CodeExecParams(code=code, language="python"),
+                        )
+                    ],
+                    explanation="Run the supplied Python code and report its output",
+                    raw_input=user_input,
+                )
+
         # --- exact absolute file read, optionally followed by reporting constraints ---
         raw_path_match = re.match(
             r"^\s*(?:read|open|inspect|show|display)"
