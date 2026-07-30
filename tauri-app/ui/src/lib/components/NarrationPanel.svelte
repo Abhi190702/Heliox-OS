@@ -91,7 +91,7 @@
   async function resetLearning() {
     resettingLearning = true;
     try {
-      await call("proactive_learning_reset");
+      await call("online_learning_reset");
       await loadLearningStatus();
     } finally {
       resettingLearning = false;
