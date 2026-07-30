@@ -70,6 +70,7 @@
     classifyThumbState3D,
     WorldModelFilterBank,
   } from "../gesture/worldModel";
+  import { TemporalGestureVerifier } from "../gesture/temporalGestureVerifier";
   import {
     estimateGazeRegion,
     resolveHandBackend,
@@ -167,6 +168,7 @@
   // as the existing 2D wristHistory: detectPushPull3D's threshold is tuned
   // against real motion, which filtering would damp.
   const worldModelFilter = new WorldModelFilterBank();
+  const temporalGestureVerifier = new TemporalGestureVerifier();
   let worldWristHistory: Landmark[] = [];
   const WORLD_MOTION_BUFFER_SIZE = 8; // mirrors detectPushPull()'s 8-frame gate
 
@@ -1008,6 +1010,7 @@
       candidateCount = 0;
       landmarkFilter.reset(); // avoid smearing stale filter state into the next detected hand
       worldModelFilter.reset();
+      temporalGestureVerifier.reset();
       worldWristHistory = [];
       return;
     }
@@ -1099,6 +1102,21 @@
           gesture.name = "";
           gesture.confidence = 0;
         }
+      }
+    }
+
+    const temporalVerification = temporalGestureVerifier.observe({
+      mediaPipeHandPresent: true,
+      landmarks: filteredLandmarks,
+      worldLandmarks: filteredWorldLandmarks,
+      candidate: gesture.name,
+      timestampMs: now,
+    });
+    if (gesture.name) {
+      gesture.confidence *= temporalVerification.confidenceMultiplier;
+      if (!temporalVerification.accepted || gesture.confidence < QUALITY_CONFIDENCE_FLOOR) {
+        gesture.name = "";
+        gesture.confidence = 0;
       }
     }
 
