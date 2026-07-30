@@ -192,8 +192,8 @@
   </div>
 
   <p class="safety-note">
-    Candidates never edit the installed app. They run only in disposable Git worktrees with networking disabled,
-    a read-only container root, no inherited credentials, and bounded CPU, memory and processes. Heliox cannot merge,
+    Candidates never edit the installed app. They run only in disposable Git worktrees with networking disabled, a
+    read-only container root, no inherited credentials, and bounded CPU, memory and processes. Heliox cannot merge,
     push, release, or promote them automatically.
   </p>
 
@@ -225,8 +225,7 @@
           bind:value={problem}
           rows="2"
           maxlength="8000"
-          placeholder="Describe the observed failure, expected behavior, and evidence..."
-        ></textarea>
+          placeholder="Describe the observed failure, expected behavior, and evidence..."></textarea>
       </label>
       <button class="primary" onclick={createRun} disabled={!problem.trim() || !!busy}>
         {busy === "create" ? "Creating..." : "Create inert run"}
@@ -237,11 +236,7 @@
       <aside>
         <div class="list-title"><strong>Run archive</strong><span>{runs.length}</span></div>
         {#each runs as run}
-          <button
-            class:active={run.run_id === selectedRunId}
-            class="run"
-            onclick={() => chooseRun(run.run_id)}
-          >
+          <button class:active={run.run_id === selectedRunId} class="run" onclick={() => chooseRun(run.run_id)}>
             <span>{run.problem}</span>
             <small>{shortId(run.run_id)} · {run.state.replaceAll("_", " ")}</small>
           </button>
@@ -304,7 +299,9 @@
                     <input bind:value={confirmation} placeholder={`Type ${candidate.candidate_id}`} />
                     <button
                       onclick={() => requestPromotion(candidate.candidate_id)}
-                      disabled={busy === candidate.candidate_id || !actor.trim() || confirmation !== candidate.candidate_id}
+                      disabled={busy === candidate.candidate_id ||
+                        !actor.trim() ||
+                        confirmation !== candidate.candidate_id}
                     >
                       {busy === candidate.candidate_id ? "Archiving..." : "Request external review"}
                     </button>

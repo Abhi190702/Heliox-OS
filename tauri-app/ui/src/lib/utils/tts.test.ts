@@ -81,27 +81,24 @@ describe("configured text-to-speech", () => {
     expect(speechSynthesisMock.speak).not.toHaveBeenCalled();
   });
 
-  it.each(["duplicate", "dropped"])(
-    "does not bypass daemon coordination when speech is %s",
-    async (status) => {
-      callMock.mockResolvedValue({ status });
-      const onEnd = vi.fn();
+  it.each(["duplicate", "dropped"])("does not bypass daemon coordination when speech is %s", async (status) => {
+    callMock.mockResolvedValue({ status });
+    const onEnd = vi.fn();
 
-      speakText("coordinated sentence", {
-        channel: "approval_risk",
-        dedupeKey: "plan-1",
-        onEnd,
-      });
-      await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
+    speakText("coordinated sentence", {
+      channel: "approval_risk",
+      dedupeKey: "plan-1",
+      onEnd,
+    });
+    await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
 
-      expect(callMock).toHaveBeenCalledWith("speak_text", {
-        text: "coordinated sentence",
-        channel: "approval_risk",
-        dedupe_key: "plan-1",
-      });
-      expect(speechSynthesisMock.speak).not.toHaveBeenCalled();
-    },
-  );
+    expect(callMock).toHaveBeenCalledWith("speak_text", {
+      text: "coordinated sentence",
+      channel: "approval_risk",
+      dedupe_key: "plan-1",
+    });
+    expect(speechSynthesisMock.speak).not.toHaveBeenCalled();
+  });
 
   it("stops browser and daemon playback", () => {
     callMock.mockResolvedValue({ status: "stopped" });

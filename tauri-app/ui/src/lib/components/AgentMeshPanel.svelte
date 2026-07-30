@@ -80,9 +80,7 @@
   let routing = $state(false);
 
   let filtered = $derived(
-    (status?.specialists ?? []).filter(
-      (specialist) => sourceFilter === "all" || specialist.source === sourceFilter,
-    ),
+    (status?.specialists ?? []).filter((specialist) => sourceFilter === "all" || specialist.source === sourceFilter),
   );
 
   onMount(load);
