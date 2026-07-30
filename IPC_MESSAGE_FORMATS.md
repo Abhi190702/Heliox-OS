@@ -181,7 +181,18 @@ Verify the HMAC hash-chain integrity of the Agent Gateway audit log — a separa
 ```
 
 #### `gateway_policy_get`
-Return the current per-`InvocationSource` enforced floors: `interactive`, `autonomous`, `web_agent`, `voice`, `gesture`, `self_healing`, plus one per `AgentOrchestrator` specialist role (`system_agent`, `ssh_agent`, `code_agent`, `monitor_agent`, `comm_agent`, `rss_agent`, `calendar_agent`, `forensics_agent`, `semantic_search_agent`).
+Return the current per-`InvocationSource` enforced floors. The shipped set has
+25 profiles:
+
+`interactive`, `autonomous`, `voice`, `gesture`, `self_healing`,
+`system_agent`, `ssh_agent`, `code_agent`, `web_agent`, `monitor_agent`,
+`comm_agent`, `rss_agent`, `calendar_agent`, `forensics_agent`,
+`semantic_search_agent`, `file_agent`, `package_agent`, `service_agent`,
+`desktop_agent`, `automation_agent`, `integration_agent`, `vision_agent`,
+`plugin_runtime_agent`, `network_agent`, and `git_agent`.
+
+Communication and Email are separate runtime providers that intentionally share
+the `comm_agent` gateway profile.
 
 **Params:** `{}`
 
@@ -300,7 +311,9 @@ Both params are optional.
 ### API Key Management
 
 #### `store_api_key`
-Store an API key in the encrypted vault.
+Store an API key in the operating-system credential store. Heliox uses Windows
+Credential Manager, macOS Keychain, or a Secret-Service-compatible Linux
+keyring and fails closed if the platform store is unavailable.
 
 **Params:** `{ "provider": "openai", "api_key": "sk-..." }`
 **Result:** `{ "status": "ok" }`
@@ -325,7 +338,7 @@ List all providers with stored keys.
 Check connectivity.
 
 **Params:** `{}`
-**Result:** `{ "pong": true, "version": "0.10.0" }`
+**Result:** `{ "pong": true, "version": "0.10.1" }`
 
 #### `health`
 Check all model backend health.
@@ -337,13 +350,13 @@ Check all model backend health.
 Return platform information.
 
 **Params:** `{}`
-**Result:** `{ "platform": { ... }, "capabilities_count": 120 }`
+**Result:** `{ "platform": { ... }, "capabilities_count": 156 }`
 
 #### `capabilities`
 List all available action types.
 
 **Params:** `{}`
-**Result:** `{ "action_types": ["file_read", "file_write", ...], "count": 120 }`
+**Result:** `{ "action_types": ["file_read", "file_write", ...], "count": 156 }`
 
 #### `list_ollama_models`
 Discover locally available Ollama models.
@@ -362,11 +375,31 @@ Dry-run routing analysis: which specialist agent(s) would handle a given input.
 **Result:**
 ```json
 {
+  "input": "write a Python script",
   "assigned_agents": ["code_agent"],
+  "enhanced_prompt": "...",
   "is_multi_agent": false,
-  "orchestrator": { ... }
+  "orchestrator": {
+    "input": "write a Python script",
+    "assigned_agents": ["code_agent"],
+    "assigned_specialists": [
+      {
+        "agent_key": "CodeAgent",
+        "role": "code_agent",
+        "display_name": "Code Agent",
+        "matches": 2,
+        "quality_score": 0.5
+      }
+    ],
+    "is_multi_agent": false,
+    "routing_basis": "capability_contract"
+  }
 }
 ```
+
+Preview keywords and descriptions explain routing but do not create execution
+authority. Actual provider selection also requires exact capability support and
+uses persisted callback-observed outcome quality.
 
 #### `agent_stats`
 Performance statistics for all registered specialist agents.
@@ -383,8 +416,71 @@ List capabilities of every registered agent.
 #### `agent_spawn`
 Dynamically spawn a new specialist agent.
 
-**Params:** `{ "role": "code_agent" }`
-**Result:** `{ "status": "spawned", "agent_id": "abc123" }` or `{ "status": "error", "message": "..." }`
+**Preferred params:** `{ "agent_name": "VisionAgent" }`
+
+`agent_name` is a concrete class discovered by `AgentRegistry`. The legacy
+`{ "role": "code_agent" }` form remains for the original compatibility roles
+but is not the extensibility path.
+
+**Result:** `{ "status": "spawned", "agent_id": "vision_agent_ab12cd", "agent_name": "VisionAgent" }` or `{ "status": "error", "message": "..." }`
+
+#### `agent_mesh_status`
+
+Return the live provider, authority, budget, routing-quality, and action
+coverage contract.
+
+**Params:** `{}`
+
+The v0.10.1 runtime reports 21 executable specialists, 156 declared and
+available action types, and an empty `uncovered_action_types` list. Clients must
+surface exact uncovered names as a release-blocking warning rather than hiding
+coverage regression.
+
+**Result (abbreviated):**
+
+```json
+{
+  "enabled": true,
+  "total_specialists": 21,
+  "executable_specialists": 21,
+  "registered_action_types": 156,
+  "available_action_types": 156,
+  "coverage_complete": true,
+  "uncovered_action_types": [],
+  "specialists": []
+}
+```
+
+---
+
+### Intelligence, durability, and evolution
+
+These RPCs expose the implemented intelligence layers. They do not bypass the
+normal execution or promotion gates.
+
+| Method | Purpose |
+|--------|---------|
+| `resume_task` | Resume an interrupted durable task using its hashed-capability token |
+| `temporal_memory_status` | List provenance-labelled active/candidate facts, episodes, and working state |
+| `temporal_memory_retract` | Explicitly retract one fact by `fact_id` |
+| `companion_speech_status` | Inspect the single priority speech channel and current owner |
+| `risk_gate_status` | Inspect structured, learned-risk, and optional UI-JEPA availability/evidence |
+| `online_learning_status` | Inspect verified labels, transitions, replay, drift, routines, corrections, and privacy state |
+| `online_learning_reset` | Forget online model state without deleting or mutating the experience ledger |
+| `strategy_evolution_status` / `strategy_candidates` | Inspect inert strategy candidates and active assignments |
+| `strategy_propose` / `strategy_reflect` | Create inert strategy candidates |
+| `strategy_record_isolated` / `strategy_start_shadow` / `strategy_record_shadow` | Supply isolated and shadow evidence |
+| `strategy_start_canary` / `strategy_record_canary` | Start and record an explicitly consented canary |
+| `strategy_promote` / `strategy_rollback` | Exact-ID human promotion or reversible rollback |
+| `evolution_status` / `evolution_runs` / `evolution_candidates` | Inspect the isolated engineering harness |
+| `evolution_create_run` / `evolution_generate_candidates` / `evolution_evaluate` | Create and evaluate two-to-eight inert patches in detached Docker worktrees |
+| `evolution_request_promotion` | Archive an exact-candidate promotion request for external review; it cannot merge or push |
+
+`resume_task` requires `resume_token`; unauthenticated durable-plan resume is
+rejected. `strategy_start_canary` requires an identified `actor` and
+`consent_confirmed: true`. Strategy promotion/rollback and evolution promotion
+requests require the exact candidate ID in `confirmation`. Automatic promotion
+is disabled.
 
 ---
 
@@ -1255,13 +1351,18 @@ A fused voice + gesture intent from the fusion engine.
 Emitted once on startup when a new daemon version introduces new capabilities.
 
 ```json
-{ "message": "New: v0.10.0 release hardening and security improvements are now available!", "version": "0.10.0" }
+{ "message": "New: v0.10.1 intelligence, safety, and agent-mesh improvements are now available!", "version": "0.10.1" }
 ```
 
 ---
 
 ### `daemon_speech`
-Display-only pairing for text the daemon has already spoken directly on its own OS audio output via `pilot.system.voice.speak()` (e.g. `executor.py`'s cognitive-stress-gate pause, `AutonomousExecutor`'s end-of-job announcement) — a separate, daemon-side TTS path from the frontend's own `speechSynthesis` (see `execution_narration`, above). The frontend must render `text` as a chat bubble (`session.ts`'s `addSystemMessage`) and must **never** also call `speakText()`/`speechSynthesis` for it, or the phrase would be spoken twice.
+Display-only pairing for text accepted by the daemon's
+`CompanionSpeechCoordinator` (for example, a cognitive-stress pause or
+autonomous-job completion). The coordinator serializes daemon callers under the
+shared priority contract. The frontend renders `text` as a chat bubble and
+must not replay it through browser `speechSynthesis`; that path is only a
+fallback when daemon speech did not own the utterance.
 
 ```json
 { "text": "Your focus state is low. Confirming in 10 seconds.", "source": "stress_gate" }
@@ -1295,11 +1396,11 @@ Defined in `schemas/action_plan.schema.json` and `daemon/pilot/actions.py`.
 
 | Tier | Action types |
 |------|-------------|
-| Read-only | `file_read`, `file_list`, `file_search`, `directory_summary`, `package_search`, `service_status`, `gnome_setting_read`, `open_url`, `open_application`, `notify`, `process_list`, `process_info`, `clipboard_read`, `system_info`, `disk_usage`, `memory_usage`, `cpu_usage`, `network_info`, `battery_info`, `env_get`, `env_list`, `window_list`, `volume_get`, `brightness_get`, `screenshot`, `wifi_list`, `disk_list`, `user_list`, `user_info`, `schedule_list`, `mouse_position`, `screen_ocr`, `screen_find_text`, `screen_analyze`, `screen_element_map`, `browser_extract`, `browser_extract_table`, `browser_extract_links`, `browser_screenshot`, `browser_list_tabs`, `browser_page_info`, `trigger_list`, `file_parse`, `file_search_content`, `api_scrape`, `registry_read` |
-| User write | `file_write`, `file_move`, `file_copy`, `git_resolve`, `clipboard_write`, `keyboard_type`, `keyboard_press`, `keyboard_hotkey`, `keyboard_hold`, `mouse_click`, `mouse_double_click`, `mouse_right_click`, `mouse_move`, `mouse_drag`, `mouse_scroll`, `volume_set`, `volume_mute`, `brightness_set`, `window_focus`, `window_minimize`, `window_maximize`, `browser_navigate`, `browser_click`, `browser_type`, `browser_select`, `browser_hover`, `browser_scroll`, `browser_execute_js`, `browser_fill_form`, `browser_new_tab`, `browser_close_tab`, `browser_switch_tab`, `browser_back`, `browser_forward`, `browser_refresh`, `browser_wait`, `browser_close`, `env_set`, `download_file`, `api_request`, `api_github`, `code_execute`, `code_generate_and_run`, `trigger_create`, `trigger_start`, `trigger_stop` |
-| System modify | `package_install`, `package_update`, `service_start`, `service_stop`, `service_restart`, `service_enable`, `service_disable`, `gnome_setting_write`, `shell_command`, `shell_script`, `schedule_create`, `file_permissions`, `wifi_connect`, `wifi_disconnect`, `disk_mount`, `registry_write`, `api_send_email`, `api_webhook`, `api_slack`, `api_discord` |
-| Destructive | `file_delete`, `package_remove`, `process_kill`, `power_shutdown`, `power_restart`, `power_logout`, `schedule_delete`, `disk_unmount`, `window_close`, `trigger_delete`, `browser_click_text` |
-| Root critical | `power_sleep`, `power_lock`, `user_info` (with elevation), `dbus_call` |
+| Read-only (63) | `file_read`, `file_list`, `file_search`, `directory_summary`, `directory_size`, `file_hash`, `file_compare`, `git_status`, `git_diff`, `git_log`, `package_search`, `service_status`, `gnome_setting_read`, `open_url`, `open_application`, `notify`, `process_list`, `process_info`, `clipboard_read`, `system_info`, `disk_usage`, `memory_usage`, `cpu_usage`, `network_info`, `battery_info`, `schedule_list`, `env_get`, `env_list`, `window_list`, `volume_get`, `brightness_get`, `screenshot`, `wifi_list`, `disk_list`, `user_list`, `user_info`, `registry_read`, `log_analyze`, `mouse_position`, `screen_ocr`, `screen_find_text`, `screen_analyze`, `screen_element_map`, `browser_extract`, `browser_extract_table`, `browser_extract_links`, `browser_screenshot`, `browser_list_tabs`, `browser_wait`, `browser_page_info`, `trigger_list`, `calendar_parse`, `calendar_list_events`, `file_parse`, `file_search_content`, `api_scrape`, `workspace_index`, `workspace_search`, `email_fetch`, `email_summarize`, `calendar_fetch`, `calendar_reconcile`, `screen_detect_elements` |
+| User write (47) | `file_write`, `file_move`, `file_copy`, `git_resolve`, `git_branch`, `git_stage`, `dbus_call`, `pty_exec`, `clipboard_write`, `power_sleep`, `power_lock`, `env_set`, `window_focus`, `window_minimize`, `window_maximize`, `volume_set`, `volume_mute`, `brightness_set`, `download_file`, `mouse_click`, `mouse_double_click`, `mouse_right_click`, `mouse_move`, `mouse_drag`, `mouse_scroll`, `keyboard_type`, `keyboard_press`, `keyboard_hotkey`, `keyboard_hold`, `browser_hover`, `browser_scroll`, `browser_new_tab`, `browser_close_tab`, `browser_switch_tab`, `browser_back`, `browser_forward`, `browser_refresh`, `browser_close`, `trigger_create`, `trigger_delete`, `trigger_start`, `trigger_stop`, `code_generate_and_run`, `api_request`, `api_github`, `wasm_call`, `skill_run` |
+| System modify (35) | `file_permissions`, `git_commit`, `git_push`, `package_install`, `package_update`, `service_start`, `service_stop`, `service_restart`, `service_enable`, `service_disable`, `gnome_setting_write`, `shell_command`, `shell_script`, `schedule_create`, `wifi_connect`, `wifi_disconnect`, `disk_mount`, `registry_write`, `browser_navigate`, `browser_click`, `browser_click_text`, `browser_type`, `browser_select`, `browser_fill_form`, `code_execute`, `calendar_sync`, `calendar_create_event`, `api_send_email`, `api_webhook`, `api_slack`, `api_discord`, `email_reply`, `ssh_command`, `ssh_script`, `plugin_call` |
+| Destructive (11) | `file_delete`, `package_remove`, `process_kill`, `power_shutdown`, `power_restart`, `power_logout`, `schedule_delete`, `window_close`, `disk_unmount`, `browser_execute_js`, `calendar_delete_event` |
+| Root critical | Any action carrying validated `requires_root: true`; root critical is an action-instance elevation, not a fixed enum list |
 
 Actions at **Tier 2 (System modify) and above** set `requires_confirmation: true` when `confirm_tier2` is enabled in the security config (the default).
 
@@ -1309,6 +1410,8 @@ Actions at **Tier 2 (System modify) and above** set `requires_confirmation: true
 - `ssh_command`, `ssh_script` — Tier 2, remote hosts outside the local snapshot's reach
 - `power_shutdown`, `power_restart`, `power_logout` — Tier 3, can't be "rolled back" once they take effect
 - `package_remove` — Tier 3, can lose config/data a simple reinstall won't restore
+- `browser_execute_js` — Tier 3, arbitrary page-context code can exfiltrate before local rollback
+- `git_push` — Tier 2, remote repository state is outside the local snapshot
 - Any action with a non-empty `dangerous_flags` list (see above)
 
 These always require confirmation even if some future policy toggle allowed auto-approving lower tiers.
@@ -1501,6 +1604,16 @@ If verification fails, the daemon re-plans and the cycle repeats (up to 2 retrie
 | `daemon/pilot/security/permission_audit.py` | `PermissionEscalationAuditStore` — tamper-evident HMAC-chained audit log |
 | `daemon/pilot/security/gateway.py` | `AgentGateway`, `InvocationSource`, `SourceProfile`, `resolve_effective_profile()` — source-scoped permission floors |
 | `daemon/pilot/security/gateway_audit.py` | `AgentGatewayAuditStore` — separate tamper-evident HMAC-chained audit log for gateway decisions |
+| `daemon/pilot/intelligence/experience.py` | Append-only event schema, redaction, causality, and idempotency |
+| `daemon/pilot/workflows/durable_tasks.py` | Durable task states, resume capabilities, approvals, and execution claims |
+| `daemon/pilot/memory/store.py` | Temporal facts, evidence, contradiction, retraction, and bounded context |
+| `daemon/pilot/system/companion_speech.py` | Shared daemon speech priority and ownership coordinator |
+| `daemon/pilot/intelligence/world_model.py` | Structured prediction contract and hybrid risk fusion |
+| `daemon/pilot/intelligence/online_learning.py` | Verified River learning, replay, drift, and reset |
+| `daemon/pilot/intelligence/strategy_evolution.py` | Inert strategy candidate lifecycle and assignments |
+| `daemon/pilot/intelligence/evolution_harness.py` | Detached-worktree/Docker engineering evaluation archive |
+| `daemon/pilot/agents/agent_mesh.py` | Specialist capability, resource, budget, routing-quality, delegation, and coverage contracts |
+| `daemon/pilot/plugins/` | Capability validation and constrained native/WASM execution |
 | `daemon/pilot/reasoning/events.py` | `ReasoningEvent` schema and event name constants |
 | `tauri-app/ui/src/lib/api/daemon.ts` | WebSocket client (`connect`, `call`, `onNotification`) |
 | `tauri-app/ui/src/lib/stores/session.ts` | Notification handlers for the core pipeline, confirm/rollback state |

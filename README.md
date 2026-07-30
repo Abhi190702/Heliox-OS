@@ -73,8 +73,8 @@ Unlike simple command runners, Heliox OS is a **true agentic system** inspired b
 
 1. **Gateway Hub & Memory** — LLM evaluates persistent memory context before reasoning.
 2. **Planner** — Converts natural language into a structured multi-step action plan.
-3. **Agent Orchestrator** — Routes each action to one of ten specialist roles with source-scoped capability policy.
-4. **Specialist Agents** — Ten domain experts execute through native OS APIs where available, plus explicit browser and input-automation adapters when the task requires them.
+3. **Agent Orchestrator** — Routes each action to one of 21 registered specialists across 20 source-scoped roles.
+4. **Specialist Agents** — Domain experts execute through reviewed OS, browser, integration, and remote-system adapters; all 156 declared action types have at least one concrete provider.
 5. **Verifier** — Post-execution verification confirms the action succeeded and feeds results back into the loop.
 6. **Reflector** — Self-improvement engine learns from successes and failures.
 7. **Security** — Five-tier permission system with confirmation gates and rollback support.
@@ -234,24 +234,20 @@ Additional adapters can be registered via `pipeline.register_adapter(...)` and s
 
 ## 🧠 Multi-Agent Orchestrator
 
-Heliox OS uses a **modular multi-agent architecture** where specialized agents collaborate to solve complex tasks:
+Heliox OS currently registers **21 concrete specialist agents across 20 source-scoped roles**. Communication and email intentionally share the `comm_agent` security identity while remaining separate runtime specialists.
 
-| Agent | Domain | Key Skills |
-|-------|--------|------------|
-| 🖥️ **System Agent** | OS Operations | Files, processes, services, power, input control, screen vision, triggers |
-| 💻 **Code Agent** | Development | Code generation, execution, debugging, dev tooling (git, pip, npm) |
-| 🌐 **Web Agent** | Web & APIs | Browser automation, scraping, HTTP requests, downloads |
-| 📊 **Monitor Agent** | Monitoring | CPU, RAM, disk, network monitoring with threshold alerts |
-| 📡 **Communication Agent** | Messaging | Email, Slack, Discord, webhooks, desktop notifications |
-| 📅 **Calendar Agent** | Scheduling | .ics parsing, CalDAV sync, event management |
-| 🔎 **Forensics Agent** | Security | Log parsing, incident reporting, threat containment, PID translation |
-| 🔐 **SSH Agent** | Remote systems | Allowlisted hosts, commands, and scripts |
-| 📰 **RSS Agent** | Feeds | Feed retrieval and release/news summaries |
-| 🔍 **Semantic Search Agent** | Retrieval | Workspace indexing and semantic search |
+| Group | Specialists |
+|-------|-------------|
+| Core OS | System, File Operations, Package Management, Service Management, Desktop Automation |
+| Development | Code, Git, Workflow Automation |
+| Web and integrations | Web, Network, Integration, Plugin Runtime |
+| Communication | Communication, Email, Calendar, RSS |
+| Perception and retrieval | Vision, Monitor, Forensics, Semantic Search |
+| Remote systems | SSH |
 
-**How it works:** The Planner generates an action plan → the Orchestrator analyzes each action type → routes to the correct specialist → agents execute in sequence → results merge for verification.
+The planner produces a validated action plan, the orchestrator selects a capable provider, the Agent Gateway applies the provider's source profile, and execution remains ordered unless actions are explicitly proven independent. Results pass through verification, the task ledger, reflection, and user-visible completion.
 
-**Dynamic Spawning:** Agents can be created on-demand at runtime via the `agent_spawn` API endpoint.
+**Dynamic spawning:** `agent_spawn` accepts a discovered specialist class name such as `VisionAgent`. The legacy role parameter remains available for compatibility with the original agents. See [Agent Development Guide](AGENT_DEVELOPMENT_GUIDE.md).
 
 ## Release Verification
 
@@ -259,11 +255,11 @@ The release gate is reproducible; it does not rely on an informal task-pass perc
 
 | Surface | Verification |
 |---------|--------------|
-| Python daemon | Ruff lint and format; 1,231 tests passed, 6 skipped |
-| Svelte UI | Prettier and `svelte-check` with zero warnings; 118 unit tests; production build |
+| Python daemon | Ruff lint and format; 1,456 tests passed, 6 skipped |
+| Svelte UI | Prettier and `svelte-check` with zero warnings; 166 unit tests; production build |
 | Dependencies | `npm audit --audit-level=high` with zero vulnerabilities |
-| Native Tauri bridge | Cargo format, Clippy with warnings denied, and 7 Rust tests |
-| Visual UI | 32 Playwright visual scenarios passed on Windows |
+| Native Tauri bridge | Cargo format, Clippy with warnings denied, and 8 Rust tests |
+| Visual UI | 33 Playwright visual scenarios passed on Windows |
 
 GitHub Actions repeats Python tests on Windows, Ubuntu, and macOS with Python 3.11 and 3.12, runs the frontend gate, compares per-OS visual baselines, and checks the Rust bridge on Linux. Camera, microphone, desktop permissions, model downloads, and OS-specific integrations still require real-device validation; CI cannot prove hardware behavior.
 
@@ -282,10 +278,10 @@ promotion happen only after package and clean-machine acceptance.
 <a id="action-catalog"></a>
 ## Action Catalog
 
-The planner schema currently declares **146 action types**. Availability depends on the operating system, installed optional dependencies, configured credentials, and the active security policy. The groups below are representative, not exhaustive; `daemon/pilot/actions.py` is the source of truth.
+The planner schema currently declares **156 action types**, and the live specialist mesh reports **156/156 provider coverage**. Availability still depends on the operating system, installed optional dependencies, configured credentials, and active security policy. The groups below are representative, not exhaustive; `daemon/pilot/actions.py` is the source of truth.
 
 ### File Operations
-`file_read` · `file_write` · `file_delete` · `file_move` · `file_copy` · `file_list` · `file_search` · `directory_summary` · `file_permissions`
+`file_read` · `file_write` · `file_delete` · `file_move` · `file_copy` · `file_list` · `file_search` · `directory_summary` · `directory_size` · `file_hash` · `file_compare` · `file_permissions`
 
 ### Process Management
 `process_list` · `process_kill` · `process_info`
@@ -297,10 +293,16 @@ The planner schema currently declares **146 action types**. Availability depends
 `code_execute` — Run Python, PowerShell, Bash, or JavaScript with auto-fix on failure
 
 ### Browser & Web
-`browser_navigate` · `browser_extract` · `browser_extract_table` · `browser_extract_links`
+`browser_navigate` · `browser_click` · `browser_type` · `browser_extract` · `browser_extract_table` · `browser_extract_links`
 
 ### Screen & Vision
-`screenshot` · `screen_ocr` · `screen_analyze`
+`screenshot` · `screen_ocr` · `screen_analyze` · `screen_detect_elements`
+
+### Git
+`git_status` · `git_diff` · `git_log` · `git_branch` · `git_stage` · `git_commit` · `git_push` · `git_resolve`
+
+### Plugins, WASM, and Skills
+`plugin_call` · `wasm_call` · `skill_run`
 
 ### Package Management
 `package_install` · `package_remove` · `package_update` · `package_search`
@@ -350,6 +352,27 @@ Auto-detects: winget, choco, brew, apt, dnf, pacman
 
 ## Architecture
 
+The current architecture was implemented in 11 connected phases. They share one
+event, safety, and verification backbone rather than operating as independent
+features:
+
+| Layer | Implemented responsibility |
+|-------|----------------------------|
+| Experience ledger | Typed, append-only causal events with provenance, privacy labels, and idempotency |
+| Replay evaluation | Deterministic trace replay graded by real environment outcome, safety, latency, efficiency, and interaction quality |
+| Durable loop | Restart-safe task journal, delayed approvals, cancellation, execution claims, and authenticated resume |
+| Temporal context | Working, episodic, semantic, and time-bounded memory under a strict context budget |
+| Companion coordinator | One priority-controlled voice/interruption channel with barge-in and duplicate suppression |
+| Hybrid world model | Structured transition prediction, calibrated learned risk, verified failure history, and optional shadow UI-JEPA |
+| Continuous learning | Verified River adaptation with repeated-evidence promotion, replay, drift detection, and reset |
+| Strategy evolution | Inert GEPA-style candidates promoted only after replay, shadow, consented canary, and exact-ID review |
+| Plugin security | Fail-closed capability manifests plus constrained native and WASM brokers |
+| Evolution harness | Detached worktrees evaluated in a network-disabled, credential-free Docker runner; no automatic code promotion |
+| Specialist mesh | 21 specialists, bounded delegation, outcome-based routing, and 156/156 action coverage |
+
+Read [Architecture](docs/ARCHITECTURE.md) for process boundaries, authority,
+persistence, all 11 layers, and the extension invariants.
+
 ```mermaid
 graph TD
     User(["User Input: Voice, Text, Gestures, Gaze"]) --> Gateway
@@ -382,37 +405,41 @@ graph TD
     FusedIntent --> Daemon
 
     subgraph "Agent Runtime - Python"
-        Daemon["Agent Server / ReAct Loop"] --> Memory[("Long-term Memory")]
-        Memory --> |"Vector + Semantic"| ChromaDB[("ChromaDB")]
+        Daemon["Agent Server / Durable ReAct Loop"] --> Ledger[("Append-only Experience Ledger")]
+        Daemon --> Journal[("Durable Task Journal")]
+        Daemon --> Memory[("Temporal Memory")]
+        Memory --> Context["Budgeted Context Assembler"]
+        Ledger --> Learning["Verified Online Learning"]
+        Ledger --> Replay["Trace Replay + Evaluation"]
+        Replay --> Strategy["Shadow Strategy Evolution"]
         Daemon --> Decomposer["Task Decomposer"]
         Decomposer --> Planner["LLM Planner"]
+        Context --> Planner
+        Strategy -.->|"promoted assignment only"| Planner
         Planner --> PromptImprover["Prompt Improver"]
         PromptImprover --> |"reuse strategies"| Planner
         Planner --> Router{"Model Router"}
         Router --> Ext_LLM("Gemini / OpenAI / Claude / Meta")
         Router --> Int_LLM("Ollama")
         Planner --> Sandbox["Simulation Sandbox"]
-        Sandbox --> |"risk report"| Security["Security Gate"]
-        Security --> LearnedRisk["Learned Risk World Model"]
-        LearnedRisk --> |"can only add caution"| Orchestrator["Agent Orchestrator"]
+        Sandbox --> LearnedRisk["Hybrid World Model"]
+        LearnedRisk --> |"can only add caution"| Security["Security Gate + Approval"]
+        Security --> Orchestrator["Capability Agent Mesh"]
     end
 
     subgraph "Multi-Agent System"
-        Orchestrator --> SA["System Agent"]
-        Orchestrator --> CA["Code Agent"]
-        Orchestrator --> WA["Web Agent"]
-        Orchestrator --> MA["Monitor Agent"]
-        Orchestrator --> COMM["Communication Agent"]
-        Orchestrator --> SSH["SSH Agent"]
-        Orchestrator --> RSS["RSS Agent"]
-        Orchestrator --> CAL["Calendar Agent"]
-        Orchestrator --> FOR["Forensics Agent"]
-        Orchestrator --> SEM["Semantic Search Agent"]
+        Orchestrator --> OS["OS + Desktop specialists"]
+        Orchestrator --> DEV["Code + Git + Automation specialists"]
+        Orchestrator --> WEB["Web + Network + Integration specialists"]
+        Orchestrator --> COMMS["Communication + Email + Calendar + RSS"]
+        Orchestrator --> PER["Vision + Monitor + Forensics + Search"]
+        Orchestrator --> REMOTE["SSH specialist"]
     end
 
     subgraph "Plugin Ecosystem"
-        PluginReg["Reviewed GitHub Marketplace + Local Plugins"]
-        PluginReg -->|"tools"| Orchestrator
+        PluginReg["Reviewed GitHub Marketplace + Signed Local Plugins"]
+        PluginReg -->|"guarded external providers"| Orchestrator
+        PluginReg --> Broker["Native / WASM capability broker"]
         P1["weather"]
         P2["spotify-control"]
         P3["home-assistant"]
@@ -421,19 +448,15 @@ graph TD
         P3 --- PluginReg
     end
 
-    SA --> Executor["System Executor"]
-    CA --> Executor
-    WA --> Executor
-    COMM --> Executor
-    CAL --> Executor
-    FOR --> Executor
-    SEM --> Executor
-    SSH --> Executor
-    RSS --> Executor
-    MA --> BG["Background Tasks"]
+    OS --> Executor["Shared Executor + domain adapters"]
+    DEV --> Executor
+    WEB --> Executor
+    COMMS --> Executor
+    PER --> Executor
+    REMOTE --> Executor
+    Broker --> Executor
 
     Executor --> Verifier["Verifier"]
-    BG --> Verifier
     Verifier --> Reflector["Reflector"]
     Reflector --> PromptImprover
     Reflector --> Memory
@@ -467,14 +490,17 @@ These are implemented runtime paths, not a future roadmap:
 | Subsystem | Runtime surface |
 |-----------|-----------------|
 | Persistent memory and reflection | `memory/store.py`, `agents/reflector.py`, prompt/skill registries |
-| Planning and orchestration | Dependency-aware decomposition and 10 specialist-agent roles |
+| Planning and orchestration | Dependency-aware decomposition, 21 specialists across 20 gateway roles, and 156/156 action coverage |
+| Experience and durability | Append-only causal ledger, persistent task journal, idempotent action claims, and authenticated resume |
+| Context and adaptation | Temporal memory, bounded context assembly, verified online learning, and drift-aware replay |
+| Evaluation and evolution | Outcome trace replay, shadow strategy optimization, and isolated Docker/worktree engineering candidates |
 | Reasoning telemetry | Live ReAct events rendered in the desktop UI |
 | Screen, hand, and gaze perception | Screen context plus on-device MediaPipe hand and coarse gaze pipelines |
-| Learned risk world model | A trained MLP predicts action impact beside deterministic safety rules; it can only increase caution |
+| Hybrid world model | Structured transition prediction, calibrated learned risk, verified failures, and optional validated UI-JEPA; learned evidence can only increase caution |
 | Durable voice/gesture workflows | SQLite-backed multi-step jobs with pause, resume, cancel, and restart recovery |
 | Opt-in autonomous controls | Healing, execution narration, preview-before-action, manual supervision, and gesture cursor |
-| Voice output | Local Kyutai Pocket TTS with automatic OS-native fallback |
-| Extension ecosystem | Signed local plugins and a reviewed, hash-verified GitHub marketplace |
+| Voice output | Coordinated Kokoro default, selectable Pocket TTS, and automatic OS/browser fallback |
+| Extension ecosystem | Signed local plugins, a reviewed hash-verified marketplace, constrained native/WASM brokers, and explicit capability grants |
 
 ### 🔧 Task Decomposition Engine
 
@@ -506,10 +532,16 @@ Before executing dangerous commands, the sandbox produces an **impact report**:
 
 ### 🧬 Self-Improving Prompt System
 
-Successful reasoning chains are stored and reused:
-- Keyword-indexed prompt templates with success/failure rates
-- Automatic strategy matching for similar future tasks
-- Rolling improvement — the agent gets better over time
+Prompt templates and verified strategy evolution are deliberately separate:
+
+- Existing prompt strategies retain success/failure evidence for matching.
+- GEPA-style reflection may propose planner, tool, recovery, context,
+  suggestion, or decomposition candidates from sanitized traces.
+- Candidates remain inert through isolated replay, safety/regression checks,
+  10 non-regressing shadow samples, five consented canary samples, and exact-ID
+  administrator promotion.
+- Automatic promotion is disabled, and rollback restores the previous
+  assignment or shipped baseline.
 
 ### 🔌 Plugin Ecosystem
 
@@ -518,13 +550,21 @@ Heliox has two deliberately separate extension paths:
 | Path | Current packages | Trust model |
 |------|------------------|-------------|
 | Built-in daemon integrations | Developer tools, media control, Home Assistant | Shipped and reviewed with the application |
-| Public marketplace | `weather`, `spotify-control`, `home-assistant` | Approved GitHub catalog, restricted imports, per-file SHA-256 verification |
+| Public marketplace | `weather`, `spotify-control`, `home-assistant` | Approved GitHub catalog, capability manifest, per-file SHA-256 verification, and constrained native/WASM execution |
 
 Local development plugins live in `~/.config/heliox-os/plugins/`. They are
 auto-discovered at startup only after Ed25519 signature verification. Local
 packages can include `plugin.ed25519.pub` with `plugin.ed25519.sig`; unsigned,
 untrusted, or tampered packages are rejected before their manifest or code is
 loaded.
+
+Every marketplace manifest declares exact filesystem roots, network domains,
+processes, credentials, clipboard directions, camera/microphone access,
+retention, and destructive authority. Native Python tools run in a one-shot
+child broker with a scrubbed environment and only declared credentials. WASM
+tools receive path-scoped WASI preopens, bounded memory/runtime, and no network
+by default. Destructive tools cannot use the direct Marketplace test path; they
+must enter the guarded planner and approval flow.
 
 To publish for everyone, create and test the plugin in the app, add
 `plugins/<plugin-name>/manifest.json` and `plugin.py`, update
@@ -672,8 +712,10 @@ npm run tauri dev
 - Dangerous shell argument patterns (recursive+force deletes, wildcard/root path targets) are flagged even on already-whitelisted commands
 - **Snapshot-based rollback** — Btrfs/Timeshift on Linux and Windows Restore Points on Windows. Required snapshots fail closed: if the selected backend is unavailable or the Windows daemon is not elevated, the destructive action does not run. Windows controls restore-point retention; Heliox retention settings apply where the backend supports them.
 - **Tamper-evident, HMAC-chained audit log** for every elevated permission decision, viewable and independently verifiable (integrity check) from the Settings panel
-- **Agent Gateway**: source-scoped permission floors for shell/browsing/system-control actions (interactive/autonomous/web-agent/voice/gesture/self-healing, plus one enforced ceiling per specialist agent in the multi-agent orchestrator, each tightenable but never independently widenable by a per-task override), a second tamper-evident audit chain for gateway decisions, and dry-run impact modeling extended to browser and system-control actions — see [SECURITY.md](SECURITY.md) for the full threat model this closes
-- **Learned risk world model**: the bundled transition model predicts action impact from 36,000 real training samples before execution. Its MLP output is blended with an action-specific robust median calibrated on a separate temporal block and evaluated on 5,400 later held-out samples; runtime confidence falls outside the observed OS-state distribution. Deterministic policy remains authoritative, so the model can interrupt or add confirmation but cannot remove a rule-based warning or grant permission.
+- **Agent Gateway**: 25 source-scoped permission floors cover interactive/autonomous/modality/background paths and all 20 specialist roles. Each can be tightened but never widened by a per-task override; a separate tamper-evident chain records every gateway decision.
+- **Hybrid risk world model**: deterministic policy, structured OS/UI transition prediction, the calibrated 36,000-sample impact model, verified failure history, and optional validated UI-JEPA use the riskier result. Learned evidence can interrupt or add confirmation but cannot remove a rule-based warning or grant permission.
+- **Durable execution**: approvals, cancellation, task state, and action claims survive reconnects/restarts. Completed claims replay their stored result; uncertain claims require reconciliation and are never silently executed twice.
+- **Bounded adaptation**: temporal memory and verified online learning require provenance/repeated evidence, exclude raw media, detect drift, and remain advisory. Strategy and engineering candidates stay inert until explicit evidence and human promotion.
 - **Autonomous Healing Engine (opt-in)**: passively watches CPU/memory/disk and plans a remediation goal through the normal Planner/Executor pipeline when one crosses its threshold — low-tier/reversible plans auto-execute, anything else is proposed and held for explicit confirmation — see [SECURITY.md](SECURITY.md#-autonomous-healing-engine-opt-in)
 - **Pre-execution target assessment**: dry-run plans that click/type/select on the current page get checked against the live DOM before you confirm — a missing, hidden, or ambiguous target raises that action's risk and shows why, instead of the same generic description every browser action used to get — see [SECURITY.md](SECURITY.md#-pre-execution-target-assessment-browser-actions)
 - **Interactive Execution Companion**: reviews every proposed plan independently, can warn/revise/stop work that drifts from the request, accepts typed or spoken live corrections during planning/execution/verification, and supplies grounded next ideas only after a verified result. Optional step narration remains user-controlled.
@@ -803,11 +845,13 @@ Ensure all frontend dependencies are installed successfully before starting the 
 To help newcomers and contributors navigate the Heliox-OS codebase, please refer to the following comprehensive documentation guides:
 
 - 🔍 **[Forensics Agent Runbook](docs/FORENSICS_RUNBOOK.md)** — Learn about the autonomous threat containment pipeline, the JSON schema for forensics logs, and the Tier 3/4 Security Gate.
+- 🧭 **[Architecture](docs/ARCHITECTURE.md)** — Process boundaries and the complete 11-layer ledger, durable-loop, context, companion, world-model, learning, security, harness, and specialist-mesh design.
 - ⚙️ **[Agent Development Guide](AGENT_DEVELOPMENT_GUIDE.md)** — Step-by-step instructions on designing and registering custom specialist agents.
 - 💬 **[IPC Message Formats](IPC_MESSAGE_FORMATS.md)** — Detailed specification of frontend-to-daemon WebSocket payloads and schemas.
 - 🎛️ **[Gesture Control Guide](GESTURES.md)** — Setup, privacy behavior, MediaPipe backends, gaze fusion, cursor control, and gesture mappings.
-- 🔒 **[Security Policy](SECURITY.md)** — Overview of permission tiers, encrypted keyring stores, and snapshot rollbacks.
-- ⚡ **[Cache Architecture](CACHE_IMPLEMENTATION.md)** — Internal mechanics of state storage and model response caching.
+- 🔒 **[Security Policy](SECURITY.md)** — Permission tiers, OS credential stores, capability boundaries, audit chains, and rollback.
+- 🔌 **[Plugin Marketplace](docs/PLUGIN_MARKETPLACE.md)** — Reviewed package format, capability grants, moderation, installation, and constrained execution.
+- ⚡ **[Model Cache](daemon/pilot/models/CACHE.md)** — Internal mechanics of model-response caching.
 
 ## 🤝 Contributing
 

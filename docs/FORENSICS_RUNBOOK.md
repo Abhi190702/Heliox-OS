@@ -47,7 +47,7 @@ When a log analysis task returns an incident report with a `CRITICAL` severity l
 Because the generated plan is classified as destructive, it triggers an operator confirmation workflow:
 * **Auditory Hold & WebSocket Alert**: The bridge registers a `PendingConfirmation` in the server's global registry and broadcasts a `threat_confirmation_required` notification containing the incident details, PIDs, and proposed actions.
 * **60-Second Timeout Window**: The system enters a 60-second window. During this time, the operator must explicitly approve or deny the action in the UI. If the timer expires without a response, the containment plan is aborted, and a `threat_containment_timeout` event is broadcast.
-* **Orchestration to System Agent**: If the operator approves, the Orchestrator receives the confirmed plan and routes it directly to the `System Agent` via `execute_plan()`. The `System Agent` executes the system calls (e.g., sending `SIGKILL` to target processes).
+* **Capability-based orchestration**: If the operator approves, the Orchestrator receives the confirmed plan and selects a specialist with the exact capability using callback-observed routing quality. The selected provider executes through the normal gateway, audit, durable-claim, and verification path.
 * **Immutable Security Auditing**: Every stage of this containment pipeline is logged to the immutable security audit log (`AuditLogger`). Events are labeled `threat_contained`, `threat_containment_denied`, or `threat_containment_failed` along with execution stats and targeted PIDs.
 
 ---
@@ -130,7 +130,9 @@ The Threat Containment Bridge intercepts this report, inspects the JSON, and ide
 4. Pauses the pipeline and broadcasts a `threat_confirmation_required` notification.
 
 ### 4. Mitigation Command Execution
-Upon receiving explicit approval from the operator via the WebSocket gate, the Orchestrator routes the action to the **System Agent**, which executes the target system call:
+Upon receiving explicit approval from the operator via the WebSocket gate, the
+Orchestrator routes the action to a capable process-control specialist, which
+executes the target system call through the guarded action path:
 
 ```bash
 # Executed by System Agent via system-level process controller

@@ -42,14 +42,16 @@ Closes #<issue_number>
 - [ ] I have read the [CONTRIBUTING.md](../CONTRIBUTING.md)
 - [ ] My code follows the existing code style
 - [ ] I have added/updated tests where applicable
-- [ ] All existing tests pass (`pytest` for backend, `npm run test` for frontend)
+- [ ] All relevant tests pass (`pytest`; frontend `check`, `test:static`, `test:unit`, build, and visual tests as applicable)
 - [ ] I have updated documentation if needed
+- [ ] I assessed README, Architecture, Security, IPC, and marketplace documentation for execution/intelligence/security changes
 - [ ] I have tested on at least one platform (Windows / macOS / Linux)
 
 ### Marketplace plugin submissions
 
 - [ ] The plugin returns real results or clear errors, never fabricated success
 - [ ] I documented credentials, external services, and side effects
+- [ ] The manifest declares exact filesystem, network, process, credential, clipboard, device, retention, and destructive capabilities
 - [ ] I tested every declared tool
 - [ ] I ran `python scripts/validate_marketplace.py --write`
 - [ ] I committed the refreshed `plugins/registry.json` hashes

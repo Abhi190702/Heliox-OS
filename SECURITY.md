@@ -1,6 +1,6 @@
 # 🔐 Security Policy
 
-Helix OS is a privacy-first, autonomous AI agent that executes real actions on your system. Security isn't an afterthought here — it's core to how we build. If you've found a vulnerability, thank you for taking the time to report it responsibly. This document explains how.
+Heliox OS is a privacy-first, autonomous AI agent that executes real actions on your system. Security isn't an afterthought here — it's core to how we build. If you've found a vulnerability, thank you for taking the time to report it responsibly. This document explains how.
 
 ---
 
@@ -17,7 +17,7 @@ We actively maintain and patch the `main` branch only.
 
 ## 🔍 Scope
 
-This policy covers the following Helix OS components:
+This policy covers the following Heliox OS components:
 
 - **🧱 Sandbox Execution** — isolated environments where code and plans are executed safely
 - **🔑 Permission Tiers** — the five-tier permission system with confirmation gates and rollback support
@@ -28,7 +28,9 @@ This policy covers the following Helix OS components:
 - **🚪 Agent Gateway** — source-scoped permission floors, tamper-evident audit logging, and dry-run/simulation coverage for shell, browsing, and system-control actions, layered alongside the tier-based `PermissionChecker` (see the dedicated section below)
 
 **Out of scope:**
-- Third-party plugins not maintained by the Helix OS team
+- Bugs solely in third-party plugin business logic that Heliox does not
+  maintain. Capability, broker, signature, catalog, or approval bypasses remain
+  in scope even when a third-party package triggers them.
 - Vulnerabilities in upstream dependencies (please report to their maintainers)
 - Social engineering attacks
 
@@ -40,7 +42,7 @@ This policy covers the following Helix OS components:
 
 Public issues expose the problem to everyone before it's fixed — which could put users at risk. Instead:
 
-1. **GitHub Private Advisory** *(preferred)* — use the [Security tab](../../security/advisories/new) to submit a private report directly.
+1. **GitHub Private Advisory** *(preferred)* — use the [Security tab](https://github.com/VyomKulshrestha/Heliox-OS/security/advisories/new) to submit a private report directly.
 2. **Email the maintainer** — contact [@VyomKulshrestha](https://github.com/VyomKulshrestha) via the email listed on their GitHub profile.
 
 ### What to include in your report
@@ -111,25 +113,55 @@ The command should fail with `PermissionError` and leave the file in place.
 
 ---
 
+## Intelligence, memory, and self-improvement boundaries
+
+Heliox's intelligence layers share one authority rule: learned or generated
+information may improve context, ranking, recovery, or caution, but cannot
+grant permission, remove deterministic warnings, or execute by itself.
+
+- The append-only experience ledger redacts secrets and excludes raw camera,
+  audio, screen, landmark, and binary payloads by default. Database triggers
+  reject update and delete operations.
+- The durable task journal uses hashed resume capabilities and per-action
+  execution claims. A completed claim replays its stored result; an interrupted
+  or expired claim becomes uncertain and must be reconciled rather than
+  repeated.
+- Temporal memory retains provenance, confidence, validity, contradiction, and
+  retraction state. It is advisory and cannot prove current machine state.
+- Online adaptation learns only from new ledger events and verified callbacks.
+  Repeated evidence, bounded replay, drift detection, and explicit reset limit
+  stale or one-off behavior. It cannot browse or act merely to collect data.
+- Strategy candidates remain inert through replay, shadow, consented canary,
+  and exact-ID administrator promotion. Automatic promotion is disabled.
+- Evolution candidates run only in detached worktrees inside a reviewed,
+  network-disabled Docker image with no inherited credentials. The harness
+  cannot modify the installed app, push, release, access release secrets, or
+  promote its own patch.
+
+See [Architecture](docs/ARCHITECTURE.md) for the complete data flow and
+persistent-store boundaries.
+
+---
+
 ## 🚪 Agent Gateway: Scoped Permissions & Audit
 
 **Threat model.** Before this feature, permission policy was entirely global: `PermissionChecker`'s five-tier system applied identically no matter whether an action came from an interactive, user-confirmed request or an unattended autonomous background job (`autonomous_submit`). Two concrete gaps made this exploitable:
 
-1. **All 22 `BROWSER_*` action types were hardcoded into `actions.py`'s `ALWAYS_SAFE` set**, forcing them to Tier 1 (`USER_WRITE`) regardless of what they actually did. `browser_execute_js` (arbitrary JavaScript execution in page context — cookie/token exfiltration, CSP bypass), `browser_fill_form`, `browser_navigate`, and `browser_click`/`type`/`select` all ran with **zero confirmation, zero snapshot, and zero audit trail** — identical treatment to a harmless `browser_screenshot`.
+1. **All browser action types then present were hardcoded into `actions.py`'s `ALWAYS_SAFE` set**, forcing them to Tier 1 (`USER_WRITE`) regardless of what they actually did. `browser_execute_js` (arbitrary JavaScript execution in page context — cookie/token exfiltration, CSP bypass), `browser_fill_form`, `browser_navigate`, and `browser_click`/`type`/`select` all ran with **zero confirmation, zero snapshot, and zero audit trail** — identical treatment to a harmless `browser_screenshot`.
 2. **`DestructiveCriticAgent` only ran inside `server.py`'s interactive `execute` RPC handler**, before `Executor.execute()` was ever called. Any caller reaching `Executor.execute()` a different way — most importantly autonomous background jobs — never passed through the critic at all.
 
 Combined, an autonomous or web-agent-sourced plan could drive the browser (navigate anywhere, execute arbitrary JS, extract and exfiltrate page data) with no confirmation gate, no independent safety review, and no centralized, tamper-evident record of what happened.
 
 **The fix — `pilot.security.gateway.AgentGateway`** — is a second gate checked *alongside* (never replacing) `PermissionChecker` inside `Executor.execute()`:
 
-- **Source-scoped floors.** Every plan is tagged with an `InvocationSource`. Each source has an enforced ceiling per action family (`shell`, `browsing`, `system_control`, `other`) and an explicit deny list — e.g. the `autonomous` profile denies `browser_execute_js`, `power_shutdown`/`power_restart`, and `registry_write` outright, and cannot reach root/Tier-4 actions at all. The `interactive` floor is a strict no-op, since interactive traffic already goes through the full tier/confirmation/critic pipeline. As of this pass, every one of `AgentOrchestrator`'s 10 specialist-agent roles (`system_agent`, `code_agent`, `web_agent`, `comm_agent`, `forensics_agent`, `ssh_agent`, `monitor_agent`, `rss_agent`, `calendar_agent`, `semantic_search_agent`) has its own dedicated profile too — see "Capability-scoped multi-agent orchestration" below.
+- **Source-scoped floors.** Every plan is tagged with an `InvocationSource`. Each source has an enforced ceiling per action family (`shell`, `browsing`, `system_control`, `other`) and an explicit deny list — e.g. the `autonomous` profile denies `browser_execute_js`, `power_shutdown`/`power_restart`, and `registry_write` outright, and cannot reach root/Tier-4 actions at all. The `interactive` floor is a strict no-op, since interactive traffic already goes through the full tier/confirmation/critic pipeline. The shipped policy contains 25 source profiles: interactive/autonomous/modality/background sources plus all 20 specialist gateway roles. Communication and Email are distinct providers that deliberately share the `comm_agent` security identity.
 - **Per-task overrides can only narrow, never widen.** A caller (e.g. `autonomous_submit`'s optional `scope_override` parameter) may further restrict a source's floor for one specific task, but `resolve_effective_profile()` combines the floor and the override via `min()` on tiers and set-union on deny lists — an override attempting to claim a *wider* tier or re-enable root access is silently clamped back to the floor, never honored. This matters because the override itself is untrusted input from an RPC call.
 - **Critic-bypass closed.** `AgentGateway.authorize()` re-implements the same heuristic-risk trigger predicate `server.py` uses for interactive requests, so a Tier 3/4 or irreversible plan arriving without `critic_already_reviewed=True` (i.e. any non-interactive path) still gets an independent `DestructiveCriticAgent` review before it can proceed.
 - **Browser actions retiered by actual risk**, not blanket-safe: read-only extraction (`extract`/`screenshot`/`list_tabs`/`page_info`/`wait`) stays untouched; state-changing actions (`navigate`/`click`/`type`/`select`/`fill_form`) now require confirmation like any Tier 2 action; `execute_js` moved to `DESTRUCTIVE` + `IRREVERSIBLE` given its exfiltration potential. **This is an intentional breaking change** for existing interactive users — some browser actions that ran silently before will now prompt. There is deliberately no legacy "go back to silent" toggle: one would simply reopen the gap this feature closes.
 - **Tamper-evident audit trail.** `pilot.security.gateway_audit.AgentGatewayAuditStore` is a separate HMAC-SHA256 hash-chained SQLite log (same chain-of-custody design as the existing `PermissionEscalationAuditStore`, but its own database/key file) recording every gateway decision — source profile, action family, tier, whether an override was applied/whether it actually narrowed anything, allow/deny outcome, and a full policy snapshot. `verify_gateway_audit` walks the chain and detects any row that was deleted, reordered, or modified after the fact. Kept as an independent chain so a compromise of one audit key doesn't help forge the other.
 - **Dry-run/simulation extended.** `SimulationSandbox` previously modeled shell/file impacts only; it now produces meaningful risk assessments for browser (navigation targets, script previews) and system-control (mouse/keyboard, process, registry) actions too, so a dry-run plan touching these surfaces gets real impact analysis instead of a generic fallback description.
 
-**Known scope limit (narrowed by the section below).** `chain_planner.py`, `network/mesh.py`, and `self_heal.py` still call `Executor.execute()` directly without declaring an `InvocationSource`, so they still default to the unrestricted `interactive`-equivalent floor — fail-open, not fail-closed, so nothing existing breaks. This is tracked as a follow-up, not hidden: any untagged call executing a Tier ≥ `SYSTEM_MODIFY` action still gets recorded in the ordinary (non-chained) `AuditLogger`, so the gap is observable even where it isn't yet restricted. `AgentOrchestrator`'s specialist-agent registry itself — the subject of the original gap this paragraph used to describe in full — is now fully tagged; see below.
+**Known scope limit.** Legacy direct callers in `chain_planner.py`, `agents/self_heal.py`, `network/mesh.py`, `network/collab_executor.py`, and `swarm/swarm_router_agent.py`, plus a few server utility paths, still omit an explicit `InvocationSource` and therefore inherit the interactive-equivalent floor. Their Tier 2+ actions remain subject to normal permission, confirmation, critic, and audit controls, but do not receive a narrower origin profile. The specialist mesh, autonomous jobs, voice, gesture, and self-healing paths are explicitly tagged.
 
 Settings → Agent Gateway Policy shows the enforced floor per source and lets you tighten it (never loosen it beyond the shipped defaults' intent); Settings → Agent Gateway Audit Log shows every recorded decision with a one-click integrity check.
 
@@ -137,24 +169,45 @@ Settings → Agent Gateway Policy shows the enforced floor per source and lets y
 
 ## 🤖 Capability-scoped multi-agent orchestration
 
-**What this is, and what it isn't.** `pilot.agents.orchestrator.AgentOrchestrator` routes each action in a plan to one of 10 specialist agents (`SystemAgent`, `CodeAgent`, `WebAgent`, `CommunicationAgent`, `ForensicsAgent`, `SshAgent`, `MonitorAgent`, `RssAgent`, `CalendarAgent`, `SemanticSearchAgent`) based on a static action-type → role registry, borrowing the spirit of capability-scoped multi-agent patterns like Alibaba's AgentTeams — specialized sub-agents instead of one monolithic agent holding full hardware control. Stated plainly: this was, until this pass, a routing/labeling layer in front of one shared, all-powerful `Executor`, not a real capability sandbox — every agent but `SshAgent` (which never touches the shared `Executor` at all, opening its own Paramiko connections hard-restricted to `config.ssh.allowed_hosts`) forwarded its already-filtered sub-plan into the exact same `Executor.execute()` with the full ~150-action dispatch table underneath, and — critically — only `WebAgent` ever declared *which* agent was actually issuing the action to the Agent Gateway above. `SystemAgent`, `CodeAgent`, `CommunicationAgent`, and `ForensicsAgent` (the ones holding `FILE_DELETE`, `SHELL_COMMAND`, `POWER_SHUTDOWN`, `REGISTRY_WRITE`) silently ran with the unrestricted `interactive` floor regardless of what actually triggered them.
+`pilot.agents.orchestrator.AgentOrchestrator` and
+`pilot.agents.agent_mesh.AgentMesh` register **21 concrete specialists across
+20 gateway roles**. Capability discovery indexes providers by concrete class,
+so Communication and Email can coexist despite sharing `comm_agent`.
+`agent_mesh_status` verifies all 156 declared actions have a provider and
+reports exact uncovered names if that contract regresses.
 
-**What this pass closes.** `BaseAgent.get_invocation_source()` derives a dedicated `InvocationSource` from each agent's `AgentRole` (`InvocationSource(self.role.value)` — the two enums share values by construction, not by convention alone), and the four previously-silent agents now pass `invocation_source=self.get_invocation_source()` into every `Executor.execute()` call. Each got a `SourceProfile` derived from its own real, declared capabilities (`pilot/agents/*.py`'s `get_capabilities()`), not a guess:
+Provider choice is based on exact action capability plus callback-observed
+success and latency stored in the mesh database. A Bayesian prior prevents an
+untested provider from outranking proven behavior, and narrower scope is only a
+tie-breaker. Self-reported quality and prompt wording are not execution
+authority.
 
-- **`system_agent`** matches `interactive`'s own full ceiling — its job (file I/O, process/power/service control, registry, shell) genuinely needs this reach. The profile exists so its actions are now explicitly attributed in the gateway audit log, not to further restrict a role that needs this much.
-- **`code_agent`** is capped at `DESTRUCTIVE` for shell (its actions — `CODE_EXECUTE`/`SHELL_COMMAND`/`SHELL_SCRIPT`/`PTY_EXEC`/`SKILL_RUN` — all top out at `SYSTEM_MODIFY` under `actions.py`'s own tier property) and denied root entirely.
-- **`comm_agent`**, **`forensics_agent`** are capped at read-only for shell/browsing/system_control — neither has any legitimate reason to ever touch those families, so a bug that somehow routed a `SHELL_COMMAND` to either is now actually *blocked*, not silently allowed. This is the one part of this pass that's genuinely new hardening rather than audit-attribution: previously nothing stopped it.
-- **`monitor_agent`**, **`rss_agent`**, **`calendar_agent`**, **`semantic_search_agent`** got profiles too, for when/if they're ever wired to route through the shared `Executor` — today they talk to their own subsystems directly (BackgroundTaskManager, feeds/memory, caldav/icalendar, the local workspace index) and never reach it at all, so nothing was silently unrestricted for them in the first place.
+Every specialist declares action, confirmation, gateway, resource, token,
+action-count, latency, and concurrency contracts. Handoffs carry lineage,
+bounded context references, partial results, maximum depth 3, and maximum
+fan-out 4; cycles are rejected. Normal plans remain sequential. Parallel
+execution requires an explicit independence attestation, stays fan-out
+bounded, and shares cancellation.
 
-**What's still routing, not sandboxing — stated plainly.** The per-agent `SourceProfile` ceiling is real, enforced, second-gate protection (see the Agent Gateway section above). It is *not* the same as a hard capability sandbox at the dispatch layer itself: an agent's `can_handle()` filter is what actually determines which actions it ever attempts to route in the first place, and that filter is still simple Python, not independently re-verified against the orchestrator's own registry before forwarding. The gateway is the real backstop if that filter ever has a bug — not a redundant belt-and-suspenders check inside `BaseAgent` itself, which this pass deliberately did not add (the existing filter and the new gateway ceiling would just be re-deriving the same boundary twice for no additional real protection, since both ultimately read from the same `get_capabilities()`/action-type declarations).
+Most specialists filter their sub-plan and call the shared `Executor`, which
+preserves validation, gateway policy, world-model checks, approval, audit,
+durable execution claims, and verification. Calendar, Email, and SSH use
+dedicated domain adapters with hard restrictions. A Python
+`AgentCapability`/resource declaration is routing metadata, not an OS sandbox;
+the Agent Gateway and adapter or plugin broker are the enforcement boundaries.
 
-**Deliberately not built: true concurrent multi-agent execution.** `AgentOrchestrator._build_execution_order()` groups *consecutive* same-role actions into batches, and `_execute_plan_inner()` processes those batches in a strict sequential loop — one agent active at a time, in plan order. This is not an oversight to "fix" by wrapping the loop in `asyncio.gather`: a plan's action order is often a real, meaningful, world-side dependency (e.g. "read a file, then email its contents" — `SystemAgent` then `CommunicationAgent`) even though there's no explicit code-level output-chaining between agent batches at the orchestrator layer to detect this from. Safely parallelizing would require a real dependency-graph analysis of which batches are provably independent — a legitimately separate, larger project, not a natural extension of this pass — so it stays sequential rather than risk silently reordering real-world side effects for plans that need to happen in the order the user asked for.
+Approved plugin tools appear as guarded external providers for diagnostics but
+remain non-executable by the mesh. Native and WASM plugin calls still pass
+through their capability brokers and, when destructive, the guarded planner
+approval path.
 
-**Voice/gesture are modalities, not domains — an intentional design choice, not a gap.** There is no `VoiceAgent`/`GestureAgent` class registered in `AgentOrchestrator`, and this pass didn't add one. `voice`/`gesture` already exist as real, enforced `InvocationSource` profiles (see the Agent Gateway section above) — they're just *cross-cutting input modalities* (a voice command can trigger any action any other agent handles: "delete this file," "open the browser and search X") rather than *domains* like "file system" or "browser." Forcing them into the same per-domain `AgentRole` registry `SystemAgent`/`WebAgent`/etc. use would mean a "voice agent" claiming to `can_handle()` every action type every other specialist already owns — an architecture collision, not a missing feature. The real enforcement point for voice/gesture-triggered plans is `pilot.agents.voice_gesture_workflow.VoiceGestureWorkflowEngine`, which correctly threads `InvocationSource.VOICE`/`GESTURE` through to the gateway from its own call site — separate machinery from the per-domain specialist-agent registry by design, not an unregistered oversight.
+Voice, gesture, and gaze are input modalities rather than domain specialists.
+Their invocation profiles cross-cut whatever specialist ultimately handles the
+requested action.
 
 ---
 
-## 🧠 Learned Risk Gate (opt-in)
+## 🧠 Learned Risk Gate (default-on, user-controllable)
 
 **What problem this solves.** `destructive_critic.py`'s `heuristic_risk()` — the cheap rule that decides whether a Tier-3-only/irreversible-only plan is worth an LLM critic round-trip — only looks at plan length, distinct-target count, `dangerous_flags`, and tier mixing. It has no visibility into two concrete failure modes: a plan that would push disk usage to exhaustion, or a plan that touches a user-configured protected folder/package (`config.restrictions.protected_folders`/`protected_packages`) despite being otherwise unremarkable by every heuristic signal above (short, single target, no flags).
 
@@ -173,6 +226,21 @@ Settings → Agent Gateway Policy shows the enforced floor per source and lets y
 
 **Enabled by default for new installs, visible, and still user-controllable.** `config.gateway.risk_gate_enabled` defaults to `True`; saved user choices remain authoritative. Settings shows whether the shipped weights really loaded, the model version, training sample count, modeled action types, and latest plan evaluation. The model is consulted for every plan when enabled, so a predictive signal on a lower-tier action can request critic review too. This remains a second check before the existing `PermissionChecker`/confirmation gate — both must still pass; neither replaces the other.
 
+**Hybrid prediction contract.** Risk evaluation now also produces a versioned
+`predict(current_state, candidate_action)` result with predicted state,
+expected effects, uncertainty, evidence, sources, and model version. The
+structured predictor covers browser/DOM invalidation, UI mutations,
+window/application transitions, process lifecycle, files/downloads, services,
+packages, and expected approval state. Unknown effects are marked
+`requires_observation`, never fabricated as success.
+
+An optional action-conditioned UI-JEPA predictor compares latent embeddings
+rather than generating pixels. It is unavailable without staged weights and
+remains shadow-only unless its artifact records gating validation. Deterministic
+policy, structured prediction, validated JEPA evidence, calibrated learned
+impact, and verified historical failure use the riskier result. None can lower
+the deterministic floor.
+
 **Known scope limits, stated plainly.** Lookahead simulates the submitted plan's actions in order; it does not invent repetitions absent from the plan. The learned disk/process-count predictions are trained on 36,000 rows from a single machine's sandbox, not validated across diverse hardware/filesystems. Treat learned refinement as approximate; the deterministic parallel prediction is deliberately retained as the safety floor.
 
 ---
@@ -189,7 +257,7 @@ Settings → Agent Gateway Policy shows the enforced floor per source and lets y
 
 **A second, independent gate — not just the engine's own pre-check.** A new `InvocationSource.SELF_HEALING` was added to the Agent Gateway (`pilot.security.gateway`) with its own `SourceProfile` ceiling, deliberately wide enough to still reach genuinely useful remediation actions (kill a runaway process, restart a stuck service, clear temp files — all `SYSTEM_CONTROL`-family, capped at `DESTRUCTIVE`) once a human has approved them via the propose-and-wait branch above, while permanently denying `power_shutdown`/`power_restart`/`power_logout`/`registry_write`/`browser_execute_js` and never reaching root/Tier-4 — regardless of what the engine's own tiering check would otherwise allow. This mirrors why the Agent Gateway exists at all: a plan's originating trigger should never be trusted to police itself.
 
-**Off by default.** `config.self_healing.enabled` defaults to `False` — generating (and potentially auto-executing) a remediation plan without being asked is a new autonomous capability, not a restriction, so it gets the same opt-in-first treatment as `gesture_cursor`/`gesture_workflows`/`risk_gate_enabled`.
+**Off by default.** `config.self_healing.enabled` defaults to `False` — generating (and potentially auto-executing) a remediation plan without being asked is a new autonomous capability, not a restriction, so it gets the same opt-in-first treatment as gesture cursor control and gesture workflows.
 
 **Known scope limits, stated plainly.** Remediation goals are currently three fixed, generic templates (`config.self_healing.goal_templates` can override them per metric) fed to the same LLM planner every other command uses — there is no dedicated "diagnose root cause" reasoning step, so the quality of the generated plan depends entirely on the planner's ordinary judgment for that prompt. The network-activity monitor (`monitor_network`) is intentionally left unwired: a generic "network usage is high" alert has no obvious safe remediation action, so wiring it would either do nothing useful or invite an overly broad goal template. Not verified against a real sustained-load scenario in this pass — the on-trigger wiring and tiering logic are covered by unit tests with a fake planner/executor, not a live high-CPU/low-disk machine.
 
@@ -214,7 +282,7 @@ Settings → Agent Gateway Policy shows the enforced floor per source and lets y
 
 ## 🗣️ Live Execution Narrator (opt-in)
 
-**What this is.** `pilot.agents.narrator.ExecutionNarrator` narrates plan execution as it happens (voice, via the frontend's browser `speechSynthesis`) and can pre-emptively pause a plan or a single browser action that gets flagged as risky *before* it runs — pairing the spoken interjection with a visual confirmation modal, always together, never one without the other. This is the "interrupts you, corrects you, talks to you while executing" capability, built on infrastructure this codebase already had rather than a new heavy model — see below for why.
+**What this is.** `pilot.agents.narrator.ExecutionNarrator` narrates plan execution as it happens and can pre-emptively pause a plan or a single browser action that gets flagged as risky *before* it runs — pairing the spoken interjection with a visual confirmation modal, always together, never one without the other. Narration, approvals, risk warnings, failures, final answers, proactive suggestions, and voice replies all enter the shared priority coordinator.
 
 **Why not a real-time interaction/interruption model.** The natural comparison is Thinking Machines Lab's "Interaction Models" (`TML-Interaction-Small`) — a model that treats audio/video/text as continuous streams and decides speaking/listening/interrupting at the token level. It's genuinely the right shape for this, and it's genuinely inaccessible: no open weights, no public API, invite-only research preview only, as of this writing. Ferrum-OS's own world model — already reused for this codebase's Learned Risk Gate — was checked directly and found to be the wrong substrate too: its "screen" signal is a single collapsed hash of OCR'd text with zero structure, and its own transition-model rule table explicitly excludes `mouse_click`/`keyboard_type` from having any modeled effect at all. Kyutai's Moshi was flagged (at the time this section was written) as a credible future full-duplex backbone. Research since found Moshi is no longer Kyutai's actively-promoted product — see **Kyutai Pocket TTS** below for what was actually adopted from that research, and why Moshi's genuine full-duplex/barge-in capability remains out of scope (GPU-only, English-only).
 
@@ -225,9 +293,17 @@ Settings → Agent Gateway Policy shows the enforced floor per source and lets y
 
 **Pre-emptive only, never mid-flight — at the time this was written.** Both interrupt paths gate a plan/action *before* it runs — `on_plan_risk` fires right after `AgentGateway.authorize()`, before any batch executes; `on_target_assessment` fires right before that one action's real dispatch. Neither attempts to cancel something already executing (e.g. a shell command mid-run) — see **Mid-flight Cancellation** below, which closes that specific gap in a later pass.
 
-**Off by default.** `config.narration.enabled` defaults to `False` — spoken interruptions and pausing execution on a risk signal are new user-facing behavior, not a pure restriction, so this gets the same opt-in-first treatment as `gesture_cursor`/`gesture_workflows`/`self_healing`/`risk_gate_enabled`.
+**Off by default.** `config.narration.enabled` defaults to `False` — spoken interruptions and pausing execution on a risk signal are new user-facing behavior, not a pure restriction, so it gets the same opt-in-first treatment as gesture cursor control, gesture workflows, and autonomous healing.
 
-**Known scope limits, stated plainly.** Voice output goes through the frontend's browser `speechSynthesis`, not the daemon-side `pilot.system.voice.speak()` used elsewhere in this codebase (e.g. `AutonomousExecutor`'s end-of-job announcement) — those two voice paths remain independent and can, in principle, both be speaking at once if both fire; this pass didn't unify them. `pilot.system.voice.speak()` itself now supersedes any of its own still-in-progress calls (a later fix, mirroring `tts.ts`'s `speechSynthesis.cancel()`-before-every-speak — see `_supersede_current_speech()`/`_current_speech_task` in `voice.py`), so two daemon-side callers (e.g. `executor.py`'s cognitive-stress-gate phrase and `AutonomousExecutor`'s end-of-job announcement) can no longer talk over each other; this closes the daemon-side half of the original gap, not the cross-path one described above. Not verified against a live daemon executing a real risky plan in this pass — the on-trigger wiring is covered by unit/integration tests with fakes (mirroring `test_autonomous_healing.py`'s pattern), and the frontend pieces were verified live in-browser (the TTS utility genuinely invokes `speechSynthesis`, the store loads with the correct default state, the dialog renders/hides correctly), but the full backend-push-to-modal-and-voice round trip needs a real execution to trigger and wasn't exercised end-to-end here.
+**Coordinated speech boundary.** The frontend and
+`pilot.system.companion_speech.CompanionSpeechCoordinator` use one priority
+contract: emergency stop, user speech, approval/risk warning, task failure,
+final answer, task narration, proactive suggestion, and background insight.
+Only one voice owns playback at a time; higher priority preempts lower,
+duplicates are suppressed, and user barge-in takes ownership while the person
+speaks. The daemon coordinates autonomous completion, cognitive warnings,
+continuous voice, and frontend speech RPCs. Browser `speechSynthesis` is a
+fallback and is suppressed when daemon speech already owns the utterance.
 
 ---
 
@@ -245,7 +321,7 @@ Settings → Agent Gateway Policy shows the enforced floor per source and lets y
 
 **No new safety primitive.** `pilot.agents.narrator.ExecutionNarrator.on_action_preview()` reuses the exact same `PendingConfirmation`/`confirm` interrupt-and-wait mechanism `on_plan_risk`/`on_target_assessment` already established — same broadcast event (`execution_interrupt`, distinguished by `kind: "action_preview"`), same frontend dialog (`InterruptDialog.svelte`, extended to render the screenshot/highlight/diff when that kind is present), same timeout-denies-by-default behavior.
 
-**Autonomous-only, and off by default.** `config.preview.enabled` defaults to `False` — this adds real latency (a screenshot + VLM call, and for browser actions a real dry-run browser tab) before every gated action, the same opt-in-first treatment as `gesture_cursor`/`risk_gate_enabled`/`narration`. It only ever gates `InvocationSource.AUTONOMOUS` plans — interactive voice/text/gesture commands already have the user watching in real time, so this would only add friction there without the corresponding benefit (catching a mistake nobody was there to see).
+**Autonomous-only, and off by default.** `config.preview.enabled` defaults to `False` — this adds real latency (a screenshot + VLM call, and for browser actions a real dry-run browser tab) before every gated action, the same opt-in-first treatment as gesture cursor control and narration. It only ever gates `InvocationSource.AUTONOMOUS` plans — interactive voice/text/gesture commands already have the user watching in real time, so this would only add friction there without the corresponding benefit (catching a mistake nobody was there to see).
 
 **Known scope limits, stated plainly.** Element detection depends on the same VLM chain `screen_detect_elements()` always has — if no vision provider is configured (no cloud API key, no local Ollama with a vision model pulled), the preview still shows the real screenshot but without a highlighted target. The dry-run diff is real DOM structure, not a semantic judgment of whether the action's *effect* is correct (a diff showing 3 nodes changed doesn't say whether they're the right 3 nodes) — it's a signal for the human confirming, not an automated pass/fail gate. A failed dry-run attempt (e.g. a selector that doesn't resolve on the clone) surfaces as `change_score: 0.0` — an honest "nothing happened" signal, not a distinguishable error, matching this codebase's existing preference for a clear default over a guess.
 
@@ -335,10 +411,42 @@ Settings → Agent Gateway Policy shows the enforced floor per source and lets y
 
 ---
 
+## Plugin capability sandbox and marketplace trust
+
+Marketplace approval, package integrity, and runtime authority are separate
+checks. A package must be catalog-approved, match every SHA-256 digest, pass
+the manifest validator, and verify its local Ed25519 installation signature
+before it is eligible to load.
+
+The capability manifest is mandatory and fail-closed. It declares exact
+filesystem read/write roots, network domains, process names, credential names,
+clipboard directions, camera/microphone access, retention mode/duration, and
+destructive authority. Wildcards, traversal, unknown fields, unsafe entry
+points, duplicate tool ownership, and installed/catalog capability mismatches
+are rejected.
+
+Native Python tools run in one-shot child processes with a scrubbed
+environment, only declared credentials, and a 30-second timeout. Default-deny
+guards constrain filesystem, network, process, clipboard, and device access.
+WASM tools receive path-scoped WASI preopens, explicit environment grants,
+bounded memory/runtime, and no network. Native `plugin_call` and reviewed
+`wasm_call` remain separate dispatch paths.
+
+A destructive plugin cannot use direct Marketplace execution. It must pass
+through the planner, world model, permission checker, source gateway, explicit
+approval, durable execution claim, audit, and verification pipeline. The agent
+mesh may advertise approved tools as external providers, but never executes
+their code directly.
+
+See [Plugin Marketplace](docs/PLUGIN_MARKETPLACE.md) for the publication and
+review contract.
+
+---
+
 ## 📬 Contact
 
 - **Maintainer**: [@VyomKulshrestha](https://github.com/VyomKulshrestha)
-- **Private Advisory**: [Submit here](../../security/advisories/new)
+- **Private Advisory**: [Submit here](https://github.com/VyomKulshrestha/Heliox-OS/security/advisories/new)
 
 ---
 

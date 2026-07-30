@@ -3,6 +3,12 @@
 A fast, SQLite-backed caching layer for LLM responses to reduce API costs and accelerate
 testing and development workflows.
 
+This cache is not user memory or training data. The append-only experience
+ledger records causal runtime events, temporal memory stores evidence-backed
+facts, and verified online learning consumes eligible ledger outcomes. Cached
+model responses are only an execution optimization and are never promoted to
+memory merely because they were reused.
+
 ## Overview
 
 The LLM cache is an optional, transparent layer that sits between the application and

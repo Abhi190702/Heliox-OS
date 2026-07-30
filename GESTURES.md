@@ -34,13 +34,17 @@ Quality Gate (confidence × hand-quality score; low-quality frames don't
               advance the frame stabilizer below)
     │
     ▼
+Temporal Hand Verifier (MediaPipe proves hand presence; continuity evidence
+                        can only reduce or reject a candidate)
+    │
+    ▼
 Frame Stabilizer (5 consecutive identical frames required)
     │
     ▼
 Cooldown Gate (1200ms between triggers)
     │
     ▼
-executeGestureAction() ──► session.sendCommand / session.confirm
+executeGestureAction() ──► built-in control action or reviewed workflow binding
     │
     ▼
 UI Feedback (emoji badge, particle burst, gesture history)
@@ -54,6 +58,7 @@ The gesture engine uses a **4-layer anti-jitter system** to prevent false trigge
 |-------|-----------|---------|
 | **Temporal Filtering** | One Euro filter smooths landmark positions before classification | Reduces single-frame jitter without adding perceptible lag |
 | **Quality Gate** | Confidence scaled by detection + geometric quality; sub-threshold frames don't advance the stabilizer | Prevents a degenerate/occluded pose from misfiring |
+| **Temporal Hand Verification** | Three-to-eight privacy-preserving hand signatures; resets immediately when MediaPipe loses the hand | Rejects face/background false positives and discontinuous motion; never creates a gesture |
 | **Frame Stabilizer** | Gesture must be detected for 5 consecutive frames | Eliminates transition noise |
 | **Cooldown Gate** | 1200ms lockout after each trigger | Prevents double-fires |
 | **Buffer Clearing** | Motion buffers reset after circular/push gestures | Prevents re-triggering |
@@ -511,8 +516,15 @@ To add a new gesture:
 
 1. **Define the finger pattern** in `classifyGesture()` inside `GestureControl.svelte` — place it in priority order
 2. **Add an emoji** to the `GESTURE_EMOJIS` map
-3. **Add an action** in `executeGestureAction()` — call `session.sendCommand()` or `session.addSystemMessage()`
-4. **Handle in `App.svelte`** if it needs to trigger UI navigation (tab switching, etc.)
+3. **Keep built-in actions limited to safety/navigation controls.** Task actions
+   should use a user-visible gesture workflow binding rather than a hidden
+   hardcoded command.
+4. **Add/update the workflow binding contract** in Settings and test
+   submit/pause/resume/cancel through the daemon's durable workflow path.
+5. **Handle in `App.svelte`** only when the gesture is a local UI navigation
+   control.
+6. **Add temporal/no-hand tests.** MediaPipe must prove a hand exists; the
+   temporal verifier may only reduce or reject the candidate.
 
 ---
 
@@ -525,6 +537,8 @@ To add a new gesture:
 | `tauri-app/ui/src/lib/gesture/spatialModel.test.ts` | Unit tests for the spatial model's pure functions |
 | `tauri-app/ui/src/lib/gesture/worldModel.ts` | Real-metric-scale 3D world-model layer (wrist-relative worldLandmarks, metric hand-size/pinch, push-pull, coupled 3D temporal filtering) — "tasks" backend only |
 | `tauri-app/ui/src/lib/gesture/worldModel.test.ts` | Unit tests for the 3D world-model layer |
+| `tauri-app/ui/src/lib/gesture/temporalGestureVerifier.ts` | Privacy-preserving temporal hand continuity verifier; supporting evidence only |
+| `tauri-app/ui/src/lib/gesture/temporalGestureVerifier.test.ts` | No-hand, warm-up, continuity, rejection, and reset tests |
 | `tauri-app/ui/vendor/mediapipe/hand_landmarker.task` | Vendored HandLandmarker model (float16) — see provenance/license note above |
 | `tauri-app/ui/vendor/mediapipe/face_landmarker.task` | Vendored FaceLandmarker model (float16, iris refinement) — see gaze tracking provenance note above |
 | `tauri-app/ui/vite.config.ts` | `mediapipeTasksVisionAssets()` plugin — self-hosts the Tasks-vision WASM loader + vendored models (hand + face) at `/mediapipe/tasks-vision/*` |
@@ -541,4 +555,4 @@ To add a new gesture:
 | `daemon/pilot/multimodal/fusion.py` | `MultimodalFusionEngine` — voice+gesture fusion, plus gaze as a passive third modality (buffer-only, confidence-bonus metadata) |
 | `daemon/pilot/system/voice_calibration.py` | On-device wake-word calibration — Levenshtein near-miss detection, promotion, JSON store |
 | `tauri-app/ui/src/App.svelte` | Gesture to UI navigation handler |
-| `tauri-app/src-tauri/tauri.conf.json` | CSP allowing MediaPipe CDN |
+| `tauri-app/src-tauri/tauri.conf.json` | CSP for the self-hosted UI and WASM runtime; MediaPipe models are vendored, not CDN-loaded |

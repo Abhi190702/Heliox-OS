@@ -14,3 +14,9 @@ and only one disposable Git worktree mounted at `/workspace`.
 
 If Docker or this exact local image is unavailable, evolutionary evaluation
 fails closed. There is no host-process fallback.
+
+The harness compares each candidate with the recorded baseline and archives
+deterministic/advisory evidence. It cannot merge, push, publish a release,
+access release credentials, modify the installed application, or start a live
+user experiment. An exact candidate-ID promotion request is evidence for
+external human review, not automatic promotion.

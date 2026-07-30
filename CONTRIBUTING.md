@@ -8,10 +8,14 @@ Thanks for your interest in contributing to Heliox OS! This guide will help you 
 heliox-os/
 ├── daemon/                  # Python backend (AI agent system)
 │   └── pilot/
-│       ├── agents/          # Planner, Executor, Verifier, Code Sanitizer
+│       ├── agents/          # Planner, Executor, Verifier, and specialist mesh
 │       ├── models/          # LLM routing (Gemini, OpenAI, Claude, Ollama)
-│       ├── security/        # Encrypted vault, permissions, audit log
-│       └── system/          # OS interface modules (50+ action types)
+│       ├── intelligence/    # Ledger, learning, replay, strategy, and evolution
+│       ├── memory/          # Temporal facts and bounded context assembly
+│       ├── plugins/         # Capability validation and native/WASM brokers
+│       ├── security/        # Permission, gateway, audit, risk, and plugin policy
+│       ├── workflows/       # Durable tasks and voice/gesture workflows
+│       └── system/          # OS interfaces behind the 156-action catalog
 ├── tauri-app/               # Desktop GUI
 │   ├── ui/                  # Svelte 5 + Vite frontend
 │   │   └── src/lib/
@@ -23,12 +27,15 @@ heliox-os/
 
 ### How it works
 
-1. **User Input** → Voice, Text, or Hand Gesture
-2. **Planner** (LLM) → Converts input to a structured JSON action plan
-3. **Security Gate** → Validates actions against permission tiers
-4. **Executor** → Runs each action via native OS APIs
-5. **Verifier** → Confirms the action succeeded
-6. **Auto-Fix** → If code fails, the LLM rewrites and retries
+1. **Input and ledger** → Text, voice, gesture, gaze, and screen context become typed causal events
+2. **Context and planning** → Bounded temporal memory informs a structured action plan
+3. **Prediction and policy** → The hybrid world model may add caution; deterministic policy and approval stay authoritative
+4. **Durable orchestration** → The task journal and capability mesh route actions across 21 specialists
+5. **Execution and verification** → Guarded adapters execute, then real environment state is checked
+6. **Learning and recovery** → Verified outcomes feed replay, bounded online adaptation, reflection, and explicit recovery
+
+Read [Architecture](docs/ARCHITECTURE.md) before changing execution,
+intelligence, security, plugins, or agent routing.
 
 ## 🚀 Dev Environment Setup
 
@@ -77,21 +84,21 @@ After running the command:
 
 ```bash
 git clone https://github.com/VyomKulshrestha/Heliox-OS.git
-cd Heliox OS
+cd Heliox-OS
 ```
 
 ### 2. Set up the Python daemon
 
 ```bash
 cd daemon
-pip install -e ".[full,dev]"
+pip install -e ".[all,dev]"
 ```
 
 ### 3. Set up the frontend
 
 ```bash
 cd tauri-app/ui
-npm install
+npm ci
 ```
 
 ### 4. Run in development mode
@@ -113,8 +120,9 @@ The app will be available at `http://localhost:1420`.
 ### 5. (Optional) Run the full Tauri desktop app
 
 ```bash
-cd tauri-app/src-tauri
-cargo tauri dev
+cd tauri-app
+npm ci
+npm run tauri dev
 ```
 
 ## 📝 Code Style
@@ -126,7 +134,8 @@ cargo tauri dev
 
 ### Svelte/TypeScript (tauri-app/ui/)
 - Formatter: **Prettier** (`npx prettier --write .`)
-- Linter: **ESLint** (`npx eslint .`)
+- Type and component check: **svelte-check** (`npm run check`)
+- Tests: **Vitest** (`npm run test:unit -- --run`) and **Playwright** (`npm run test:visual`)
 - Use Svelte 5 runes (`$state`, `$derived`, `$effect`)
 
 ### Svelte Component Naming Conventions
@@ -211,7 +220,46 @@ Use the [Feature Request template](https://github.com/VyomKulshrestha/Heliox-OS/
 
 ## 🔌 Writing Plugins
 
-Heliox OS supports community plugins! See `daemon/pilot/system/plugins.py` for the plugin API. Plugins are Python modules placed in `~/.config/heliox-os/plugins/`.
+Heliox supports signed local plugins and a reviewed public marketplace. Start
+with the [Plugin Marketplace guide](docs/PLUGIN_MARKETPLACE.md). Marketplace
+packages live under `plugins/<plugin-name>`, declare an explicit capability
+manifest, and must pass:
+
+```bash
+python scripts/validate_marketplace.py --write
+python scripts/validate_marketplace.py
+```
+
+Native Python plugins run in a constrained child broker; WASM plugins run
+through the WASI broker. Do not bypass these paths or add undeclared authority.
+
+## Full validation
+
+Run the gates relevant to your change before opening a pull request:
+
+```bash
+cd daemon
+python -m ruff check pilot tests
+python -m ruff format --check pilot tests
+python -m pytest
+
+cd ../tauri-app/ui
+npx prettier --check .
+npm run check
+npm run test:static
+npm run test:unit -- --run
+npm run build
+npm run test:visual
+
+cd ../src-tauri
+cargo fmt -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+Changes to execution, intelligence, security, plugins, or routing must also
+update or assess README, [Architecture](docs/ARCHITECTURE.md),
+[Security](SECURITY.md), and [IPC](IPC_MESSAGE_FORMATS.md).
 
 ## 📜 License
 

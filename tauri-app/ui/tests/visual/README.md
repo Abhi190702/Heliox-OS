@@ -8,8 +8,8 @@ Tests run against the **Vite dev server** (`http://localhost:1420`) — no Tauri
 ```
 tests/visual/
 ├── helpers.ts              # Shared setup: Tauri IPC mock, navigation, animation freeze
-├── chat.spec.ts            # Chat interface (empty state, input bar, messages)
-├── settings.spec.ts        # Settings panel (all sections, toggles, light mode)
+├── chat.spec.ts            # Chat, scroll retention, risk interruption, and results
+├── settings.spec.ts        # Settings, world model, workflows, healing, mesh coverage
 ├── agent-thoughts.spec.ts  # ReActPipeline (idle, skeleton, active, completed, thoughts)
 ├── __snapshots__/          # Committed baseline PNG screenshots
 └── README.md               # This file
@@ -54,6 +54,10 @@ The `visual-regression` job in `.github/workflows/ci.yml`:
 - Runs on every PR against `main`
 - Uploads diff images as artifacts (retained 7 days) when tests fail
 - Reviewers can download the artifact to see exactly what changed visually
+
+The current suite contains 33 scenarios, including a visible world-model
+interrupt, long-chat scroll retention, durable workflow controls, honest
+outdated-daemon status, and 21-specialist/156-action coverage.
 
 ## Pixel diff tolerance
 

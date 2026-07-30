@@ -23,10 +23,14 @@ We use [GitHub Discussions](https://github.com/VyomKulshrestha/Heliox-OS/discuss
 
 Created a cool plugin? Share it with the community:
 
-1. Create your plugin in `~/.config/heliox-os/plugins/`
-2. Test it thoroughly
+1. Create a local plugin from **Plugin Marketplace → Create Local Plugin**
+2. Declare the smallest required capability set and test every tool
 3. Share it in the **Show & Tell** discussion category
-4. Or submit it as a PR to the `community-plugins/` directory
+4. To publish for everyone, submit `plugins/<plugin-name>` plus its
+   `plugins/registry.json` entry in a reviewed pull request
+
+See the [Plugin Marketplace guide](docs/PLUGIN_MARKETPLACE.md) for the package,
+hash, capability, CI, and moderation contract.
 
 ## 📜 Code of Conduct
 
