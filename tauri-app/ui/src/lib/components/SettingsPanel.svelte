@@ -12,6 +12,7 @@
   import RiskWorldModelPanel from "./RiskWorldModelPanel.svelte";
   import TemporalMemoryPanel from "./TemporalMemoryPanel.svelte";
   import OnlineLearningPanel from "./OnlineLearningPanel.svelte";
+  import StrategyEvolutionPanel from "./StrategyEvolutionPanel.svelte";
   import GestureWorkflowBindings from "./GestureWorkflowBindings.svelte";
   import VoiceGestureWorkflowStatus from "./VoiceGestureWorkflowStatus.svelte";
   import SelfHealingPanel from "./SelfHealingPanel.svelte";
@@ -1635,6 +1636,10 @@
 
   <section class="settings-group feature-panel-section">
     <OnlineLearningPanel />
+  </section>
+
+  <section class="settings-group feature-panel-section">
+    <StrategyEvolutionPanel />
   </section>
 
   <section class="settings-group feature-panel-section">
