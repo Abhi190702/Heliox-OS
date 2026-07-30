@@ -4,7 +4,15 @@ import asyncio
 
 import pytest
 
-from pilot.actions import Action, ActionPlan, ActionResult, ActionType, SystemInfoParams, VerificationResult
+from pilot.actions import (
+    Action,
+    ActionPlan,
+    ActionResult,
+    ActionType,
+    BrowserParams,
+    SystemInfoParams,
+    VerificationResult,
+)
 from pilot.agents.execution_companion import CompanionFollowUp, CompanionReview, ExecutionCompanion
 
 
@@ -118,6 +126,51 @@ async def test_follow_up_requires_a_message_and_specific_ideas():
         _plan(),
         [],
         VerificationResult(passed=True, details=["verified"]),
+    )
+
+    assert follow_up is None
+
+
+@pytest.mark.asyncio
+async def test_follow_up_uses_grounded_local_fallback_when_model_is_offline():
+    companion = ExecutionCompanion(_Model(error=RuntimeError("offline")))
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.BROWSER_EXTRACT,
+                target="main",
+                parameters=BrowserParams(selector="main"),
+            )
+        ],
+        explanation="Extract the final page.",
+    )
+    result = ActionResult(action=plan.actions[0], success=True, output="PRIVATE PAGE CONTENT")
+
+    follow_up = await companion.follow_up(
+        "Find the information on example.com.",
+        plan,
+        [result],
+        VerificationResult(passed=True, details=["verified"]),
+    )
+
+    assert follow_up is not None
+    assert follow_up.source == "local_fallback"
+    assert follow_up.message == "The requested task completed and passed verification."
+    assert "final page" in follow_up.suggestions[0]
+    assert "PRIVATE PAGE CONTENT" not in follow_up.spoken_text()
+
+
+@pytest.mark.asyncio
+async def test_follow_up_never_suggests_more_work_after_failed_verification():
+    companion = ExecutionCompanion(_Model(error=RuntimeError("offline")))
+    plan = _plan()
+    result = ActionResult(action=plan.actions[0], success=True, output="output")
+
+    follow_up = await companion.follow_up(
+        "Show the OS version.",
+        plan,
+        [result],
+        VerificationResult(passed=False, details=["not verified"]),
     )
 
     assert follow_up is None

@@ -114,11 +114,13 @@ class CompanionReview:
 class CompanionFollowUp:
     message: str
     suggestions: list[str] = field(default_factory=list)
+    source: str = "model"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "message": self.message,
             "suggestions": list(self.suggestions),
+            "source": self.source,
         }
 
     def spoken_text(self) -> str:
@@ -167,6 +169,15 @@ class ExecutionCompanion:
         status, which is sufficient for next-step ideas without replaying file
         contents or command output into another prompt.
         """
+        if not bool(getattr(verification, "passed", False)):
+            return None
+
+        successful_action_types = [
+            result.action.action_type.value for result in results if bool(getattr(result, "success", False))
+        ]
+        if not successful_action_types:
+            return None
+
         action_lines = [
             (
                 f"- {result.action.action_type.value}: "
@@ -195,11 +206,58 @@ class ExecutionCompanion:
             )
             suggestions = [item for item in suggestions if item]
             if not message or not suggestions:
-                return None
+                return self._fallback_follow_up(successful_action_types)
             return CompanionFollowUp(message=message, suggestions=suggestions)
         except Exception as exc:
             logger.warning("Interactive companion follow-up unavailable: %s", exc)
-            return None
+            return self._fallback_follow_up(successful_action_types)
+
+    @staticmethod
+    def _fallback_follow_up(action_types: list[str]) -> CompanionFollowUp:
+        """Return grounded local suggestions when the model is unavailable."""
+        families = set(action_types)
+        suggestions: list[str] = []
+
+        if any(action_type.startswith("browser_") for action_type in families):
+            suggestions.extend(
+                [
+                    "Extract the key facts and links from the final page into a concise summary",
+                    "Save the verified page result to a local note for later reference",
+                ]
+            )
+        if any(action_type in {"system_info", "cpu_usage", "memory_usage", "disk_usage"} for action_type in families):
+            suggestions.extend(
+                [
+                    "Compare the observed system values with the requirements of the app you plan to run",
+                    "Save a compact system report so you can compare these values later",
+                ]
+            )
+        if any(action_type.startswith("file_") for action_type in families):
+            suggestions.extend(
+                [
+                    "Verify the resulting files and organize them into the intended destination",
+                    "Create a local summary of the file changes that were completed",
+                ]
+            )
+        if "code_execute" in families:
+            suggestions.extend(
+                [
+                    "Add edge-case inputs and rerun the same code",
+                    "Save the verified code and its expected output as a reusable check",
+                ]
+            )
+
+        unique_suggestions = list(dict.fromkeys(suggestions))[:3]
+        if not unique_suggestions:
+            unique_suggestions = [
+                "Review the verified result and save the parts you want to reuse",
+            ]
+
+        return CompanionFollowUp(
+            message="The requested task completed and passed verification.",
+            suggestions=unique_suggestions,
+            source="local_fallback",
+        )
 
     @staticmethod
     def _format_prompt(user_input: str, plan: ActionPlan) -> str:
