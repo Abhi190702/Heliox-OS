@@ -8,6 +8,7 @@ import {
   loadChatSessions,
   saveChatSessions,
   summarizeChatSessions,
+  redactSensitiveChatText,
 } from "./chatSessions";
 
 function storage(): Storage {
@@ -63,5 +64,46 @@ describe("chat session persistence", () => {
     expect(summaries[0].id).toBe(newer.id);
     expect(older.title).toHaveLength(56);
     expect(older.title.endsWith("...")).toBe(true);
+  });
+
+  it("redacts provider credentials from persisted historical messages", () => {
+    const target = storage();
+    const leaked = "https://provider.test/generate?key=AIzaSyExampleSecretValue123456789";
+    target.setItem(
+      CHAT_SESSIONS_KEY,
+      JSON.stringify([
+        {
+          ...createChatSession(10),
+          messages: [
+            {
+              type: "error",
+              text: `Planning failed at ${leaked}`,
+              timestamp: 10,
+              actionResults: [
+                {
+                  action_type: "system_info",
+                  target: "system",
+                  success: false,
+                  output: "",
+                  error: `Bearer private-token at ${leaked}`,
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    );
+
+    const loaded = loadChatSessions(target);
+    const serialized = target.getItem(CHAT_SESSIONS_KEY) ?? "";
+
+    expect(loaded.sessions[0].messages[0].text).toContain("?key=[redacted]");
+    expect(loaded.sessions[0].messages[0].actionResults?.[0].error).toContain("Bearer [redacted]");
+    expect(serialized).not.toContain("AIzaSyExampleSecretValue");
+    expect(serialized).not.toContain("private-token");
+  });
+
+  it("redacts standalone Google API key shapes", () => {
+    expect(redactSensitiveChatText("key: AIzaSyExampleSecretValue123456789")).toBe("key: [redacted]");
   });
 });

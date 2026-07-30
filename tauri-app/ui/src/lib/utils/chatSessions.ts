@@ -54,17 +54,34 @@ export function deriveChatTitle(messages: Message[]): string {
   return singleLine.length > 56 ? `${singleLine.slice(0, 53)}...` : singleLine;
 }
 
+export function redactSensitiveChatText(text: string): string {
+  return text
+    .replace(/([?&](?:key|api[_-]?key|token)=)[^&\s"'<>]+/gi, "$1[redacted]")
+    .replace(/\bAIza[0-9A-Za-z_-]{20,}\b/g, "[redacted]")
+    .replace(/(Bearer\s+)[0-9A-Za-z._~-]+/gi, "$1[redacted]");
+}
+
 function parseMessages(value: unknown): Message[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((message): message is Message =>
-    Boolean(
-      message &&
-      typeof message === "object" &&
-      typeof (message as Message).type === "string" &&
-      typeof (message as Message).text === "string" &&
-      typeof (message as Message).timestamp === "number",
-    ),
-  );
+  return value
+    .filter((message): message is Message =>
+      Boolean(
+        message &&
+        typeof message === "object" &&
+        typeof (message as Message).type === "string" &&
+        typeof (message as Message).text === "string" &&
+        typeof (message as Message).timestamp === "number",
+      ),
+    )
+    .map((message) => ({
+      ...message,
+      text: redactSensitiveChatText(message.text),
+      actionResults: message.actionResults?.map((result) => ({
+        ...result,
+        output: redactSensitiveChatText(result.output),
+        error: result.error ? redactSensitiveChatText(result.error) : null,
+      })),
+    }));
 }
 
 function parseRecord(value: unknown): ChatSessionRecord | null {
@@ -96,6 +113,7 @@ export function loadChatSessions(storage: Storage | null): ChatSessionCollection
       ? parsed.map(parseRecord).filter((session): session is ChatSessionRecord => session !== null)
       : [];
     if (sessions.length > 0) {
+      storage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions));
       const requestedActiveId = storage.getItem(ACTIVE_CHAT_SESSION_KEY);
       const activeSessionId = sessions.some((session) => session.id === requestedActiveId)
         ? String(requestedActiveId)
