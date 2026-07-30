@@ -562,6 +562,48 @@ class MemoryStore:
             task_id=task_id,
         )
 
+    async def temporal_status(self, *, limit: int = 50) -> dict[str, Any]:
+        """Return reviewable facts and counts for the local memory controls."""
+        if self._temporal is None:
+            return {
+                "available": False,
+                "facts": [],
+                "counts": {
+                    "facts": {},
+                    "episodes": 0,
+                    "working_items": 0,
+                },
+            }
+        facts = await self._temporal.list_facts(limit=limit)
+        counts = await self._temporal.stats()
+        return {
+            "available": True,
+            "facts": [
+                {
+                    "fact_id": fact.fact_id,
+                    "subject": fact.subject,
+                    "predicate": fact.predicate,
+                    "value": fact.value,
+                    "scope": fact.scope.value,
+                    "status": fact.status.value,
+                    "confidence": fact.confidence,
+                    "provenance": fact.provenance.value,
+                    "evidence_count": fact.evidence_count,
+                    "valid_from": fact.valid_from,
+                    "valid_until": fact.valid_until,
+                    "updated_at": fact.updated_at,
+                }
+                for fact in facts
+            ],
+            "counts": counts,
+        }
+
+    async def retract_fact(self, fact_id: str, *, reason: str = "") -> TemporalFact:
+        """Retract one learned fact at the user's request."""
+        if self._temporal is None:
+            raise RuntimeError("Temporal memory is not initialized")
+        return await self._temporal.retract_fact(fact_id, reason=reason)
+
     async def get_preference(self, key: str) -> str | None:
         """Return the stored value for *key*, or None if not found."""
         if not self._pool:

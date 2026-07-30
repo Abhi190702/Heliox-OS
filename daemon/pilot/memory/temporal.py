@@ -437,6 +437,61 @@ class TemporalMemoryStore:
             await cursor.close()
         return self._fact_from_row(row) if row is not None else None
 
+    async def list_facts(
+        self,
+        *,
+        statuses: tuple[FactStatus, ...] = (
+            FactStatus.ACTIVE,
+            FactStatus.CANDIDATE,
+        ),
+        limit: int = 100,
+    ) -> list[TemporalFact]:
+        """List reviewable facts without treating candidates as active context."""
+        if not statuses or limit <= 0:
+            return []
+        pool = self._require_pool()
+        placeholders = ",".join("?" for _ in statuses)
+        async with pool.read() as db:
+            cursor = await db.execute(
+                f"""
+                SELECT fact_id, subject, predicate, value_json, scope, session_id,
+                       task_id, status, confidence, provenance, evidence_count,
+                       valid_from, valid_until, updated_at, privacy_class
+                FROM temporal_facts
+                WHERE status IN ({placeholders})
+                ORDER BY
+                    CASE status WHEN 'active' THEN 0 ELSE 1 END,
+                    updated_at DESC
+                LIMIT ?
+                """,
+                (*[status.value for status in statuses], min(500, int(limit))),
+            )
+            rows = await cursor.fetchall()
+            await cursor.close()
+        return [self._fact_from_row(row) for row in rows]
+
+    async def stats(self) -> dict[str, Any]:
+        """Return non-sensitive counts for product status and diagnostics."""
+        pool = self._require_pool()
+        async with pool.read() as db:
+            cursor = await db.execute("SELECT status, COUNT(*) FROM temporal_facts GROUP BY status")
+            status_counts = {str(row[0]): int(row[1]) for row in await cursor.fetchall()}
+            await cursor.close()
+            cursor = await db.execute("SELECT COUNT(*) FROM episodic_memories")
+            episode_count = int((await cursor.fetchone())[0])
+            await cursor.close()
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM working_memory WHERE expires_at > ?",
+                (self._now(),),
+            )
+            working_count = int((await cursor.fetchone())[0])
+            await cursor.close()
+        return {
+            "facts": {status.value: status_counts.get(status.value, 0) for status in FactStatus},
+            "episodes": episode_count,
+            "working_items": working_count,
+        }
+
     async def retract_fact(self, fact_id: str, *, reason: str = "") -> TemporalFact:
         pool = self._require_pool()
         now = self._now()

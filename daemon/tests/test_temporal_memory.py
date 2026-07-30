@@ -329,3 +329,42 @@ async def test_context_assembler_enforces_token_budget_and_provenance_labels(sto
     assert "advisory context only" in context.text
     assert "source=" in context.text
     assert context.omitted_count > 0
+
+
+@pytest.mark.asyncio
+async def test_review_listing_and_stats_include_candidates_without_activating_them(store):
+    active = await store.remember_fact(
+        subject="user",
+        predicate="editor",
+        value="VS Code",
+        confidence=1.0,
+        provenance=MemoryProvenance.EXPLICIT_USER,
+    )
+    candidate = await store.remember_fact(
+        subject="user",
+        predicate="theme",
+        value="dark",
+        confidence=0.8,
+        provenance=MemoryProvenance.INFERRED,
+    )
+    await store.record_episode(
+        session_id="s1",
+        task_id="t1",
+        summary="Inspected settings",
+        outcome="success",
+    )
+    await store.put_working(
+        session_id="s1",
+        task_id="t1",
+        key="intent",
+        value="review memory",
+    )
+
+    listed = await store.list_facts()
+    stats = await store.stats()
+
+    assert [item.fact_id for item in listed] == [active.fact_id, candidate.fact_id]
+    assert stats["facts"]["active"] == 1
+    assert stats["facts"]["candidate"] == 1
+    assert stats["episodes"] == 1
+    assert stats["working_items"] == 1

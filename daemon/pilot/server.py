@@ -971,6 +971,8 @@ class PilotServer:
             "reset_config": self._handle_reset_config,
             "get_history": self._handle_get_history,
             "memory_checkpoint": self._handle_memory_checkpoint,
+            "temporal_memory_status": self._handle_temporal_memory_status,
+            "temporal_memory_retract": self._handle_temporal_memory_retract,
             "store_api_key": self._handle_store_api_key,
             "delete_api_key": self._handle_delete_api_key,
             "list_api_keys": self._handle_list_api_keys,
@@ -3963,6 +3965,50 @@ class PilotServer:
         if not self._memory:
             return {"status": "error", "message": "Memory store is not initialized"}
         return await self._memory.checkpoint()
+
+    async def _handle_temporal_memory_status(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        """Return provenance-labelled memory facts for local user review."""
+        if not self._memory:
+            return {
+                "status": "error",
+                "message": "Memory store is not initialized",
+            }
+        limit = max(1, min(200, int(params.get("limit", 50))))
+        return {"status": "ok", **(await self._memory.temporal_status(limit=limit))}
+
+    async def _handle_temporal_memory_retract(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        """Let the user explicitly retract an active or candidate memory fact."""
+        if not self._memory:
+            return {
+                "status": "error",
+                "message": "Memory store is not initialized",
+            }
+        fact_id = str(params.get("fact_id") or "").strip()
+        if not fact_id:
+            return {"status": "error", "message": "fact_id is required"}
+        try:
+            fact = await self._memory.retract_fact(
+                fact_id,
+                reason=str(params.get("reason") or "Retracted from settings"),
+            )
+        except KeyError:
+            return {
+                "status": "error",
+                "message": "The memory no longer exists or was already retracted.",
+            }
+        return {
+            "status": "ok",
+            "fact_id": fact.fact_id,
+            "fact_status": fact.status.value,
+        }
 
     async def _handle_export_session_chat(self, params: dict, ws: ServerConnection) -> dict:
         """Export current UI session chat messages to JSON or CSV."""

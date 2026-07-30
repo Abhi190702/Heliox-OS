@@ -10,6 +10,7 @@
   import GatewayPolicyEditor from "./GatewayPolicyEditor.svelte";
   import GatewayAuditLog from "./GatewayAuditLog.svelte";
   import RiskWorldModelPanel from "./RiskWorldModelPanel.svelte";
+  import TemporalMemoryPanel from "./TemporalMemoryPanel.svelte";
   import GestureWorkflowBindings from "./GestureWorkflowBindings.svelte";
   import VoiceGestureWorkflowStatus from "./VoiceGestureWorkflowStatus.svelte";
   import SelfHealingPanel from "./SelfHealingPanel.svelte";
@@ -1622,6 +1623,10 @@
 
   <section class="settings-group feature-panel-section">
     <RiskWorldModelPanel />
+  </section>
+
+  <section class="settings-group feature-panel-section">
+    <TemporalMemoryPanel />
   </section>
 
   <section class="settings-group feature-panel-section">
