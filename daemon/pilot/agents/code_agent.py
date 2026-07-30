@@ -110,6 +110,7 @@ class CodeAgent(BaseAgent):
             initial_largest_output=str((context or {}).get("initial_largest_output", "")),
             invocation_source=self.get_invocation_source(),
             scope_override=scope_override,
+            user_confirmed=bool((context or {}).get("user_confirmed", False)),
         )
 
         # Auto-debug: if any code execution failed, try to fix and re-run

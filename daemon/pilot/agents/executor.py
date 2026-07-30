@@ -464,6 +464,7 @@ class Executor:
         invocation_source: InvocationSource = InvocationSource.INTERACTIVE,
         scope_override: TaskScopeOverride | None = None,
         critic_already_reviewed: bool = False,
+        user_confirmed: bool = False,
     ) -> list[ActionResult]:
         """Execute all actions in a plan sequentially, with output chaining."""
         plan_id = plan_id or str(uuid.uuid4())[:8]
@@ -716,7 +717,11 @@ class Executor:
                                 await self._narrator.on_action_complete(result)
                             return idx, result
 
-                result = await self._execute_single(action, snapshot_id)
+                result = await self._execute_single(
+                    action,
+                    snapshot_id,
+                    user_confirmed=user_confirmed,
+                )
                 await self._audit.log_action_result(result, plan_id)
                 if on_action_complete:
                     await on_action_complete(result)
@@ -848,12 +853,18 @@ class Executor:
 
         return action
 
-    async def _execute_single(self, action: Action, snapshot_id: str | None) -> ActionResult:
+    async def _execute_single(
+        self,
+        action: Action,
+        snapshot_id: str | None,
+        *,
+        user_confirmed: bool = False,
+    ) -> ActionResult:
         """Execute a single validated action."""
 
         # ── Feature 2: Neuro-Safe Destructive Action Gate ──
         stress_gate = getattr(self, "_stress_gate", None)
-        if stress_gate and stress_gate.enabled:
+        if stress_gate and stress_gate.enabled and not user_confirmed:
             # Action type is used to check risk
             gate_decision = await stress_gate.evaluate(action.action_type)
             if gate_decision.gated:

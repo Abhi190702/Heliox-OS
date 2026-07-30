@@ -284,6 +284,7 @@ class AgentOrchestrator:
         plan_id: str | None = None,
         scope_override: TaskScopeOverride | None = None,
         critic_already_reviewed: bool = False,
+        user_confirmed: bool = False,
     ) -> list[ActionResult]:
         """Execute a plan by routing actions to specialist agents.
 
@@ -320,6 +321,7 @@ class AgentOrchestrator:
                     on_action_complete=on_action_complete,
                     cancel_event=cancel_event,
                     scope_override=scope_override,
+                    user_confirmed=user_confirmed,
                 )
         finally:
             if self._budget_tracker:
@@ -337,6 +339,7 @@ class AgentOrchestrator:
         on_action_complete: Callable | None,
         cancel_event: asyncio.Event | None,
         scope_override: TaskScopeOverride | None = None,
+        user_confirmed: bool = False,
     ) -> list[ActionResult]:
         """Inner execution loop — extracted so the task lifecycle wrapper
         in execute_plan() stays small and the try/finally is obvious."""
@@ -427,6 +430,7 @@ class AgentOrchestrator:
                     context={
                         "initial_last_output": prior_last_output,
                         "initial_largest_output": prior_largest_output,
+                        "user_confirmed": user_confirmed,
                     },
                     scope_override=scope_override,
                 )

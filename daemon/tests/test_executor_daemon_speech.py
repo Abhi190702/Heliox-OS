@@ -90,6 +90,32 @@ async def test_not_gated_never_speaks_or_broadcasts(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_explicitly_confirmed_action_does_not_pause_or_speak(tmp_path):
+    ex = _executor(tmp_path)
+    stress_gate = _FakeStressGate(gated=True)
+    stress_gate.evaluate = AsyncMock(wraps=stress_gate.evaluate)
+    ex._stress_gate = stress_gate
+    broadcast = _Broadcast()
+    ex.set_broadcast(broadcast)
+
+    with (
+        patch("pilot.system.voice.speak", new=AsyncMock(return_value="")) as mock_speak,
+        patch("asyncio.sleep", new=AsyncMock()) as mock_sleep,
+    ):
+        result = await ex._execute_single(
+            _action(),
+            snapshot_id=None,
+            user_confirmed=True,
+        )
+
+    stress_gate.evaluate.assert_not_awaited()
+    mock_speak.assert_not_awaited()
+    mock_sleep.assert_not_awaited()
+    assert broadcast.calls == []
+    assert result.success is True
+
+
+@pytest.mark.asyncio
 async def test_no_broadcast_configured_is_a_safe_noop(tmp_path):
     ex = _executor(tmp_path)  # set_broadcast() never called
     ex._stress_gate = _FakeStressGate(gated=True)

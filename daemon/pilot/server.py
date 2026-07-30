@@ -2110,6 +2110,7 @@ class PilotServer:
                             cancel_event=cancel_event,  # ── Cancel Token (Issue #92) ──
                             plan_id=plan_id,
                             critic_already_reviewed=True,
+                            user_confirmed=needs_confirm and approved_decision in {"approved", "partially_approved"},
                         )
                     )
                 else:
@@ -2124,6 +2125,7 @@ class PilotServer:
                         # as low-risk) — don't have the gateway pay for a
                         # redundant LLM round-trip.
                         critic_already_reviewed=True,
+                        user_confirmed=needs_confirm and approved_decision in {"approved", "partially_approved"},
                     )
             except asyncio.CancelledError:
                 # ── Mid-flight cancellation: _handle_abort (Part 3) sets

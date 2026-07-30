@@ -213,6 +213,7 @@ class SystemAgent(BaseAgent):
             initial_largest_output=str((context or {}).get("initial_largest_output", "")),
             invocation_source=self.get_invocation_source(),
             scope_override=scope_override,
+            user_confirmed=bool((context or {}).get("user_confirmed", False)),
         )
         duration_ms = int((time.time() - start) * 1000)
         self._record_task(duration_ms, all(r.success for r in results))
