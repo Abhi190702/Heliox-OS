@@ -47,13 +47,17 @@ test.describe("Settings Panel", () => {
   });
 
   test("model section matches baseline", async ({ page }) => {
-    const section = page.locator(".settings-group").filter({ hasText: "Model" }).first();
+    const section = page.locator(".settings-group").filter({
+      has: page.getByRole("heading", { name: "Model", exact: true }),
+    });
     await expect(section).toBeVisible();
     await expect(section).toHaveScreenshot("settings-model-section.png");
   });
 
   test("cloud API section matches baseline", async ({ page }) => {
-    const section = page.locator(".settings-group").filter({ hasText: "Cloud API" });
+    const section = page.locator(".settings-group").filter({
+      has: page.getByRole("heading", { name: "Cloud API (Fast)", exact: true }),
+    });
     await expect(section).toBeVisible();
     await expect(section).toHaveScreenshot("settings-cloud-section.png");
   });
@@ -84,7 +88,9 @@ test.describe("Settings Panel", () => {
   });
 
   test("restrictions section matches baseline", async ({ page }) => {
-    const section = page.locator(".settings-group").filter({ hasText: "Restrictions" });
+    const section = page.locator(".settings-group").filter({
+      has: page.getByRole("heading", { name: "Restrictions", exact: true }),
+    });
     await expect(section).toBeVisible();
     await expect(section).toHaveScreenshot("settings-restrictions-section.png");
   });
