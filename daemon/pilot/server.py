@@ -24,8 +24,27 @@ import websockets
 from websockets.asyncio.server import Server, ServerConnection
 
 from pilot import __version__
-from pilot.config import DATA_DIR, DB_FILE, LOG_FILE, PLUGINS_DIR, STATE_DIR, PilotConfig, ensure_dirs
+from pilot.config import (
+    DATA_DIR,
+    DB_FILE,
+    EXPERIENCE_DB_FILE,
+    LOG_FILE,
+    PLUGINS_DIR,
+    STATE_DIR,
+    PilotConfig,
+    ensure_dirs,
+)
 from pilot.export_logs import export_logs
+from pilot.intelligence.experience import (
+    ExperienceContext,
+    ExperienceEvent,
+    ExperienceEventType,
+    ExperienceLedger,
+    PrivacyClass,
+    experience_scope,
+    get_experience_context,
+    stable_action_idempotency_key,
+)
 from pilot.logger import ColorFormatter
 
 logger = logging.getLogger("pilot.server")
@@ -395,6 +414,8 @@ class PilotServer:
         self._subconscious: Any = None
         self._screen_vision: Any = None
         self._memory: Any = None
+        self._experience_ledger: ExperienceLedger | None = None
+        self._active_experience_context = ExperienceContext()
         self._vault: Any = None
         self._permission_audit: Any = None
         self._checkpoint_store: Any = None
@@ -537,6 +558,9 @@ class PilotServer:
         )
         await self._memory.initialize(model_router)
 
+        self._experience_ledger = ExperienceLedger(EXPERIENCE_DB_FILE)
+        await self._experience_ledger.initialize()
+
         # ── Plan History Audit Log ──
         self._plan_history = PlanHistoryStore()
         await self._plan_history.initialize()
@@ -558,6 +582,7 @@ class PilotServer:
             audit,
             skill_registry=self._skill_registry,
         )
+        self._executor.set_experience_ledger(self._experience_ledger)
         self._verifier = Verifier(model_router)
 
         # Destructive Critic Agent — secondary safety reviewer for Tier 4 plans.
@@ -890,6 +915,7 @@ class PilotServer:
 
             self._proactive = ProactiveSuggestionEngine(screen_vision=self._screen_vision)
             self._proactive.set_broadcast(self._broadcast_notification)
+            self._proactive.set_experience_ledger(self._experience_ledger)
             asyncio.create_task(self._proactive.start())
             logger.info("ProactiveSuggestionEngine auto-started")
         except Exception:
@@ -1268,6 +1294,21 @@ class PilotServer:
     MAX_RETRIES = 2
     MAX_LIVE_CORRECTIONS = 5
 
+    async def _append_experience(
+        self,
+        event_type: ExperienceEventType,
+        **kwargs: Any,
+    ) -> ExperienceEvent | None:
+        """Persist an intelligence event without affecting product behavior."""
+
+        if self._experience_ledger is None:
+            return None
+        try:
+            return await self._experience_ledger.append(event_type, **kwargs)
+        except Exception:
+            logger.warning("Experience ledger append failed for %s", event_type.value, exc_info=True)
+            return None
+
     async def _await_execution_tracked(self, execution: Any) -> Any:
         """Track any cancellable interactive phase in the cancellation slot.
 
@@ -1306,13 +1347,40 @@ class PilotServer:
         self._interactive_request_active = True
         self._active_plan_id = ""
         self._live_correction = None
+        context = ExperienceContext(
+            session_id=str(params.get("session_id") or "default"),
+            task_id=str(params.get("task_id") or uuid.uuid4()),
+            user_id=str(params.get("user_id") or "local"),
+        )
+        self._active_experience_context = context
         try:
-            return await self._handle_execute_inner(params, ws)
+            with experience_scope(
+                session_id=context.session_id,
+                task_id=context.task_id,
+                user_id=context.user_id,
+            ):
+                try:
+                    return await self._handle_execute_inner(params, ws)
+                except Exception as exc:
+                    await self._append_experience(
+                        ExperienceEventType.OUTCOME_VERIFIED,
+                        idempotency_key=f"task:{context.task_id}:unhandled_error",
+                        source="interactive",
+                        payload={
+                            "status": "internal_error",
+                            "error_type": type(exc).__name__,
+                            "message": str(exc)[:1000],
+                        },
+                        provenance={"component": "PilotServer._handle_execute"},
+                        privacy_class=PrivacyClass.SENSITIVE,
+                    )
+                    raise
         finally:
             self._interactive_request_active = False
             self._active_plan_id = ""
             self._live_correction = None
             self._cancel_event = None
+            self._active_experience_context = ExperienceContext()
 
     async def _handle_execute_inner(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Agentic pipeline: plan -> execute -> verify -> [retry on failure].
@@ -1340,6 +1408,22 @@ class PilotServer:
             user_input += "\n\n".join(formatted_attachments)
 
         if not user_input.strip():
+            context = get_experience_context()
+            await self._append_experience(
+                ExperienceEventType.INTENT,
+                idempotency_key=f"task:{context.task_id}:intent:empty",
+                source="interactive",
+                payload={"input": "", "attachment_count": len(attachments)},
+                provenance={"component": "PilotServer._handle_execute_inner"},
+                privacy_class=PrivacyClass.SENSITIVE,
+            )
+            await self._append_experience(
+                ExperienceEventType.OUTCOME_VERIFIED,
+                idempotency_key=f"task:{context.task_id}:terminal:empty",
+                source="interactive",
+                payload={"status": "error", "summary": "Empty input"},
+                provenance={"component": "PilotServer._handle_execute_inner"},
+            )
             return {"status": "error", "message": "Empty input"}
         dry_run = _resolve_dry_run(self.config.security.dry_run, params.get("dry_run", False))
 
@@ -1401,6 +1485,39 @@ class PilotServer:
                 session_id=chat_session_id,
             )
 
+        async def _record_planned_experience(plan: Any, plan_id: str, attempt: int) -> None:
+            plan_event = await self._append_experience(
+                ExperienceEventType.PLAN_CREATED,
+                plan_id=plan_id,
+                idempotency_key=f"plan:{plan_id}:created",
+                source="planner",
+                payload={
+                    "action_count": len(plan.actions),
+                    "explanation": plan.explanation,
+                    "attempt": attempt,
+                    "conversational": not bool(plan.actions),
+                },
+                provenance={"component": "Planner.plan"},
+                privacy_class=PrivacyClass.SENSITIVE,
+            )
+            for index, action in enumerate(plan.actions):
+                action_id = stable_action_idempotency_key(plan_id, index, action)
+                await self._append_experience(
+                    ExperienceEventType.CANDIDATE_ACTION,
+                    plan_id=plan_id,
+                    action_id=action_id,
+                    parent_event_id=plan_event.event_id if plan_event else "",
+                    idempotency_key=f"plan:{plan_id}:candidate:{index}",
+                    source="planner",
+                    payload={
+                        "index": index,
+                        "action_idempotency_key": action_id,
+                        "action": action,
+                    },
+                    provenance={"component": "Planner.plan"},
+                    privacy_class=PrivacyClass.SENSITIVE,
+                )
+
         async def _emit_task_complete(status: str, summary: str) -> None:
             try:
                 duration_ms = int((time.time() - _start_time) * 1000)
@@ -1412,6 +1529,16 @@ class PilotServer:
                 }
                 if last_plan_id:
                     payload["plan_id"] = last_plan_id
+                context = get_experience_context()
+                await self._append_experience(
+                    ExperienceEventType.OUTCOME_VERIFIED,
+                    plan_id=last_plan_id,
+                    idempotency_key=(f"task:{context.task_id}:terminal:{revision_count}:{auto_revision_count}"),
+                    source="interactive",
+                    payload=payload,
+                    provenance={"component": "PilotServer._handle_execute_inner"},
+                    privacy_class=PrivacyClass.SENSITIVE,
+                )
                 await self._broadcast_notification("task_complete", payload)
             except Exception:
                 pass
@@ -1565,6 +1692,21 @@ class PilotServer:
         if emit:
             emit.reset()
 
+        context = get_experience_context()
+        await self._append_experience(
+            ExperienceEventType.INTENT,
+            idempotency_key=(f"task:{context.task_id}:intent:{revision_count}:{auto_revision_count}"),
+            source="interactive",
+            payload={
+                "input": user_input,
+                "attachment_count": len(attachments),
+                "revision_count": revision_count,
+                "auto_revision_count": auto_revision_count,
+            },
+            provenance={"component": "PilotServer._handle_execute_inner"},
+            privacy_class=PrivacyClass.SENSITIVE,
+        )
+
         input_phase = ""
         await ws.send(_notification("status", {"phase": "receiving input"}))
         if emit:
@@ -1644,6 +1786,23 @@ class PilotServer:
             if self._screen_vision:
                 try:
                     _screen_ctx = self._screen_vision.get_context_for_planner()
+                    await self._append_experience(
+                        ExperienceEventType.OBSERVATION,
+                        idempotency_key=(
+                            f"task:{context.task_id}:screen_context:{revision_count}:{auto_revision_count}:{attempt}"
+                        ),
+                        source="screen_vision",
+                        payload={
+                            "context_available": bool(_screen_ctx),
+                            "context_length": len(_screen_ctx),
+                            "raw_media_excluded": True,
+                        },
+                        provenance={
+                            "component": "ScreenVisionAgent.get_context_for_planner",
+                            "consumer": "Planner.plan",
+                        },
+                        privacy_class=PrivacyClass.SENSITIVE,
+                    )
                 except Exception:
                     pass
             recent_companion_context = self._recent_companion_context_by_session.get(chat_session_id, "")
@@ -1700,6 +1859,8 @@ class PilotServer:
             # It must bypass checkpoints, previews, permission gates,
             # execution, and verification: there is nothing to execute.
             if not plan.actions:
+                conversation_plan_id = f"conversation:{context.task_id}:{attempt}"
+                await _record_planned_experience(plan, conversation_plan_id, attempt)
                 if emit:
                     await emit.phase_complete(
                         "planning",
@@ -1729,6 +1890,7 @@ class PilotServer:
             plan_id = str(uuid.uuid4())[:8]
             last_plan_id = plan_id
             self._active_plan_id = plan_id
+            await _record_planned_experience(plan, plan_id, attempt)
             if self._checkpoint_store:
                 await self._checkpoint_store.start_plan(plan_id, user_input, plan)
 
@@ -1813,6 +1975,17 @@ class PilotServer:
             risk_assessment = assess_plan_risk(plan, self.config)
             risk_score = risk_assessment.combined_score
             world_model_interrupt = risk_assessment.requires_confirmation
+            await self._append_experience(
+                ExperienceEventType.WORLD_PREDICTION,
+                plan_id=plan_id,
+                idempotency_key=f"plan:{plan_id}:world_prediction",
+                source="risk_gate",
+                payload=risk_assessment.to_dict(),
+                provenance={
+                    "component": "assess_plan_risk",
+                    "policy_authority": "deterministic_rules",
+                },
+            )
             if self.config.gateway.risk_gate_enabled:
                 await ws.send(
                     _notification(
@@ -2221,6 +2394,34 @@ class PilotServer:
                 except asyncio.CancelledError:
                     return await _phase_cancelled("verification", results)
             last_verification = verification
+            await self._append_experience(
+                ExperienceEventType.OUTCOME_VERIFIED,
+                plan_id=plan_id,
+                idempotency_key=f"plan:{plan_id}:verification:{attempt}",
+                source="verifier",
+                payload={
+                    "attempt": attempt,
+                    "verification": verification,
+                    "result_count": len(results),
+                },
+                provenance={"component": "Verifier.verify"},
+            )
+            if not verification.passed:
+                await self._append_experience(
+                    ExperienceEventType.PREDICTION_ERROR,
+                    plan_id=plan_id,
+                    idempotency_key=f"plan:{plan_id}:prediction_error:{attempt}",
+                    source="verifier",
+                    payload={
+                        "attempt": attempt,
+                        "details": verification.details,
+                        "failed_actions": verification.failed_actions,
+                    },
+                    provenance={
+                        "component": "Verifier.verify",
+                        "compared_prediction": f"plan:{plan_id}:world_prediction",
+                    },
+                )
             if cancel_event.is_set() and self._live_correction:
                 revised = await _restart_with_live_correction(results)
                 if revised is not None:
@@ -2697,6 +2898,20 @@ class PilotServer:
             payload["index"] = idx
             return payload
 
+        await self._append_experience(
+            ExperienceEventType.APPROVAL_REQUESTED,
+            plan_id=plan_id,
+            idempotency_key=f"plan:{plan_id}:approval:requested",
+            source="permission_gate",
+            payload={
+                "action_indices": confirm_indices,
+                "actions": [_dump_confirm_action(i, plan.actions[i]) for i in confirm_indices],
+                "reason": reason,
+                "risk_assessment": risk_assessment,
+            },
+            provenance={"component": "PilotServer._wait_for_confirmation"},
+            privacy_class=PrivacyClass.SENSITIVE,
+        )
         await ws.send(
             _notification(
                 "confirm_required",
@@ -2714,6 +2929,18 @@ class PilotServer:
             await asyncio.wait_for(pending.event.wait(), timeout=CONFIRM_TIMEOUT_SECONDS)
         except TimeoutError:
             logger.warning("Confirmation timed out for plan %s", plan_id)
+            await self._append_experience(
+                ExperienceEventType.APPROVAL_RESOLVED,
+                plan_id=plan_id,
+                idempotency_key=f"plan:{plan_id}:approval:resolved",
+                source="permission_gate",
+                payload={
+                    "decision": "expired",
+                    "approved_indices": [],
+                    "required_indices": sorted(required),
+                },
+                provenance={"component": "PilotServer._wait_for_confirmation"},
+            )
             return False, set(), required
         finally:
             self._pending_confirms.pop(plan_id, None)
@@ -2722,6 +2949,18 @@ class PilotServer:
             (pending.approved_indices if pending.approved_indices is not None else required)
             if pending.confirmed
             else set()
+        )
+        await self._append_experience(
+            ExperienceEventType.APPROVAL_RESOLVED,
+            plan_id=plan_id,
+            idempotency_key=f"plan:{plan_id}:approval:resolved",
+            source="permission_gate",
+            payload={
+                "decision": "approved" if pending.confirmed else "denied",
+                "approved_indices": sorted(approved & required),
+                "required_indices": sorted(required),
+            },
+            provenance={"component": "PilotServer._wait_for_confirmation"},
         )
         return pending.confirmed, (approved & required), required
 
@@ -2962,6 +3201,19 @@ class PilotServer:
             return {"status": "no_active_execution", "message": "There is no interactive task to revise."}
 
         requested_mode = str(params.get("mode", "")).strip().lower()
+        active_context = self._active_experience_context
+        await self._append_experience(
+            ExperienceEventType.USER_CORRECTION,
+            session_id=active_context.session_id,
+            task_id=active_context.task_id,
+            user_id=active_context.user_id,
+            plan_id=self._active_plan_id,
+            idempotency_key=f"correction:{uuid.uuid4()}",
+            source="interactive",
+            payload={"input": text, "requested_mode": requested_mode or "correct"},
+            provenance={"component": "PilotServer._handle_interject"},
+            privacy_class=PrivacyClass.SENSITIVE,
+        )
         normalized = " ".join(text.lower().split()).rstrip(".!?")
         stop_phrases = {
             "abort",
@@ -4220,6 +4472,23 @@ class PilotServer:
             voice_confidence=params.get("confidence", 0.8),
             is_final=params.get("is_final", False),
         )
+        voice_confidence = params.get("confidence", 0.8)
+        await self._append_experience(
+            ExperienceEventType.OBSERVATION,
+            idempotency_key=f"observation:voice:{uuid.uuid4()}",
+            source="voice",
+            payload={
+                "transcript": params.get("transcript", ""),
+                "is_final": bool(params.get("is_final", False)),
+            },
+            confidence=(
+                float(voice_confidence)
+                if isinstance(voice_confidence, (int, float)) and 0.0 <= voice_confidence <= 1.0
+                else None
+            ),
+            provenance={"component": "MultimodalFusionEngine.on_voice_event"},
+            privacy_class=PrivacyClass.SENSITIVE,
+        )
         intent = await self._fusion.on_voice_event(event)
         if intent:
             return {"status": "fused", "intent": intent.to_dict()}
@@ -4245,6 +4514,23 @@ class PilotServer:
             gesture_name=params.get("gesture", ""),
             gesture_confidence=params.get("confidence", 0.8),
             gesture_data=params.get("data", {}),
+        )
+        gesture_confidence = params.get("confidence", 0.8)
+        await self._append_experience(
+            ExperienceEventType.OBSERVATION,
+            idempotency_key=f"observation:gesture:{uuid.uuid4()}",
+            source="gesture",
+            payload={
+                "gesture": params.get("gesture", ""),
+                "raw_sensor_data_excluded": True,
+            },
+            confidence=(
+                float(gesture_confidence)
+                if isinstance(gesture_confidence, (int, float)) and 0.0 <= gesture_confidence <= 1.0
+                else None
+            ),
+            provenance={"component": "MultimodalFusionEngine.on_gesture_event"},
+            privacy_class=PrivacyClass.BIOMETRIC_DERIVED,
         )
         intent = await self._fusion.on_gesture_event(event)
         if intent:
@@ -4288,6 +4574,15 @@ class PilotServer:
             modality=ModalityType.GAZE,
             gaze_region=region,
             gaze_confidence=confidence,
+        )
+        await self._append_experience(
+            ExperienceEventType.OBSERVATION,
+            idempotency_key=f"observation:gaze:{uuid.uuid4()}",
+            source="gaze",
+            payload={"region": region, "raw_sensor_data_excluded": True},
+            confidence=float(confidence),
+            provenance={"component": "MultimodalFusionEngine.on_gaze_event"},
+            privacy_class=PrivacyClass.BIOMETRIC_DERIVED,
         )
         await self._fusion.on_gaze_event(event)
         return {"status": "ingested"}
@@ -5192,6 +5487,9 @@ def handle_tool(tool_name, params):
             await self._reflector.close()
         if self._memory:
             await self._memory.close()
+        if self._experience_ledger:
+            await self._experience_ledger.close()
+            self._experience_ledger = None
         if self._budget_tracker:
             await self._budget_tracker.close()
         # ── Drain pending plan-history tasks before closing the store ──

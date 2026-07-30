@@ -32,6 +32,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from pilot.config import DATA_DIR
+from pilot.intelligence.experience import (
+    ExperienceEventType,
+    ExperienceLedger,
+    PrivacyClass,
+)
 
 if TYPE_CHECKING:
     from pilot.agents.screen_vision import ScreenContext, ScreenVisionAgent
@@ -173,9 +178,22 @@ class ProactiveSuggestionEngine:
         self._enabled = True
         self._feedback_path = feedback_path or (DATA_DIR / "proactive_feedback.json")
         self._feedback: dict[str, dict[str, float | int]] = self._load_feedback()
+        self._experience_ledger: ExperienceLedger | None = None
+        self._last_observation_key = ""
 
     def set_broadcast(self, fn: Callable[[str, Any], Coroutine[Any, Any, None]]) -> None:
         self._broadcast = fn
+
+    def set_experience_ledger(self, ledger: ExperienceLedger) -> None:
+        self._experience_ledger = ledger
+
+    async def _append_experience(self, event_type: ExperienceEventType, **kwargs: Any) -> None:
+        if self._experience_ledger is None:
+            return
+        try:
+            await self._experience_ledger.append(event_type, **kwargs)
+        except Exception:
+            logger.debug("Proactive experience append failed", exc_info=True)
 
     @property
     def is_running(self) -> bool:
@@ -211,6 +229,18 @@ class ProactiveSuggestionEngine:
                 self._pending_suggestions.remove(s)
                 self._suggestion_history.append(s)
                 self._record_feedback(s.pattern_id, "accepted")
+                await self._append_experience(
+                    ExperienceEventType.SUGGESTION_FEEDBACK,
+                    idempotency_key=f"suggestion:{s.suggestion_id}:feedback",
+                    source="proactive",
+                    payload={
+                        "suggestion_id": s.suggestion_id,
+                        "pattern_id": s.pattern_id,
+                        "decision": "accepted",
+                    },
+                    confidence=s.learned_relevance,
+                    provenance={"component": "ProactiveSuggestionEngine.accept_suggestion"},
+                )
                 return s.action_command
         return None
 
@@ -222,6 +252,18 @@ class ProactiveSuggestionEngine:
                 self._pending_suggestions.remove(s)
                 self._suggestion_history.append(s)
                 self._record_feedback(s.pattern_id, "dismissed")
+                await self._append_experience(
+                    ExperienceEventType.SUGGESTION_FEEDBACK,
+                    idempotency_key=f"suggestion:{s.suggestion_id}:feedback",
+                    source="proactive",
+                    payload={
+                        "suggestion_id": s.suggestion_id,
+                        "pattern_id": s.pattern_id,
+                        "decision": "dismissed",
+                    },
+                    confidence=s.learned_relevance,
+                    provenance={"component": "ProactiveSuggestionEngine.dismiss_suggestion"},
+                )
                 return True
         return False
 
@@ -257,6 +299,20 @@ class ProactiveSuggestionEngine:
 
         # Update dwell tracker
         dwell_key = f"{app_lower}:{title_lower[:50]}"
+        if dwell_key != self._last_observation_key:
+            self._last_observation_key = dwell_key
+            await self._append_experience(
+                ExperienceEventType.OBSERVATION,
+                idempotency_key=f"observation:screen-context:{time.time_ns()}",
+                source="screen_context",
+                payload={
+                    "active_app": current.active_app,
+                    "window_title": current.active_window_title,
+                    "raw_media_excluded": True,
+                },
+                provenance={"component": "ProactiveSuggestionEngine._check_patterns"},
+                privacy_class=PrivacyClass.SENSITIVE,
+            )
         if dwell_key not in self._app_dwell_tracker:
             self._app_dwell_tracker[dwell_key] = now
             # Clean old entries
@@ -320,6 +376,15 @@ class ProactiveSuggestionEngine:
             # Add to pending
             self._pending_suggestions.append(suggestion)
             self._record_feedback(pattern["id"], "shown")
+            await self._append_experience(
+                ExperienceEventType.SUGGESTION_SHOWN,
+                idempotency_key=f"suggestion:{suggestion.suggestion_id}:shown",
+                source="proactive",
+                payload=suggestion.to_dict(),
+                confidence=suggestion.learned_relevance,
+                provenance={"component": "ProactiveSuggestionEngine._check_patterns"},
+                privacy_class=PrivacyClass.SENSITIVE,
+            )
 
             # Broadcast to UI
             if self._broadcast:

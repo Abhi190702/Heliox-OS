@@ -373,7 +373,26 @@ class ExperienceLedger:
             await db.commit()
         if row is None:
             raise RuntimeError("Experience event was not inserted and could not be recovered")
-        return self._event_from_row(row)
+        existing = self._event_from_row(row)
+        expected_identity = (
+            event_kind,
+            values[4],
+            values[5],
+            values[6],
+            plan_id,
+            action_id,
+        )
+        existing_identity = (
+            existing.event_type,
+            existing.session_id,
+            existing.task_id,
+            existing.user_id,
+            existing.plan_id,
+            existing.action_id,
+        )
+        if existing_identity != expected_identity:
+            raise ValueError(f"idempotency key {event_key!r} is already bound to a different event identity")
+        return existing
 
     async def list_events(
         self,

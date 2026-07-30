@@ -61,6 +61,14 @@ from pilot.actions import (
     WorkspaceParams,
 )
 from pilot.agents.sandbox import SimulationSandbox
+from pilot.intelligence.experience import (
+    ExperienceEvent,
+    ExperienceEventType,
+    ExperienceLedger,
+    PrivacyClass,
+    get_experience_context,
+    stable_action_idempotency_key,
+)
 from pilot.security.audit import AuditLogger
 from pilot.security.gateway import AgentGateway, InvocationSource, TaskScopeOverride
 from pilot.security.permissions import PermissionChecker
@@ -116,6 +124,7 @@ class Executor:
         self._simulation_sandbox = SimulationSandbox(allowed_commands=config.restrictions.sandbox_allowed_commands)
         self._narrator: Any = None
         self._broadcast: Any = None
+        self._experience_ledger: ExperienceLedger | None = None
         self._last_output = ""  # For output chaining between steps
         self._largest_output = ""  # Largest output from any step in the pipeline
 
@@ -345,6 +354,26 @@ class Executor:
         of the phrase having zero visual trace)."""
         self._broadcast = fn
 
+    def set_experience_ledger(self, ledger: ExperienceLedger) -> None:
+        """Wire the canonical action ledger into every executor ingress."""
+
+        self._experience_ledger = ledger
+
+    async def _append_experience(
+        self,
+        event_type: ExperienceEventType,
+        **kwargs: typing.Any,
+    ) -> ExperienceEvent | None:
+        """Persist telemetry without ever turning observability into authority."""
+
+        if self._experience_ledger is None:
+            return None
+        try:
+            return await self._experience_ledger.append(event_type, **kwargs)
+        except Exception:
+            logger.warning("Experience ledger append failed for %s", event_type.value, exc_info=True)
+            return None
+
     def _analyze_dependencies(self, actions: list[Action]) -> list[list[Action]]:
         """Analyze action dependencies and return batches that can run in parallel.
 
@@ -460,6 +489,167 @@ class Executor:
         return failed
 
     async def execute(
+        self,
+        plan: ActionPlan,
+        on_action_start: typing.Callable[[Action], typing.Awaitable[None]] | None = None,
+        on_action_complete: typing.Callable[[ActionResult], typing.Awaitable[None]] | None = None,
+        cancel_event: asyncio.Event | None = None,
+        plan_id: str | None = None,
+        initial_last_output: str = "",
+        initial_largest_output: str | None = None,
+        orchestrator: Any = None,
+        invocation_source: InvocationSource = InvocationSource.INTERACTIVE,
+        scope_override: TaskScopeOverride | None = None,
+        critic_already_reviewed: bool = False,
+        user_confirmed: bool = False,
+    ) -> list[ActionResult]:
+        """Record and execute a plan through the one canonical action ingress."""
+
+        resolved_plan_id = plan_id or str(uuid.uuid4())[:8]
+        attempt_id = str(uuid.uuid4())
+        context = get_experience_context()
+        task_id = context.task_id or resolved_plan_id
+        source = invocation_source.value
+        if not context.task_id:
+            await self._append_experience(
+                ExperienceEventType.INTENT,
+                session_id=context.session_id,
+                task_id=task_id,
+                user_id=context.user_id,
+                plan_id=resolved_plan_id,
+                idempotency_key=f"plan:{resolved_plan_id}:intent",
+                source=source,
+                payload={
+                    "input": plan.raw_input or plan.explanation,
+                    "derived_from_explanation": not bool(plan.raw_input),
+                },
+                provenance={"component": "Executor.execute", "invocation_source": source},
+                privacy_class=PrivacyClass.SENSITIVE,
+            )
+        plan_event = await self._append_experience(
+            ExperienceEventType.PLAN_CREATED,
+            session_id=context.session_id,
+            task_id=task_id,
+            user_id=context.user_id,
+            plan_id=resolved_plan_id,
+            idempotency_key=f"plan:{resolved_plan_id}:created",
+            source=source,
+            payload={
+                "action_count": len(plan.actions),
+                "explanation": plan.explanation,
+                "attempt_id": attempt_id,
+            },
+            provenance={"component": "Executor.execute", "invocation_source": source},
+        )
+
+        action_indices = {id(action): index for index, action in enumerate(plan.actions)}
+        action_ids = {
+            id(action): stable_action_idempotency_key(resolved_plan_id, index, action)
+            for index, action in enumerate(plan.actions)
+        }
+        for index, action in enumerate(plan.actions):
+            action_id = action_ids[id(action)]
+            await self._append_experience(
+                ExperienceEventType.CANDIDATE_ACTION,
+                session_id=context.session_id,
+                task_id=task_id,
+                user_id=context.user_id,
+                plan_id=resolved_plan_id,
+                action_id=action_id,
+                parent_event_id=plan_event.event_id if plan_event else "",
+                idempotency_key=f"plan:{resolved_plan_id}:candidate:{index}",
+                source=source,
+                payload={
+                    "index": index,
+                    "action_idempotency_key": action_id,
+                    "action": action,
+                },
+                provenance={"component": "Executor.execute", "attempt_id": attempt_id},
+                privacy_class=PrivacyClass.SENSITIVE,
+            )
+
+        completed_result_ids: set[int] = set()
+
+        def _action_identity(action: Action) -> tuple[int, str]:
+            index = action_indices.get(id(action), -1)
+            action_id = action_ids.get(id(action))
+            if action_id is None:
+                index = max(index, 0)
+                action_id = stable_action_idempotency_key(resolved_plan_id, index, action)
+            return index, action_id
+
+        async def _on_recorded_action_start(action: Action) -> None:
+            index, action_id = _action_identity(action)
+            await self._append_experience(
+                ExperienceEventType.ACTION_STARTED,
+                session_id=context.session_id,
+                task_id=task_id,
+                user_id=context.user_id,
+                plan_id=resolved_plan_id,
+                action_id=action_id,
+                idempotency_key=f"execution:{attempt_id}:started:{index}",
+                source=source,
+                payload={
+                    "index": index,
+                    "action_idempotency_key": action_id,
+                    "action_type": action.action_type.value,
+                    "target": action.target,
+                },
+                provenance={"component": "Executor.execute", "attempt_id": attempt_id},
+                privacy_class=PrivacyClass.SENSITIVE,
+            )
+            if on_action_start:
+                await on_action_start(action)
+
+        async def _record_completion(result: ActionResult, *, callback_observed: bool) -> None:
+            index, action_id = _action_identity(result.action)
+            await self._append_experience(
+                ExperienceEventType.ACTION_COMPLETED,
+                session_id=context.session_id,
+                task_id=task_id,
+                user_id=context.user_id,
+                plan_id=resolved_plan_id,
+                action_id=action_id,
+                idempotency_key=f"execution:{attempt_id}:completed:{index}",
+                source=source,
+                payload={
+                    "index": index,
+                    "action_idempotency_key": action_id,
+                    "success": result.success,
+                    "output_excerpt": (result.output or "")[:1000],
+                    "error": (result.error or "")[:1000],
+                    "callback_observed": callback_observed,
+                },
+                provenance={"component": "Executor.execute", "attempt_id": attempt_id},
+                privacy_class=PrivacyClass.SENSITIVE,
+            )
+
+        async def _on_recorded_action_complete(result: ActionResult) -> None:
+            completed_result_ids.add(id(result))
+            await _record_completion(result, callback_observed=True)
+            if on_action_complete:
+                await on_action_complete(result)
+
+        results = await self._execute_inner(
+            plan,
+            on_action_start=_on_recorded_action_start,
+            on_action_complete=_on_recorded_action_complete,
+            cancel_event=cancel_event,
+            plan_id=resolved_plan_id,
+            initial_last_output=initial_last_output,
+            initial_largest_output=initial_largest_output,
+            orchestrator=orchestrator,
+            invocation_source=invocation_source,
+            scope_override=scope_override,
+            critic_already_reviewed=critic_already_reviewed,
+            user_confirmed=user_confirmed,
+        )
+        for result in results:
+            if id(result) not in completed_result_ids:
+                await _record_completion(result, callback_observed=False)
+        return results
+
+    async def _execute_inner(
         self,
         plan: ActionPlan,
         on_action_start: typing.Callable[[Action], typing.Awaitable[None]] | None = None,

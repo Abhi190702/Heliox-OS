@@ -83,6 +83,22 @@ async def test_idempotency_returns_existing_event_without_duplicate(ledger):
 
 
 @pytest.mark.asyncio
+async def test_idempotency_key_cannot_alias_a_different_event_identity(ledger):
+    await ledger.append(
+        ExperienceEventType.INTENT,
+        idempotency_key="collision",
+        task_id="task-1",
+    )
+
+    with pytest.raises(ValueError, match="different event identity"):
+        await ledger.append(
+            ExperienceEventType.ACTION_STARTED,
+            idempotency_key="collision",
+            task_id="task-1",
+        )
+
+
+@pytest.mark.asyncio
 async def test_redacts_credentials_binary_and_raw_sensor_media(ledger):
     event = await ledger.append(
         ExperienceEventType.OBSERVATION,

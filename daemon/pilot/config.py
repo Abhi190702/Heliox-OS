@@ -52,6 +52,7 @@ RUNTIME_DIR = _default_runtime_dir()
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 RESTRICTIONS_FILE = CONFIG_DIR / "restrictions.toml"
 DB_FILE = DATA_DIR / "pilot.db"
+EXPERIENCE_DB_FILE = DATA_DIR / "experience.db"
 AUDIT_FILE = DATA_DIR / "audit.jsonl"
 PERMISSION_AUDIT_DB_FILE = DATA_DIR / "permission_audit.db"
 PERMISSION_AUDIT_KEY_FILE = DATA_DIR / "permission_audit.key"
