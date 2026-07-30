@@ -1,6 +1,7 @@
 """Agent Registry - auto-discovery and dynamic registration of agents."""
 
 import importlib
+import inspect
 import logging
 import pkgutil
 from typing import Any
@@ -44,7 +45,14 @@ class AgentRegistry:
                     module = importlib.import_module(f"{package_name}.{module_name}")
                     for attr_name in dir(module):
                         attr = getattr(module, attr_name)
-                        if isinstance(attr, type) and issubclass(attr, BaseAgent) and attr is not BaseAgent:
+                        if (
+                            isinstance(attr, type)
+                            and issubclass(attr, BaseAgent)
+                            and attr is not BaseAgent
+                            and not attr_name.startswith("_")
+                            and not inspect.isabstract(attr)
+                            and attr.__module__ == module.__name__
+                        ):
                             cls.register(attr)
                 except Exception as e:
                     logger.debug("Could not import %s: %s", module_name, e)

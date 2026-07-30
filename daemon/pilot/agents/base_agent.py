@@ -57,6 +57,16 @@ class AgentRole(StrEnum):
     FORENSICS = "forensics_agent"
     ORCHESTRATOR = "orchestrator"
     SEMANTIC_SEARCH = "semantic_search_agent"
+    FILES = "file_agent"
+    PACKAGES = "package_agent"
+    SERVICES = "service_agent"
+    DESKTOP = "desktop_agent"
+    AUTOMATION = "automation_agent"
+    INTEGRATIONS = "integration_agent"
+    VISION = "vision_agent"
+    PLUGIN_RUNTIME = "plugin_runtime_agent"
+    NETWORK = "network_agent"
+    GIT = "git_agent"
     GENERAL = "general"
 
 

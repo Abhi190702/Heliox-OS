@@ -52,6 +52,17 @@ def test_action_catalog_contains_156_real_actions():
     }.issubset(set(ActionType))
 
 
+def test_previously_uncovered_actions_have_executor_handlers(default_config, tmp_path: Path):
+    executor = _executor(default_config, tmp_path)
+
+    assert {
+        ActionType.GIT_RESOLVE,
+        ActionType.PLUGIN_CALL,
+        ActionType.SCREEN_DETECT_ELEMENTS,
+        ActionType.WASM_CALL,
+    }.issubset(executor._dispatch_table)
+
+
 @pytest.mark.parametrize(
     ("action_type", "params", "expected_type"),
     [

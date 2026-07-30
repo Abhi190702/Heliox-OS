@@ -100,6 +100,16 @@ class InvocationSource(StrEnum):
     CALENDAR_AGENT = "calendar_agent"
     FORENSICS_AGENT = "forensics_agent"
     SEMANTIC_SEARCH_AGENT = "semantic_search_agent"
+    FILE_AGENT = "file_agent"
+    PACKAGE_AGENT = "package_agent"
+    SERVICE_AGENT = "service_agent"
+    DESKTOP_AGENT = "desktop_agent"
+    AUTOMATION_AGENT = "automation_agent"
+    INTEGRATION_AGENT = "integration_agent"
+    VISION_AGENT = "vision_agent"
+    PLUGIN_RUNTIME_AGENT = "plugin_runtime_agent"
+    NETWORK_AGENT = "network_agent"
+    GIT_AGENT = "git_agent"
     UNKNOWN = "unknown"  # fail-open bucket for call sites not yet tagged
 
 
@@ -348,6 +358,91 @@ DEFAULT_SOURCE_PROFILES: dict[str, SourceProfile] = {
     # Executor today either).
     "semantic_search_agent": SourceProfile(
         max_tier={f.value: int(PermissionTier.READ_ONLY) for f in ActionFamily},
+        allow_root=False,
+    ),
+    "file_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.DESTRUCTIVE),
+            ActionFamily.OTHER.value: int(PermissionTier.USER_WRITE),
+        },
+        allow_root=False,
+    ),
+    "package_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.OTHER.value: int(PermissionTier.DESTRUCTIVE),
+        },
+        allow_root=False,
+    ),
+    "service_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.SYSTEM_MODIFY),
+            ActionFamily.OTHER.value: int(PermissionTier.READ_ONLY),
+        },
+        allow_root=False,
+    ),
+    "desktop_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.SYSTEM_MODIFY),
+            ActionFamily.OTHER.value: int(PermissionTier.USER_WRITE),
+        },
+        allow_root=False,
+    ),
+    "automation_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.DESTRUCTIVE),
+            ActionFamily.OTHER.value: int(PermissionTier.DESTRUCTIVE),
+        },
+        allow_root=False,
+    ),
+    "integration_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.OTHER.value: int(PermissionTier.SYSTEM_MODIFY),
+        },
+        allow_root=False,
+    ),
+    "vision_agent": SourceProfile(
+        max_tier={f.value: int(PermissionTier.READ_ONLY) for f in ActionFamily},
+        allow_root=False,
+    ),
+    "plugin_runtime_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.OTHER.value: int(PermissionTier.SYSTEM_MODIFY),
+        },
+        allow_root=False,
+    ),
+    "network_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.SYSTEM_MODIFY),
+            ActionFamily.OTHER.value: int(PermissionTier.USER_WRITE),
+        },
+        allow_root=False,
+    ),
+    "git_agent": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.BROWSING.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.READ_ONLY),
+            ActionFamily.OTHER.value: int(PermissionTier.SYSTEM_MODIFY),
+        },
         allow_root=False,
     ),
 }

@@ -192,9 +192,19 @@ class AgentMesh:
         capabilities = tuple(agent.get_capabilities())
         action_types = tuple(sorted({cap.action_type.value for cap in capabilities}))
         confirmation = tuple(sorted({cap.action_type.value for cap in capabilities if cap.requires_confirmation}))
+        configured_budget = budget or getattr(agent, "mesh_budget", None)
+        if not isinstance(configured_budget, AgentBudgetPolicy):
+            configured_budget = AgentBudgetPolicy()
         agent_key = f"builtin:{agent.__class__.__module__}.{agent.__class__.__name__}"
         descriptive_words = {
             word.lower().strip(".,:;()[]") for cap in capabilities for word in cap.description.split() if len(word) >= 4
+        }
+        declared_keywords = {
+            str(item).lower()
+            for item in (
+                *keywords,
+                *getattr(agent, "mesh_keywords", ()),
+            )
         }
         contract = AgentContract(
             agent_key=agent_key,
@@ -203,13 +213,20 @@ class AgentMesh:
             source="builtin",
             description=agent.get_system_prompt()[:500],
             capabilities=action_types,
-            keywords=tuple(sorted(descriptive_words | {str(item).lower() for item in keywords})),
+            keywords=tuple(sorted(descriptive_words | declared_keywords)),
             permissions=AgentPermissions(
                 action_types=action_types,
                 confirmation_actions=confirmation,
+                filesystem_read=tuple(getattr(agent, "mesh_filesystem_read", ())),
+                filesystem_write=tuple(getattr(agent, "mesh_filesystem_write", ())),
+                network_domains=tuple(getattr(agent, "mesh_network_domains", ())),
+                process_names=tuple(getattr(agent, "mesh_process_names", ())),
+                credential_names=tuple(getattr(agent, "mesh_credential_names", ())),
+                clipboard=tuple(getattr(agent, "mesh_clipboard", ())),
+                devices=tuple(getattr(agent, "mesh_devices", ())),
                 authority=f"agent_gateway:{agent.role.value}",
             ),
-            budget=budget or AgentBudgetPolicy(),
+            budget=configured_budget,
         )
         self._register_contract(contract, agent=agent)
         return contract
@@ -323,7 +340,7 @@ class AgentMesh:
         *,
         task_id: str,
     ) -> tuple[str, BaseAgent] | None:
-        eligible: list[tuple[float, str, BaseAgent]] = []
+        eligible: list[tuple[float, float, str, BaseAgent]] = []
         for key in self._providers.get(action_type.value, ()):
             contract = self._contracts[key]
             performance = self._performance[key]
@@ -336,10 +353,14 @@ class AgentMesh:
                 1.0,
             )
             score = performance.quality_score - (latency_penalty * 0.15)
-            eligible.append((score, key, self._agents[key]))
+            # When observed quality is tied, prefer the narrower contract.
+            # This makes a domain specialist useful immediately without
+            # allowing self-description to outrank verified outcomes.
+            specificity = 1 / max(1, len(contract.capabilities))
+            eligible.append((score, specificity, key, self._agents[key]))
         if not eligible:
             return None
-        _, key, agent = max(eligible, key=lambda item: (item[0], item[1]))
+        _, _, key, agent = max(eligible, key=lambda item: (item[0], item[1], item[2]))
         return key, agent
 
     def begin_assignment(
@@ -483,6 +504,8 @@ class AgentMesh:
 
     def status(self) -> dict[str, Any]:
         executable = sum(contract.executable for contract in self._contracts.values())
+        available_actions = {action_type.value for action_type in ActionType}
+        covered_actions = set(self._providers)
         sources: dict[str, int] = defaultdict(int)
         for contract in self._contracts.values():
             sources[contract.source] += 1
@@ -494,6 +517,9 @@ class AgentMesh:
             "external_capability_providers": len(self._contracts) - executable,
             "sources": dict(sorted(sources.items())),
             "registered_action_types": len(self._providers),
+            "available_action_types": len(available_actions),
+            "coverage_complete": covered_actions == available_actions,
+            "uncovered_action_types": sorted(available_actions - covered_actions),
             "delegation": {
                 "maximum_depth": MAX_DELEGATION_DEPTH,
                 "maximum_fanout": MAX_HANDOFF_FANOUT,

@@ -6,7 +6,16 @@ import asyncio
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from pilot.actions import ActionPlan, ActionResult, ActionType
+from pilot.agents.agent_mesh import AgentBudgetPolicy
+from pilot.agents.base_agent import AgentCapability, AgentRole, AgentStatus, BaseAgent
+
+if TYPE_CHECKING:
+    from pilot.agents.executor import Executor
+    from pilot.models.router import ModelRouter
+    from pilot.security.gateway import TaskScopeOverride
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +143,7 @@ async def _generate_commit_message(diff: str, llm_client: Any) -> str:
 # GitAgent
 
 
-class GitAgent:
+class GitAgent(BaseAgent):
     # Action types this agent handles — used by the Orchestrator router
     SUPPORTED_ACTIONS = {
         "git_status",
@@ -145,8 +154,37 @@ class GitAgent:
         "git_diff",
         "git_log",
     }
+    ACTION_TYPES = frozenset(
+        {
+            ActionType.GIT_STATUS,
+            ActionType.GIT_DIFF,
+            ActionType.GIT_LOG,
+            ActionType.GIT_BRANCH,
+            ActionType.GIT_STAGE,
+            ActionType.GIT_COMMIT,
+            ActionType.GIT_PUSH,
+            ActionType.GIT_RESOLVE,
+        }
+    )
+    mesh_keywords = ("git", "repository", "branch", "commit", "diff", "status", "push", "conflict")
+    mesh_budget = AgentBudgetPolicy(
+        max_tokens_per_task=6_000,
+        max_actions_per_task=12,
+        max_latency_ms_per_action=90_000,
+        max_concurrency=1,
+    )
+    mesh_filesystem_read = ("selected_repository",)
+    mesh_filesystem_write = ("selected_repository",)
+    mesh_network_domains = ("configured_git_remotes",)
+    mesh_credential_names = ("git_credential_helper",)
 
-    def __init__(self, repo_path: str | None = None, llm_client: Any = None) -> None:
+    def __init__(
+        self,
+        repo_path: str | None = None,
+        llm_client: Any = None,
+        model_router: ModelRouter | None = None,
+        executor: Executor | None = None,
+    ) -> None:
         """
         Initialise the GitAgent.
 
@@ -155,11 +193,63 @@ class GitAgent:
             llm_client: LLM client for commit message generation.
                         If None, falls back to a safe static message.
         """
+        super().__init__(role=AgentRole.GIT, model_router=model_router)
         self.repo_path = str(Path(repo_path).resolve()) if repo_path else None
         self.llm_client = llm_client
+        self._executor = executor
         logger.info("GitAgent initialised — repo_path=%s", self.repo_path)
 
     # Public interface — called by the Orchestrator
+
+    def get_capabilities(self) -> list[AgentCapability]:
+        return [
+            AgentCapability(
+                action_type=action_type,
+                description=f"Git repository operation: {action_type.value}",
+                requires_confirmation=action_type in {ActionType.GIT_COMMIT, ActionType.GIT_PUSH},
+            )
+            for action_type in sorted(self.ACTION_TYPES, key=lambda item: item.value)
+        ]
+
+    def get_system_prompt(self) -> str:
+        return (
+            "You are the GIT AGENT. Inspect repository state before changing it, keep every "
+            "operation scoped to the selected repository, require an explicit commit message, "
+            "and never push without confirmation."
+        )
+
+    def can_handle(self, action_type: ActionType) -> bool:
+        return action_type in self.ACTION_TYPES
+
+    async def handle_task(
+        self,
+        user_input: str,
+        plan: ActionPlan,
+        context: dict[str, Any] | None = None,
+        scope_override: TaskScopeOverride | None = None,
+    ) -> list[ActionResult]:
+        if self._executor is None:
+            raise RuntimeError("GitAgent requires the shared Executor for orchestrated tasks")
+        self.status = AgentStatus.BUSY
+        actions = [action for action in plan.actions if self.can_handle(action.action_type)]
+        if not actions:
+            self.status = AgentStatus.IDLE
+            return []
+        try:
+            return await self._executor.execute(
+                ActionPlan(
+                    actions=actions,
+                    explanation=f"GitAgent executing {len(actions)} action(s)",
+                    raw_input=user_input,
+                ),
+                initial_last_output=str((context or {}).get("initial_last_output", "")),
+                initial_largest_output=str((context or {}).get("initial_largest_output", "")),
+                invocation_source=self.get_invocation_source(),
+                scope_override=scope_override,
+                user_confirmed=bool((context or {}).get("user_confirmed", False)),
+            )
+        finally:
+            self.status = AgentStatus.IDLE
 
     async def execute(self, action_type: str, params: dict[str, Any]) -> dict[str, Any]:
         """
