@@ -117,7 +117,9 @@ export async function mockTauriIpc(page: Page): Promise<void> {
           request.method === "voice_gesture_workflow_list" ||
           request.method === "voice_gesture_workflow_submit" ||
           request.method === "gesture_workflow_bindings_get" ||
-          request.method === "gesture_workflow_bindings_update"
+          request.method === "gesture_workflow_bindings_update" ||
+          request.method === "agent_mesh_status" ||
+          request.method === "agent_routing"
         ) {
           let result: Record<string, unknown>;
           if (request.method === "auth") {
@@ -131,6 +133,87 @@ export async function mockTauriIpc(page: Page): Promise<void> {
               confidence: 0.64,
               estimate_kind: "behavioral",
               signal_sources: 2,
+            };
+          } else if (request.method === "agent_mesh_status") {
+            const specialist = (displayName: string, role: string, capabilities: string[], devices: string[] = []) => ({
+              agent_key: `builtin:pilot.agents.domain_agents.${displayName}`,
+              display_name: displayName,
+              role,
+              source: "builtin",
+              description: `${displayName} bounded capability contract`,
+              capabilities,
+              executable: true,
+              handoff_contract: "bounded_context_refs_and_partial_results",
+              permissions: {
+                action_types: capabilities,
+                confirmation_actions: [],
+                filesystem_read: [],
+                filesystem_write: [],
+                network_domains: [],
+                process_names: [],
+                credential_names: [],
+                clipboard: [],
+                devices,
+                authority: `agent_gateway:${role}`,
+              },
+              budget: {
+                max_tokens_per_task: 6000,
+                max_actions_per_task: 12,
+                max_latency_ms_per_action: 90000,
+                max_concurrency: 1,
+              },
+              performance: {
+                attempts: 0,
+                successes: 0,
+                failures: 0,
+                quality_score: 0.5,
+                average_latency_ms: 0,
+                in_flight: 0,
+              },
+            });
+            result = {
+              enabled: true,
+              total_specialists: 21,
+              executable_specialists: 21,
+              external_capability_providers: 0,
+              registered_action_types: 156,
+              available_action_types: 156,
+              coverage_complete: true,
+              uncovered_action_types: [],
+              sources: { builtin: 21 },
+              delegation: {
+                maximum_depth: 3,
+                maximum_fanout: 4,
+                cycle_detection: true,
+                full_transcript_handoffs: false,
+                cancellation_propagation: true,
+                partial_result_recovery: true,
+                parallel_only_when_explicitly_independent: true,
+              },
+              routing: {
+                fixed_numeric_ceiling: false,
+                selection: "capability_then_verified_outcome",
+                self_reported_success_authority: false,
+              },
+              specialists: [
+                specialist("FileOperationsAgent", "file_agent", ["file_hash", "file_compare"]),
+                specialist("GitAgent", "git_agent", ["git_status", "git_diff", "git_push"]),
+                specialist("VisionAgent", "vision_agent", ["screen_ocr", "screen_detect_elements"], ["screen"]),
+              ],
+            };
+          } else if (request.method === "agent_routing") {
+            result = {
+              orchestrator: {
+                assigned_specialists: [
+                  {
+                    agent_key: "builtin:pilot.agents.git_agent.GitAgent",
+                    role: "git_agent",
+                    display_name: "GitAgent",
+                    matches: 3,
+                    quality_score: 0.5,
+                  },
+                ],
+              },
             };
           } else if (request.method.startsWith("risk_gate_")) {
             result = {

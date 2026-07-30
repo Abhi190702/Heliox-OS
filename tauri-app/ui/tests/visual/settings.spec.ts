@@ -212,6 +212,19 @@ test.describe("Settings Panel", () => {
       });
   });
 
+  test("specialist mesh shows expanded agents and complete action coverage", async ({ page }) => {
+    const section = page.locator(".settings-group").filter({ hasText: "Specialist Agent Mesh" });
+    await section.scrollIntoViewIfNeeded();
+
+    await expect(section).toContainText("21");
+    await expect(section).toContainText("156 / 156");
+    await expect(section).toContainText("Complete action coverage");
+    await expect(section).toContainText("FileOperationsAgent");
+    await expect(section).toContainText("GitAgent");
+    await expect(section).toContainText("VisionAgent");
+    await expect(section).not.toContainText("actions uncovered");
+  });
+
   test("full window with settings tab active matches baseline", async ({ page }) => {
     await expect(page.locator(".window")).toHaveScreenshot("settings-full-window.png");
   });

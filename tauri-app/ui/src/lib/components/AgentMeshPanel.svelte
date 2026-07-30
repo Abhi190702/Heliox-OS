@@ -45,6 +45,9 @@
     executable_specialists: number;
     external_capability_providers: number;
     registered_action_types: number;
+    available_action_types: number;
+    coverage_complete: boolean;
+    uncovered_action_types: string[];
     sources: Record<string, number>;
     delegation: {
       maximum_depth: number;
@@ -162,7 +165,10 @@
       <div><strong>{status.total_specialists}</strong><span>Total contracts</span></div>
       <div><strong>{status.executable_specialists}</strong><span>Local specialists</span></div>
       <div><strong>{status.external_capability_providers}</strong><span>Guarded providers</span></div>
-      <div><strong>{status.registered_action_types}</strong><span>Action types</span></div>
+      <div>
+        <strong>{status.registered_action_types} / {status.available_action_types}</strong>
+        <span>Actions covered</span>
+      </div>
     </div>
 
     <div class="guardrails">
@@ -173,7 +179,18 @@
       <span>Partial-result recovery</span>
       <span>Explicit independence for parallel work</span>
       <span>No fixed numeric ceiling</span>
+      <span class:warning={!status.coverage_complete}>
+        {status.coverage_complete
+          ? "Complete action coverage"
+          : `${status.uncovered_action_types.length} actions uncovered`}
+      </span>
     </div>
+
+    {#if !status.coverage_complete}
+      <div class="error" role="alert">
+        Uncovered action contracts: {status.uncovered_action_types.join(", ")}
+      </div>
+    {/if}
 
     <div class="route-preview">
       <label>
@@ -366,6 +383,12 @@
     border-radius: 999px;
     font-size: 9px;
     text-transform: capitalize;
+  }
+
+  .guardrails span.warning {
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 8%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
   }
 
   .route-preview {
