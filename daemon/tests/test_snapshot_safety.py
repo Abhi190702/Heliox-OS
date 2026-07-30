@@ -14,12 +14,14 @@ from pilot.system.snapshots import SnapshotBackend, SnapshotManager
 def _executor(tmp_path) -> Executor:
     config = PilotConfig()
     config.security.snapshot_on_destructive = True
-    return Executor(
+    executor = Executor(
         config,
         ActionValidator(config),
         PermissionChecker(config),
         AuditLogger(audit_file=tmp_path / "audit.jsonl"),
     )
+    executor._snapshot_mgr = SnapshotManager(config, file_snapshot_dir=tmp_path / "file-snapshots")
+    return executor
 
 
 def _delete_plan(path) -> ActionPlan:
@@ -41,7 +43,7 @@ async def test_destructive_plan_fails_closed_without_snapshot_backend(tmp_path):
     victim = tmp_path / "keep-me.txt"
     victim.write_text("safe", encoding="utf-8")
     executor = _executor(tmp_path)
-    executor._snapshot_mgr.create_snapshot = AsyncMock(return_value=None)
+    executor._snapshot_mgr.create_file_snapshot = AsyncMock(return_value=None)
 
     results = await executor.execute(_delete_plan(victim), plan_id="snapshot-none")
 
@@ -56,13 +58,45 @@ async def test_destructive_plan_fails_closed_when_snapshot_errors(tmp_path):
     victim = tmp_path / "keep-me-too.txt"
     victim.write_text("safe", encoding="utf-8")
     executor = _executor(tmp_path)
-    executor._snapshot_mgr.create_snapshot = AsyncMock(side_effect=RuntimeError("restore point denied"))
+    executor._snapshot_mgr.create_file_snapshot = AsyncMock(side_effect=RuntimeError("local snapshot denied"))
 
     results = await executor.execute(_delete_plan(victim), plan_id="snapshot-error")
 
     assert victim.exists()
     assert results[0].success is False
-    assert "restore point denied" in results[0].error
+    assert "local snapshot denied" in results[0].error
+
+
+@pytest.mark.asyncio
+async def test_file_delete_uses_local_snapshot_without_system_restore_point(tmp_path):
+    victim = tmp_path / "delete-me.txt"
+    victim.write_text("recoverable", encoding="utf-8")
+    executor = _executor(tmp_path)
+    executor._snapshot_mgr.create_snapshot = AsyncMock(side_effect=AssertionError("system snapshot must not run"))
+
+    results = await executor.execute(_delete_plan(victim), plan_id="file-local")
+
+    assert results[0].success is True
+    assert results[0].snapshot_id.startswith("file-snapshot:")
+    assert not victim.exists()
+
+    message = await executor._snapshot_mgr.rollback(results[0].snapshot_id)
+    assert victim.read_text(encoding="utf-8") == "recoverable"
+    assert "Restored 1 file target" in message
+
+
+@pytest.mark.asyncio
+async def test_file_snapshot_rollback_removes_path_that_was_initially_absent(tmp_path):
+    config = PilotConfig()
+    manager = SnapshotManager(config, file_snapshot_dir=tmp_path / "file-snapshots")
+    created_later = tmp_path / "created-later.txt"
+
+    snapshot_id = await manager.create_file_snapshot("plan-new", [str(created_later)])
+    created_later.write_text("new", encoding="utf-8")
+
+    await manager.rollback(snapshot_id)
+
+    assert not created_later.exists()
 
 
 @pytest.mark.asyncio

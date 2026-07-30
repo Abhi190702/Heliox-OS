@@ -291,6 +291,31 @@ class Executor:
             ActionType.LOG_ANALYZE: self._exec_log_analyze,
         }
 
+    @staticmethod
+    def _file_snapshot_targets(plan: ActionPlan) -> list[str] | None:
+        """Return exact mutation paths when local file rollback covers the plan."""
+        snapshot_actions = [action for action in plan.actions if action.requires_snapshot]
+        if not snapshot_actions or any(action.action_type != ActionType.FILE_DELETE for action in snapshot_actions):
+            return None
+
+        targets: list[str] = []
+        for action in plan.actions:
+            if not isinstance(action.parameters, FileParams):
+                continue
+            params = action.parameters
+            if action.action_type in {ActionType.FILE_WRITE, ActionType.FILE_DELETE}:
+                if params.path:
+                    targets.append(params.path)
+            elif action.action_type == ActionType.FILE_COPY:
+                if params.destination:
+                    targets.append(params.destination)
+            elif action.action_type == ActionType.FILE_MOVE:
+                if params.path:
+                    targets.append(params.path)
+                if params.destination:
+                    targets.append(params.destination)
+        return list(dict.fromkeys(targets)) or None
+
     def set_plugin_registry(self, plugin_registry) -> None:
         self._plugin_registry = plugin_registry
 
@@ -554,9 +579,16 @@ class Executor:
         snapshot_id: str | None = None
         if self._permissions.plan_requires_snapshot(plan):
             try:
-                snapshot_id = await self._snapshot_mgr.create_snapshot(
-                    plan_id, f"Pre-action snapshot for plan {plan_id}"
-                )
+                file_snapshot_targets = self._file_snapshot_targets(plan)
+                if file_snapshot_targets is not None:
+                    snapshot_id = await self._snapshot_mgr.create_file_snapshot(
+                        plan_id,
+                        file_snapshot_targets,
+                    )
+                else:
+                    snapshot_id = await self._snapshot_mgr.create_snapshot(
+                        plan_id, f"Pre-action snapshot for plan {plan_id}"
+                    )
             except Exception as e:
                 logger.error("Required snapshot creation failed; blocking plan: %s", e)
                 return [

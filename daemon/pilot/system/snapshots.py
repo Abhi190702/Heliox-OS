@@ -10,10 +10,13 @@ import asyncio
 import json
 import logging
 import re
+import shutil
 import sys
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from pilot.config import PilotConfig
@@ -29,6 +32,9 @@ class SnapshotBackend(StrEnum):
 
 
 _PILOT_TIMESTAMP = re.compile(r"(\d{8}-\d{6})")
+_FILE_SNAPSHOT_ID = re.compile(r"^[a-zA-Z0-9._-]+$")
+_MAX_FILE_SNAPSHOT_BYTES = 100 * 1024 * 1024
+_MAX_FILE_SNAPSHOT_ENTRIES = 10_000
 
 
 def _snapshot_sort_key(snapshot: dict[str, str]) -> tuple[str, int]:
@@ -62,9 +68,12 @@ async def _run(args: list[str], *, root: bool = False) -> tuple[int, str, str]:
 class SnapshotManager:
     """Manages system snapshots for rollback capability."""
 
-    def __init__(self, config: PilotConfig) -> None:
+    def __init__(self, config: PilotConfig, *, file_snapshot_dir: Path | None = None) -> None:
+        from pilot.config import DATA_DIR
+
         self._config = config
         self._backend: SnapshotBackend | None = None
+        self._file_snapshot_dir = file_snapshot_dir or (DATA_DIR / "file_snapshots")
 
     async def detect_backend(self) -> SnapshotBackend:
         """Auto-detect the best available snapshot backend."""
@@ -118,6 +127,9 @@ class SnapshotManager:
 
     async def rollback(self, snapshot_id: str) -> str:
         """Rollback to a previous snapshot."""
+        if snapshot_id.startswith("file-snapshot:"):
+            return await self._rollback_file_snapshot(snapshot_id)
+
         backend = await self.detect_backend()
 
         if backend == SnapshotBackend.BTRFS:
@@ -128,6 +140,151 @@ class SnapshotManager:
             return await self._windows_restore_rollback(snapshot_id)
         else:
             raise RuntimeError("No snapshot backend available for rollback")
+
+    async def create_file_snapshot(self, action_id: str, paths: list[str]) -> str | None:
+        """Snapshot exact file targets without requiring a system restore point."""
+        unique_paths = list(dict.fromkeys(str(Path(path).resolve()) for path in paths if path))
+        if not unique_paths:
+            return None
+        return await asyncio.to_thread(self._create_file_snapshot_sync, action_id, unique_paths)
+
+    def _create_file_snapshot_sync(self, action_id: str, paths: list[str]) -> str:
+        timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        safe_action_id = re.sub(r"[^a-zA-Z0-9._-]+", "-", action_id).strip("-") or "plan"
+        directory_name = f"{safe_action_id}-{timestamp}-{uuid4().hex[:8]}"
+        self._file_snapshot_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_dir = self._file_snapshot_dir / directory_name
+        entries_dir = snapshot_dir / "entries"
+        entries_dir.mkdir(parents=True)
+
+        manifest_entries: list[dict[str, str | bool]] = []
+        total_bytes = 0
+        total_entries = 0
+        try:
+            for index, raw_path in enumerate(paths):
+                original = Path(raw_path).resolve()
+                if original == Path(original.anchor):
+                    raise ValueError(f"Refusing to snapshot filesystem root: {original}")
+
+                entry: dict[str, str | bool] = {
+                    "path": str(original),
+                    "existed": original.exists(),
+                    "kind": "absent",
+                    "backup": "",
+                }
+                if not original.exists():
+                    manifest_entries.append(entry)
+                    continue
+                if original.is_symlink():
+                    raise ValueError(f"Symbolic links are not supported by file snapshots: {original}")
+
+                backup_name = f"{index:06d}"
+                backup_path = entries_dir / backup_name
+                entry["backup"] = f"entries/{backup_name}"
+                if original.is_file():
+                    size = original.stat().st_size
+                    total_bytes += size
+                    total_entries += 1
+                    entry["kind"] = "file"
+                    self._check_file_snapshot_limits(total_bytes, total_entries)
+                    shutil.copy2(original, backup_path)
+                elif original.is_dir():
+                    entry["kind"] = "directory"
+                    for child in original.rglob("*"):
+                        if child.is_symlink():
+                            raise ValueError(f"Symbolic links are not supported by file snapshots: {child}")
+                        total_entries += 1
+                        if child.is_file():
+                            total_bytes += child.stat().st_size
+                        self._check_file_snapshot_limits(total_bytes, total_entries)
+                    shutil.copytree(original, backup_path)
+                else:
+                    raise ValueError(f"Unsupported file target: {original}")
+                manifest_entries.append(entry)
+
+            manifest = {
+                "version": 1,
+                "created_at": datetime.now(UTC).isoformat(),
+                "action_id": action_id,
+                "entries": manifest_entries,
+            }
+            (snapshot_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            shutil.rmtree(snapshot_dir, ignore_errors=True)
+            raise
+
+        self._cleanup_file_snapshots()
+        snapshot_id = f"file-snapshot:{directory_name}"
+        logger.info("Created local file snapshot %s for %d target(s)", snapshot_id, len(paths))
+        return snapshot_id
+
+    @staticmethod
+    def _check_file_snapshot_limits(total_bytes: int, total_entries: int) -> None:
+        if total_bytes > _MAX_FILE_SNAPSHOT_BYTES:
+            raise ValueError("File snapshot exceeds the 100 MiB safety limit")
+        if total_entries > _MAX_FILE_SNAPSHOT_ENTRIES:
+            raise ValueError("File snapshot exceeds the 10,000-entry safety limit")
+
+    async def _rollback_file_snapshot(self, snapshot_id: str) -> str:
+        return await asyncio.to_thread(self._rollback_file_snapshot_sync, snapshot_id)
+
+    def _rollback_file_snapshot_sync(self, snapshot_id: str) -> str:
+        directory_name = snapshot_id.removeprefix("file-snapshot:")
+        if not _FILE_SNAPSHOT_ID.fullmatch(directory_name):
+            raise ValueError("Invalid file snapshot ID")
+        snapshot_dir = (self._file_snapshot_dir / directory_name).resolve()
+        if snapshot_dir.parent != self._file_snapshot_dir.resolve():
+            raise ValueError("Invalid file snapshot path")
+
+        manifest = json.loads((snapshot_dir / "manifest.json").read_text(encoding="utf-8"))
+        entries = manifest.get("entries")
+        if not isinstance(entries, list):
+            raise ValueError("Invalid file snapshot manifest")
+
+        restored = 0
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValueError("Invalid file snapshot entry")
+            target = Path(str(entry.get("path", ""))).resolve()
+            if not str(target) or target == Path(target.anchor):
+                raise ValueError("Invalid file snapshot target")
+            self._remove_exact_path(target)
+            if not entry.get("existed"):
+                restored += 1
+                continue
+
+            backup = (snapshot_dir / str(entry.get("backup", ""))).resolve()
+            if snapshot_dir not in backup.parents:
+                raise ValueError("Invalid file snapshot backup path")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if entry.get("kind") == "file":
+                shutil.copy2(backup, target)
+            elif entry.get("kind") == "directory":
+                shutil.copytree(backup, target)
+            else:
+                raise ValueError("Invalid file snapshot entry kind")
+            restored += 1
+        return f"Restored {restored} file target(s) from {snapshot_id}."
+
+    @staticmethod
+    def _remove_exact_path(path: Path) -> None:
+        if path.is_symlink() or path.is_file():
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            shutil.rmtree(path)
+
+    def _cleanup_file_snapshots(self) -> None:
+        retention = max(1, self._config.security.snapshot_retention_count)
+        snapshots = sorted(
+            (path for path in self._file_snapshot_dir.iterdir() if path.is_dir()),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        for snapshot in snapshots[retention:]:
+            shutil.rmtree(snapshot, ignore_errors=True)
 
     async def list_snapshots(self) -> list[dict[str, str]]:
         """List available Pilot snapshots."""
@@ -177,6 +334,10 @@ class SnapshotManager:
             "detail": detail,
             "retention_supported": retention_supported,
             "retention_count": self._config.security.snapshot_retention_count,
+            "file_snapshot_available": True,
+            "file_snapshot_detail": (
+                "File-only destructive workflows use local content snapshots and do not require Administrator access."
+            ),
             "retention_detail": (
                 "Heliox enforces this limit after each Btrfs or Timeshift snapshot."
                 if retention_supported
