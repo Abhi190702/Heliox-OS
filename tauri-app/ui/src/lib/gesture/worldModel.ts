@@ -44,11 +44,84 @@ const MIDDLE_MCP = 9;
 const THUMB_TIP = 4;
 const INDEX_TIP = 8;
 
+export interface FingerExtensionStates3D {
+  index: boolean;
+  middle: boolean;
+  ring: boolean;
+  pinky: boolean;
+}
+
 function dist3d(a: Landmark, b: Landmark): number {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
   const dz = (a.z ?? 0) - (b.z ?? 0);
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function angleDegrees(a: Landmark, vertex: Landmark, c: Landmark): number {
+  const ab = {
+    x: a.x - vertex.x,
+    y: a.y - vertex.y,
+    z: (a.z ?? 0) - (vertex.z ?? 0),
+  };
+  const cb = {
+    x: c.x - vertex.x,
+    y: c.y - vertex.y,
+    z: (c.z ?? 0) - (vertex.z ?? 0),
+  };
+  const abLength = Math.sqrt(ab.x * ab.x + ab.y * ab.y + ab.z * ab.z);
+  const cbLength = Math.sqrt(cb.x * cb.x + cb.y * cb.y + cb.z * cb.z);
+  if (abLength <= 1e-8 || cbLength <= 1e-8) return 0;
+  const cosine = (ab.x * cb.x + ab.y * cb.y + ab.z * cb.z) / (abLength * cbLength);
+  return (Math.acos(Math.max(-1, Math.min(1, cosine))) * 180) / Math.PI;
+}
+
+function isFiniteLandmark(landmark: Landmark | undefined): landmark is Landmark {
+  return Boolean(
+    landmark && Number.isFinite(landmark.x) && Number.isFinite(landmark.y) && Number.isFinite(landmark.z ?? 0),
+  );
+}
+
+function isFingerExtended3D(
+  landmarks: Landmark[],
+  mcpIndex: number,
+  pipIndex: number,
+  dipIndex: number,
+  tipIndex: number,
+): boolean {
+  const wrist = landmarks[WRIST];
+  const mcp = landmarks[mcpIndex];
+  const pip = landmarks[pipIndex];
+  const dip = landmarks[dipIndex];
+  const tip = landmarks[tipIndex];
+  if (![wrist, mcp, pip, dip, tip].every(isFiniteLandmark)) return false;
+
+  // A straight finger is close to 180 degrees at both joints. Combining
+  // joint angles with wrist distance keeps the test orientation-independent
+  // while rejecting a folded finger whose joints happen to align in depth.
+  const pipAngle = angleDegrees(mcp, pip, dip);
+  const dipAngle = angleDegrees(pip, dip, tip);
+  const tipFromWrist = dist3d(tip, wrist);
+  const pipFromWrist = dist3d(pip, wrist);
+  return pipAngle >= 145 && dipAngle >= 145 && tipFromWrist >= pipFromWrist * 1.08;
+}
+
+/**
+ * Classifies the four non-thumb fingers from real 3D joint geometry.
+ *
+ * Unlike the legacy `tip.y < pip.y` rule, this works when a hand is tilted,
+ * rotated sideways, or pointed partly toward the camera. `null` means the
+ * world-landmark frame is incomplete/invalid and callers should use their
+ * established normalized-landmark fallback.
+ */
+export function fingerExtensionStates3D(worldLandmarks: Landmark[]): FingerExtensionStates3D | null {
+  if (worldLandmarks.length < 21 || !worldLandmarks.every(isFiniteLandmark)) return null;
+  return {
+    index: isFingerExtended3D(worldLandmarks, 5, 6, 7, 8),
+    middle: isFingerExtended3D(worldLandmarks, 9, 10, 11, 12),
+    ring: isFingerExtended3D(worldLandmarks, 13, 14, 15, 16),
+    pinky: isFingerExtended3D(worldLandmarks, 17, 18, 19, 20),
+  };
 }
 
 /** Re-anchors worldLandmarks (hand-center-relative by default, per the

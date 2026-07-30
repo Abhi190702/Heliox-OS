@@ -61,6 +61,7 @@
     handSize3D,
     pinchDistance3D,
     detectPushPull3D,
+    fingerExtensionStates3D,
     WorldModelFilterBank,
   } from "../gesture/worldModel";
   import {
@@ -105,6 +106,7 @@
   let showCamera = $state(false);
   let isStarting = $state(false);
   let gestureHistory: string[] = $state([]);
+  let worldTracking = $state(false);
 
   let videoEl: HTMLVideoElement | undefined = $state();
   let canvasEl: HTMLCanvasElement | undefined = $state();
@@ -116,7 +118,7 @@
   // backend too: loading legacy @mediapipe/hands and Tasks-Vision in the
   // same page makes their Emscripten `Module` globals collide and aborts
   // FaceLandmarker initialization.
-  let activeBackend: "legacy" | "tasks" = "legacy";
+  let activeBackend: "legacy" | "tasks" = $state("legacy");
   // Most recent worldLandmarks from the "tasks" backend — the "legacy"
   // backend never populates this (no metric-scale 3D available). Consumed
   // by handleFrameResult()'s 3D push/pull + metric pinch confirmation
@@ -822,6 +824,7 @@
     }
     deactivateGazeTracking();
     lastWorldLandmarks = null;
+    worldTracking = false;
 
     // 3. Stop camera tracks AFTER MediaPipe is closed
     if (stream) {
@@ -978,6 +981,7 @@
     handednessScore: number | undefined,
   ) {
     lastWorldLandmarks = worldLandmarks;
+    worldTracking = Boolean(worldLandmarks && worldLandmarks.length >= 21);
 
     if (!landmarks || landmarks.length === 0) {
       clearLandmarks();
@@ -1037,7 +1041,7 @@
       worldWristHistory = [];
     }
 
-    const gesture = classifyGesture(filteredLandmarks, use3DPushPull, pushPull3D);
+    const gesture = classifyGesture(filteredLandmarks, use3DPushPull, pushPull3D, filteredWorldLandmarks);
 
     // Scale confidence by detection/geometric quality instead of letting a
     // degenerate (occluded/edge-on) hand pose misfire at full confidence.
@@ -1221,6 +1225,7 @@
     landmarks: any[],
     use3DPushPull: boolean = false,
     pushPull3D: "push" | "pull" | null = null,
+    worldLandmarks: Landmark[] | null = null,
   ): Gesture {
     const THUMB_TIP = 4,
       INDEX_TIP = 8,
@@ -1235,7 +1240,7 @@
       INDEX_MCP = 5;
     const WRIST = 0;
 
-    const isExtended = (tip: number, pip: number) => landmarks[tip].y < landmarks[pip].y;
+    const isExtended2D = (tip: number, pip: number) => landmarks[tip].y < landmarks[pip].y;
     // Orientation/handedness-invariant — see spatialModel.ts for why the old
     // `landmarks[THUMB_TIP].x < landmarks[THUMB_IP].x` check broke for left
     // hands and rotated wrists. Threshold may be personalized by the
@@ -1252,10 +1257,11 @@
       ? gestureCalibration.getEffectivePinchThreshold(PINCH_DISTANCE_THRESHOLD)
       : PINCH_DISTANCE_THRESHOLD;
 
-    const indexUp = isExtended(INDEX_TIP, INDEX_PIP);
-    const middleUp = isExtended(MIDDLE_TIP, MIDDLE_PIP);
-    const ringUp = isExtended(RING_TIP, RING_PIP);
-    const pinkyUp = isExtended(PINKY_TIP, PINKY_PIP);
+    const extension3D = worldLandmarks ? fingerExtensionStates3D(worldLandmarks) : null;
+    const indexUp = extension3D?.index ?? isExtended2D(INDEX_TIP, INDEX_PIP);
+    const middleUp = extension3D?.middle ?? isExtended2D(MIDDLE_TIP, MIDDLE_PIP);
+    const ringUp = extension3D?.ring ?? isExtended2D(RING_TIP, RING_PIP);
+    const pinkyUp = extension3D?.pinky ?? isExtended2D(PINKY_TIP, PINKY_PIP);
 
     // Distance helper
     const dist = (a: number, b: number) => {
@@ -1815,6 +1821,27 @@
     </div>
   {/if}
 
+  {#if isActive}
+    <div
+      class="spatial-status"
+      class:active={worldTracking}
+      class:fallback={activeBackend === "legacy"}
+      role="status"
+      title={worldTracking
+        ? "MediaPipe Tasks is supplying real 3D world landmarks for orientation-independent finger detection"
+        : activeBackend === "tasks"
+          ? "The 3D model is ready; show one complete hand"
+          : "Compatibility backend active; enable Enhanced 3D Hand Tracking in Settings"}
+    >
+      <span class="spatial-status-dot"></span>
+      {worldTracking
+        ? "3D hand tracking"
+        : activeBackend === "tasks"
+          ? "3D ready · show hand"
+          : "2D compatibility mode"}
+    </div>
+  {/if}
+
   <!-- Gesture History -->
   {#if gestureHistory.length > 0 && isActive}
     <div class="gesture-history">
@@ -2027,6 +2054,40 @@
   }
 
   .gaze-runtime-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 7px currentColor;
+  }
+
+  .spatial-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    border-radius: 12px;
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.08);
+    color: rgba(255, 205, 110, 0.95);
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .spatial-status.active {
+    border-color: rgba(0, 255, 136, 0.5);
+    background: rgba(0, 255, 136, 0.1);
+    color: rgba(130, 255, 195, 0.95);
+  }
+
+  .spatial-status.fallback {
+    border-color: rgba(160, 170, 190, 0.35);
+    background: rgba(160, 170, 190, 0.07);
+    color: rgba(190, 200, 220, 0.8);
+  }
+
+  .spatial-status-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;

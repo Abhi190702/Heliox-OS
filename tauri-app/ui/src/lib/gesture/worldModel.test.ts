@@ -4,6 +4,7 @@ import {
   handSize3D,
   pinchDistance3D,
   detectPushPull3D,
+  fingerExtensionStates3D,
   WorldModelFilterBank,
   type Landmark,
 } from "./worldModel";
@@ -20,6 +21,50 @@ function worldLandmarksHandCentered(): Landmark[] {
   lm[8] = { x: 0.025, y: -0.07, z: -0.01 }; // index tip
   lm[9] = { x: 0.0, y: -0.02, z: 0.0 }; // middle MCP
   return lm;
+}
+
+function posedHand(fingerStates: Partial<Record<"index" | "middle" | "ring" | "pinky", boolean>>): Landmark[] {
+  const lm: Landmark[] = new Array(21).fill(null).map(() => ({ x: 0, y: 0, z: 0 }));
+  lm[0] = { x: 0, y: 0.08, z: 0 };
+  const fingers = [
+    { name: "index" as const, indices: [5, 6, 7, 8], x: -0.03 },
+    { name: "middle" as const, indices: [9, 10, 11, 12], x: -0.01 },
+    { name: "ring" as const, indices: [13, 14, 15, 16], x: 0.01 },
+    { name: "pinky" as const, indices: [17, 18, 19, 20], x: 0.03 },
+  ];
+  for (const finger of fingers) {
+    const [mcp, pip, dip, tip] = finger.indices;
+    lm[mcp] = { x: finger.x, y: 0.02, z: 0 };
+    lm[pip] = { x: finger.x, y: -0.005, z: 0 };
+    if (fingerStates[finger.name] ?? false) {
+      lm[dip] = { x: finger.x, y: -0.03, z: 0 };
+      lm[tip] = { x: finger.x, y: -0.055, z: 0 };
+    } else {
+      lm[dip] = { x: finger.x + 0.012, y: 0.006, z: 0.012 };
+      lm[tip] = { x: finger.x + 0.018, y: 0.026, z: 0.018 };
+    }
+  }
+  return lm;
+}
+
+function rotateAroundY(landmarks: Landmark[], radians: number): Landmark[] {
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return landmarks.map((landmark) => ({
+    x: landmark.x * cosine + (landmark.z ?? 0) * sine,
+    y: landmark.y,
+    z: -landmark.x * sine + (landmark.z ?? 0) * cosine,
+  }));
+}
+
+function rotateAroundZ(landmarks: Landmark[], radians: number): Landmark[] {
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return landmarks.map((landmark) => ({
+    x: landmark.x * cosine - landmark.y * sine,
+    y: landmark.x * sine + landmark.y * cosine,
+    z: landmark.z ?? 0,
+  }));
 }
 
 describe("toWristRelative3D", () => {
@@ -64,6 +109,26 @@ describe("handSize3D / pinchDistance3D", () => {
     closed[4] = { ...closed[8] }; // thumb tip collapsed onto index tip
     expect(pinchDistance3D(closed)).toBeLessThan(pinchDistance3D(open));
     expect(pinchDistance3D(closed)).toBeCloseTo(0, 12);
+  });
+});
+
+describe("fingerExtensionStates3D", () => {
+  it("separates extended and curled fingers", () => {
+    const states = fingerExtensionStates3D(posedHand({ index: true, ring: true }));
+    expect(states).toEqual({ index: true, middle: false, ring: true, pinky: false });
+  });
+
+  it("is invariant to an upside-down and depth-rotated hand", () => {
+    const pose = posedHand({ index: true, middle: true, pinky: true });
+    const rotated = rotateAroundY(rotateAroundZ(pose, Math.PI), Math.PI / 3);
+    expect(fingerExtensionStates3D(rotated)).toEqual(fingerExtensionStates3D(pose));
+  });
+
+  it("returns null for an incomplete or invalid world frame", () => {
+    expect(fingerExtensionStates3D([])).toBeNull();
+    const invalid = posedHand({ index: true });
+    invalid[8] = { x: Number.NaN, y: 0, z: 0 };
+    expect(fingerExtensionStates3D(invalid)).toBeNull();
   });
 });
 
