@@ -301,8 +301,10 @@ async def test_proactive_observation_suggestion_and_feedback_are_linked(ledger, 
     assert events[0].payload["raw_media_excluded"] is True
     assert events[1].payload["suggestion_id"] == suggestion.suggestion_id
     assert events[2].payload == {
+        "context_app": "powershell",
         "decision": "dismissed",
         "pattern_id": suggestion.pattern_id,
+        "priority": suggestion.priority,
         "suggestion_id": suggestion.suggestion_id,
     }
 
