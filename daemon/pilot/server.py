@@ -97,6 +97,19 @@ def _notification(method: str, params: Any) -> str:
     return json.dumps({"jsonrpc": "2.0", "method": method, "params": params})
 
 
+def _is_terminal_read_failure(results: list[Any]) -> bool:
+    """Return True when retrying cannot repair an exact missing-file read."""
+    failed = [result for result in results if not result.success]
+    if not failed:
+        return False
+    terminal_markers = ("file not found", "no such file", "cannot find the file")
+    return all(
+        getattr(result.action.action_type, "value", str(result.action.action_type)) == "file_read"
+        and any(marker in str(result.error or "").lower() for marker in terminal_markers)
+        for result in failed
+    )
+
+
 @dataclass
 class PendingConfirmation:
     """Tracks a plan awaiting user confirmation."""
@@ -2318,6 +2331,10 @@ class PilotServer:
                 await emit.phase_error(
                     "verification", VERIFICATION_FAILED, "; ".join(verification.details[:3]), parent_id=verify_phase
                 )
+
+            if _is_terminal_read_failure(results):
+                logger.info("Terminal file-read failure; returning the exact error without LLM retry")
+                break
 
             # Execution failed — use PlanDiffer for partial re-plan
             from pilot.agents.plan_differ import PlanDiffer

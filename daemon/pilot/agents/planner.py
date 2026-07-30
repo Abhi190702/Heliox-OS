@@ -420,6 +420,29 @@ class Planner:
 
         text = user_input.strip().lower()
 
+        # --- exact absolute file read, optionally followed by reporting constraints ---
+        raw_path_match = re.match(
+            r"^\s*(?:read|open|inspect|show|display)"
+            r"(?:\s+the)?(?:\s+contents?\s+of)?\s+"
+            r"[\"']?(?P<path>(?:[a-zA-Z]:\\|/).+?)"
+            r"[\"']?(?=\s+(?:and|then|but)\b|[.!?]?\s*$)",
+            user_input,
+            flags=re.IGNORECASE,
+        )
+        if raw_path_match:
+            path = raw_path_match.group("path").rstrip("\"' .!?")
+            return ActionPlan(
+                actions=[
+                    Action(
+                        action_type=ActionType.FILE_READ,
+                        target=path,
+                        parameters=FileParams(path=path),
+                    )
+                ],
+                explanation=f"Read {path} and report the result",
+                raw_input=user_input,
+            )
+
         # --- "open <url>" ---
         url_match = re.match(
             r"^(?:open|go to|navigate to|visit|launch|browse)\s+(https?://\S+|[\w.-]+\.\w{2,}(?:/\S*)?)$",
