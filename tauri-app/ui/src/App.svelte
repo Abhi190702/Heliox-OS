@@ -34,6 +34,7 @@
   import HeaderMiniMonitor from "./lib/components/HeaderMiniMonitor.svelte";
   import CommandHistory from "./lib/components/CommandHistory.svelte";
   import ChatSessionControls from "./lib/components/ChatSessionControls.svelte";
+  import InteractiveServices from "./lib/components/InteractiveServices.svelte";
   import { _, isLoading } from "svelte-i18n";
 
   let isDragging = $state(false);
@@ -245,6 +246,7 @@
         <div class="pipeline-container">
           <ReActPipeline />
         </div>
+        <InteractiveServices onconfigure={() => (activeTab = "settings")} />
         {#if $session.confirmRequired}
           <ConfirmDialog
             actions={$session.confirmActions}
