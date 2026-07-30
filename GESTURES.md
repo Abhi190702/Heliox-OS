@@ -95,11 +95,11 @@ first so the recalibration can actually be verified.
 
 ## 3D World-Model Layer (MediaPipe Tasks)
 
-An **opt-in backend switch**, `vision.mediapipe_backend` (`"legacy"` default
-/ `"tasks"`), between the two coordinate systems the gesture engine can run
+An **explicit backend switch**, `vision.mediapipe_backend` (`"tasks"` default
+/ `"legacy"` compatibility mode), between the two coordinate systems the gesture engine can run
 on:
 
-- **`"legacy"`** (default) — today's `@mediapipe/hands` callback API. Only
+- **`"legacy"`** (compatibility mode) — the `@mediapipe/hands` callback API. Only
   ever exposes normalized image-space landmarks (`x`/`y` in `[0,1]`, `z`
   relative and unitless). This is the "Spatial/World-Model Layer" described
   above — a 2D-normalized-space temporal-filtering + kinematic-extrapolation

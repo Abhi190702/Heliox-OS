@@ -69,6 +69,7 @@
   let previewSaving = $state(false);
   let previewToast = $state("");
   let gestureCursorToast = $state("");
+  let visionToast = $state("");
   let gestureCalibrationToast = $state("");
   let voiceCalibrationToast = $state("");
   let speechToast = $state("");
@@ -498,6 +499,21 @@
       gaze_tracking_enabled: turningOn,
     });
     if (!turningOn) resetGazeRuntime();
+  }
+
+  async function toggleEnhanced3DHandTracking() {
+    const turningOn = $settings.vision?.mediapipe_backend !== "tasks";
+    const synced = await settings.updateSection("vision", {
+      mediapipe_backend: turningOn ? "tasks" : "legacy",
+    });
+    visionToast = synced
+      ? turningOn
+        ? "Enhanced 3D hand tracking enabled. Restart active camera controls to apply it."
+        : $settings.vision?.gaze_tracking_enabled
+          ? "Compatibility mode saved, but gaze still requires 3D tracking while both features are active."
+          : "2D compatibility mode enabled. Restart active camera controls to apply it."
+      : "Camera tracking changed for this UI session, but daemon persistence could not be confirmed.";
+    setTimeout(() => (visionToast = ""), 5000);
   }
 
   // "Simulate before executing" preview adds real latency (a screenshot +
@@ -1057,8 +1073,38 @@
   </section>
 
   <section class="settings-group">
-    <h3>{$_("settings.gaze_tracking")}</h3>
-    <p class="gesture-cursor-warning">{$_("settings.gaze_tracking_desc")}</p>
+    <h3>{$_("settings.camera_intelligence")}</h3>
+    <p class="gesture-cursor-warning">{$_("settings.camera_intelligence_desc")}</p>
+
+    {#if visionToast}
+      <div class="root-toast root-toast-warning">{visionToast}</div>
+    {/if}
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">{$_("settings.enhanced_3d_hand_tracking")}</span>
+        <span class="setting-desc">{$_("settings.enhanced_3d_hand_tracking_desc")}</span>
+        <span class="security-setting-status">
+          {$settings.vision?.mediapipe_backend === "tasks"
+            ? $_("settings.enhanced_3d_status_on")
+            : $settings.vision?.gaze_tracking_enabled
+              ? $_("settings.enhanced_3d_status_forced")
+              : $_("settings.enhanced_3d_status_off")}
+        </span>
+      </div>
+      <button
+        class="toggle"
+        class:active={$settings.vision?.mediapipe_backend === "tasks"}
+        onclick={toggleEnhanced3DHandTracking}
+        aria-label="Toggle Enhanced 3D Hand Tracking"
+        title="Toggle Enhanced 3D Hand Tracking"
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <h4 class="settings-subheading">{$_("settings.gaze_tracking")}</h4>
+    <p class="setting-section-note">{$_("settings.gaze_tracking_desc")}</p>
 
     <div class="setting-row">
       <div class="setting-info">
@@ -1794,6 +1840,23 @@
     padding: 10px 14px;
     background: var(--bg-tertiary);
     border-bottom: 1px solid var(--border);
+  }
+
+  .settings-subheading {
+    margin: 0;
+    padding: 10px 14px 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-top: 1px solid var(--border);
+  }
+
+  .setting-section-note {
+    margin: 0;
+    padding: 0 14px 10px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-muted);
   }
 
   .setting-row {

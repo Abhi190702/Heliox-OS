@@ -166,9 +166,11 @@ class VisionConfig:
     # "tasks" switches to @mediapipe/tasks-vision's HandLandmarker, which
     # additionally exposes real-metric-scale worldLandmarks (see
     # GESTURES.md's "3D World-Model Layer" section and worldModel.ts).
-    # Defaults to "legacy" — flipping this restarts the gesture engine
-    # rather than hot-swapping mid-session.
-    mediapipe_backend: str = "legacy"
+    # New installs default to "tasks" so orientation-independent 3D finger
+    # geometry is available for the full static-pose classifier. Existing
+    # users may retain "legacy" as an explicit compatibility preference.
+    # Flipping this restarts the gesture engine rather than hot-swapping.
+    mediapipe_backend: str = "tasks"
     # Coarse, on-device gaze-region estimation (see GESTURES.md's gaze
     # section and tauri-app/ui/src/lib/gesture/gazeTracking.ts) — a THIRD
     # input modality alongside voice/gesture, fed into the multimodal

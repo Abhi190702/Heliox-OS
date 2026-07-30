@@ -727,7 +727,7 @@ no_proxy = "localhost,127.0.0.1"
 
 [vision]
 camera_index = 0
-mediapipe_backend = "legacy" # "tasks" enables 3D hand landmarks
+mediapipe_backend = "tasks" # default; "legacy" is the 2D compatibility backend
 gaze_tracking_enabled = false
 
 [gesture_cursor]

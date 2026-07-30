@@ -99,7 +99,7 @@ const defaultSettings: PilotSettings = {
     capture_interval_seconds: 3,
   },
   vision: {
-    mediapipe_backend: "legacy",
+    mediapipe_backend: "tasks",
     gaze_tracking_enabled: false,
   },
   gesture_cursor: {
