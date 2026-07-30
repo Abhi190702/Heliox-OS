@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -84,7 +85,8 @@ def test_training_loader_upgrades_legacy_embeddings_with_recorded_action_type(tm
 
 
 def test_training_split_holds_out_each_action_temporally():
-    action_types = load_action_types("scripts/risk_dataset.jsonl")
+    dataset = Path(__file__).resolve().parents[1] / "scripts" / "risk_dataset.jsonl"
+    action_types = load_action_types(str(dataset))
 
     train, calibration, validation = stratified_temporal_split(action_types, 0.15)
 

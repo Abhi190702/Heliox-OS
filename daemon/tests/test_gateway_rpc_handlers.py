@@ -9,7 +9,7 @@ self.config and self._gateway_audit.
 import pytest
 
 from pilot.config import PilotConfig
-from pilot.security.gateway import SourceProfile
+from pilot.security.gateway import DEFAULT_SOURCE_PROFILES, SourceProfile
 from pilot.security.gateway_audit import AgentGatewayAuditStore
 from pilot.server import PilotServer
 
@@ -97,24 +97,7 @@ class TestGatewayPolicyGetAndUpdate:
         result = await server._handle_gateway_policy_get({}, ws=None)
         assert result["status"] == "ok"
         assert result["enabled"] is True
-        assert set(result["profiles"].keys()) == {
-            "interactive",
-            "autonomous",
-            "web_agent",
-            "voice",
-            "gesture",
-            "self_healing",
-            # Per-specialist-agent profiles -- see gateway.py's InvocationSource
-            "system_agent",
-            "ssh_agent",
-            "code_agent",
-            "monitor_agent",
-            "comm_agent",
-            "rss_agent",
-            "calendar_agent",
-            "forensics_agent",
-            "semantic_search_agent",
-        }
+        assert set(result["profiles"]) == set(DEFAULT_SOURCE_PROFILES)
 
     @pytest.mark.asyncio
     async def test_update_unknown_profile_errors(self):
