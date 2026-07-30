@@ -360,6 +360,14 @@ class Executor:
         action_resources: dict[int, set[str]] = {}
         for i, action in enumerate(actions):
             resources = set()
+            action_type_value = (
+                action.action_type.value if hasattr(action.action_type, "value") else str(action.action_type)
+            )
+            # Every browser command observes or mutates one shared browser
+            # session. Running navigate/click/extract concurrently can make a
+            # later command inspect the previous page or race a navigation.
+            if action_type_value.startswith("browser_"):
+                resources.add("browser-session")
             target = action.target or ""
             if target:
                 resources.add(target)
