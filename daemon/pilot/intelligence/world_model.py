@@ -11,7 +11,10 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
+
+import numpy as np
 
 from pilot.actions import ActionType
 
@@ -113,6 +116,14 @@ class WorldPredictor(Protocol):
         current_state: WorldState,
         candidate_action: Action,
     ) -> WorldPrediction: ...
+
+
+class OptionalWorldPredictor(Protocol):
+    def predict_optional(
+        self,
+        current_state: WorldState,
+        candidate_action: Action,
+    ) -> WorldPrediction | None: ...
 
 
 _BROWSER_NAVIGATION = {
@@ -417,3 +428,185 @@ class StructuredTransitionPredictor:
                 )
             )
         return tuple(evidence)
+
+
+class UiJepaPredictor:
+    """Optional action-conditioned UI latent predictor.
+
+    The model predicts embeddings, not pixels. It activates only when staged
+    weights and an on-device latent observation are both present. Predictions
+    remain shadow-only unless the artifact explicitly records that it passed
+    gating validation.
+    """
+
+    def __init__(self, weights_path: str | Path | None = None) -> None:
+        self._weights_path = Path(weights_path) if weights_path else Path(__file__).with_name("ui_jepa_weights.npz")
+        self._state_weight: np.ndarray | None = None
+        self._action_weight: np.ndarray | None = None
+        self._bias: np.ndarray | None = None
+        self._model_version = "ui-jepa-unavailable"
+        self._training_samples = 0
+        self._validation_error: float | None = None
+        self._validated_for_gating = False
+        self._try_load()
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._state_weight is not None
+
+    @property
+    def validated_for_gating(self) -> bool:
+        return self._validated_for_gating
+
+    def status(self) -> dict[str, Any]:
+        latent_dim = int(self._bias.shape[0]) if self._bias is not None else 0
+        return {
+            "weights_loaded": self.is_loaded,
+            "model_version": self._model_version,
+            "training_samples": self._training_samples,
+            "validation_error": self._validation_error,
+            "validated_for_gating": self._validated_for_gating,
+            "latent_dimension": latent_dim,
+            "mode": "gating" if self._validated_for_gating else "shadow",
+        }
+
+    def _try_load(self) -> None:
+        try:
+            data = np.load(self._weights_path, allow_pickle=False)
+            state_weight = data["state_weight"]
+            action_weight = data["action_weight"]
+            bias = data["bias"]
+            action_count = len(tuple(ActionType))
+            if (
+                state_weight.ndim != 2
+                or state_weight.shape[0] != state_weight.shape[1]
+                or bias.shape != (state_weight.shape[0],)
+                or action_weight.shape != (action_count, state_weight.shape[0])
+            ):
+                return
+            self._state_weight = state_weight.astype(np.float32)
+            self._action_weight = action_weight.astype(np.float32)
+            self._bias = bias.astype(np.float32)
+            self._model_version = (
+                str(data["model_version"].item()) if "model_version" in data.files else "ui-jepa-legacy"
+            )
+            self._training_samples = int(data["training_samples"].item()) if "training_samples" in data.files else 0
+            self._validation_error = (
+                float(data["validation_error"].item()) if "validation_error" in data.files else None
+            )
+            self._validated_for_gating = (
+                bool(data["validated_for_gating"].item()) if "validated_for_gating" in data.files else False
+            )
+        except (FileNotFoundError, KeyError, OSError, ValueError):
+            return
+
+    def predict_optional(
+        self,
+        current_state: WorldState,
+        candidate_action: Action,
+    ) -> WorldPrediction | None:
+        if self._state_weight is None or self._action_weight is None or self._bias is None:
+            return None
+        latent = current_state.ui.get("latent_embedding")
+        if not isinstance(latent, list):
+            return None
+        state = np.asarray(latent, dtype=np.float32)
+        if state.shape != self._bias.shape or not np.all(np.isfinite(state)):
+            return None
+
+        action_index = tuple(ActionType).index(candidate_action.action_type)
+        predicted_latent = np.tanh(state @ self._state_weight + self._action_weight[action_index] + self._bias)
+        delta_norm = float(np.linalg.norm(predicted_latent - state))
+        state_norm = float(np.linalg.norm(state))
+        predicted_norm = float(np.linalg.norm(predicted_latent))
+        cosine = float(np.dot(state, predicted_latent) / max(state_norm * predicted_norm, 1e-6))
+        validation_error = self._validation_error
+        uncertainty = float(
+            np.clip(
+                validation_error if validation_error is not None else 0.75,
+                0.05,
+                1.0,
+            )
+        )
+        predicted = WorldState(
+            observed_at=current_state.observed_at,
+            system=deepcopy(current_state.system),
+            ui={
+                **deepcopy(current_state.ui),
+                "latent_transition": {
+                    "delta_norm": round(delta_norm, 6),
+                    "cosine_similarity": round(cosine, 6),
+                    "requires_observation": True,
+                },
+            },
+            browser=deepcopy(current_state.browser),
+        )
+        risk_evidence: tuple[RiskEvidence, ...] = ()
+        if self._validated_for_gating and delta_norm >= 1.0:
+            risk_evidence = (
+                RiskEvidence(
+                    "ui_jepa",
+                    min(0.95, 0.5 + delta_norm / 10.0),
+                    "Validated latent predictor expects a large UI-state transition",
+                    False,
+                ),
+            )
+        return WorldPrediction(
+            action_type=candidate_action.action_type.value,
+            predicted_state=predicted,
+            expected_effects=(
+                ExpectedEffect(
+                    EffectDomain.UI,
+                    "predict_latent_transition",
+                    "active visual surface",
+                    after=predicted.ui["latent_transition"],
+                    confidence=1.0 - uncertainty,
+                    evidence="action-conditioned joint-embedding predictor",
+                ),
+            ),
+            uncertainty=uncertainty,
+            risk_evidence=risk_evidence,
+            sources=("ui_jepa",),
+            model_version=self._model_version,
+        )
+
+
+class HybridWorldModel:
+    """Fuse structured and optional latent predictions conservatively."""
+
+    def __init__(
+        self,
+        *,
+        structured: WorldPredictor | None = None,
+        visual: OptionalWorldPredictor | None = None,
+    ) -> None:
+        self._structured = structured or StructuredTransitionPredictor()
+        self._visual = visual or UiJepaPredictor()
+
+    def predict(
+        self,
+        current_state: WorldState,
+        candidate_action: Action,
+    ) -> WorldPrediction:
+        structured = self._structured.predict(current_state, candidate_action)
+        visual = self._visual.predict_optional(current_state, candidate_action)
+        if visual is None:
+            return structured
+        fused_state = WorldState(
+            observed_at=structured.predicted_state.observed_at,
+            system=deepcopy(structured.predicted_state.system),
+            ui={
+                **deepcopy(structured.predicted_state.ui),
+                **deepcopy(visual.predicted_state.ui),
+            },
+            browser=deepcopy(structured.predicted_state.browser),
+        )
+        return WorldPrediction(
+            action_type=structured.action_type,
+            predicted_state=fused_state,
+            expected_effects=structured.expected_effects + visual.expected_effects,
+            uncertainty=max(structured.uncertainty, visual.uncertainty),
+            risk_evidence=structured.risk_evidence + visual.risk_evidence,
+            sources=tuple(dict.fromkeys(structured.sources + visual.sources)),
+            model_version=f"{structured.model_version}+{visual.model_version}",
+        )

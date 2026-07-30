@@ -12,7 +12,10 @@ from pilot.actions import (
 )
 from pilot.intelligence.world_model import (
     EffectDomain,
+    HybridWorldModel,
     StructuredTransitionPredictor,
+    UiJepaPredictor,
+    WorldPrediction,
     WorldState,
 )
 
@@ -138,3 +141,85 @@ def test_contract_serializes_enum_domains_and_approval_state() -> None:
     assert payload["sources"] == ["structured_rules"]
     assert payload["expected_effects"][-1]["domain"] == "approval"
     assert payload["predicted_state"]["system"]["approval_state"] == "required"
+
+
+def _write_jepa_weights(path, *, validated: bool = False) -> None:
+    import numpy as np
+
+    action_count = len(tuple(ActionType))
+    np.savez(
+        path,
+        state_weight=np.eye(3, dtype=np.float32),
+        action_weight=np.full((action_count, 3), 0.2, dtype=np.float32),
+        bias=np.zeros(3, dtype=np.float32),
+        model_version=np.array("ui-jepa-test-v1"),
+        training_samples=np.array(128),
+        validation_error=np.array(0.2),
+        validated_for_gating=np.array(validated),
+    )
+
+
+def test_ui_jepa_is_honestly_unavailable_without_weights(tmp_path) -> None:
+    predictor = UiJepaPredictor(tmp_path / "missing.npz")
+
+    assert predictor.predict_optional(_state(), _action_for_jepa()) is None
+    assert predictor.status()["mode"] == "shadow"
+    assert predictor.status()["weights_loaded"] is False
+
+
+def _action_for_jepa() -> Action:
+    return Action(
+        action_type=ActionType.BROWSER_CLICK_TEXT,
+        target="Learn more",
+        parameters=BrowserParams(text="Learn more"),
+    )
+
+
+def test_ui_jepa_predicts_latent_transition_without_pixels(tmp_path) -> None:
+    weights = tmp_path / "ui_jepa.npz"
+    _write_jepa_weights(weights)
+    state = _state()
+    state.ui["latent_embedding"] = [0.1, 0.2, 0.3]
+
+    prediction = UiJepaPredictor(weights).predict_optional(
+        state,
+        _action_for_jepa(),
+    )
+
+    assert prediction is not None
+    assert prediction.sources == ("ui_jepa",)
+    assert prediction.risk_evidence == ()
+    assert prediction.expected_effects[0].operation == "predict_latent_transition"
+    assert "latent_embedding" not in prediction.to_dict()["expected_effects"][0]["after"]
+
+
+def test_unvalidated_ui_jepa_cannot_add_gating_evidence(tmp_path) -> None:
+    weights = tmp_path / "ui_jepa.npz"
+    _write_jepa_weights(weights, validated=False)
+    state = _state()
+    state.ui["latent_embedding"] = [20.0, -20.0, 20.0]
+
+    prediction = UiJepaPredictor(weights).predict_optional(
+        state,
+        _action_for_jepa(),
+    )
+
+    assert prediction is not None
+    assert prediction.risk_evidence == ()
+
+
+def test_hybrid_model_fuses_visual_and_structured_predictions(tmp_path) -> None:
+    weights = tmp_path / "ui_jepa.npz"
+    _write_jepa_weights(weights)
+    state = _state()
+    state.ui["latent_embedding"] = [0.1, 0.2, 0.3]
+    model = HybridWorldModel(visual=UiJepaPredictor(weights))
+
+    prediction = model.predict(state, _action_for_jepa())
+
+    assert prediction.sources == ("structured_rules", "ui_jepa")
+    assert {effect.operation for effect in prediction.expected_effects} >= {
+        "mutate_document",
+        "predict_latent_transition",
+    }
+    assert "latent_transition" in prediction.predicted_state.ui
