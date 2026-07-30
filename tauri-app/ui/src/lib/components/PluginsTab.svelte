@@ -18,6 +18,17 @@
     installed: boolean;
     local_only?: boolean;
     source?: "github" | "local";
+    capabilities: {
+      filesystem: { read: string[]; write: string[] };
+      network_domains: string[];
+      processes: string[];
+      credentials: string[];
+      clipboard: { read: boolean; write: boolean };
+      media: { camera: boolean; microphone: boolean };
+      data_retention: { mode: "none" | "session" | "persistent"; max_days: number };
+      destructive_actions: boolean;
+    };
+    capability_risks?: string[];
   }
 
   interface MarketplaceResult {
@@ -203,6 +214,43 @@
     }
   }
 
+  function capabilityDetails(plugin: Plugin): { label: string; value: string }[] {
+    const capabilities = plugin.capabilities;
+    if (!capabilities) return [];
+    const details: { label: string; value: string }[] = [];
+    if (capabilities.network_domains.length) {
+      details.push({ label: "Network", value: capabilities.network_domains.join(", ") });
+    }
+    if (capabilities.credentials.length) {
+      details.push({ label: "Credentials", value: capabilities.credentials.join(", ") });
+    }
+    if (capabilities.filesystem.read.length) {
+      details.push({ label: "Read paths", value: capabilities.filesystem.read.join(", ") });
+    }
+    if (capabilities.filesystem.write.length) {
+      details.push({ label: "Write paths", value: capabilities.filesystem.write.join(", ") });
+    }
+    if (capabilities.processes.length) {
+      details.push({ label: "Processes", value: capabilities.processes.join(", ") });
+    }
+    const deviceAccess = [
+      capabilities.clipboard.read || capabilities.clipboard.write ? "clipboard" : "",
+      capabilities.media.camera ? "camera" : "",
+      capabilities.media.microphone ? "microphone" : "",
+    ].filter(Boolean);
+    if (deviceAccess.length) {
+      details.push({ label: "Device access", value: deviceAccess.join(", ") });
+    }
+    details.push({
+      label: "Retention",
+      value:
+        capabilities.data_retention.mode === "persistent"
+          ? `${capabilities.data_retention.max_days} days`
+          : capabilities.data_retention.mode,
+    });
+    return details;
+  }
+
   loadPlugins();
 </script>
 
@@ -276,6 +324,8 @@
       <h3>Create Local Plugin</h3>
       <p class="local-explainer">
         This installs only on this device. Use “How to Publish” when you want to submit it to the public marketplace.
+        New local plugins start with filesystem, network, process, credential, clipboard, camera, and microphone access
+        denied.
       </p>
       <div class="form-grid">
         <div class="form-group">
@@ -358,17 +408,42 @@
 
           <p class="description">{plugin.description}</p>
 
+          <div class="capability-panel" class:destructive={plugin.capabilities?.destructive_actions}>
+            <div class="capability-heading">
+              <span>Declared access</span>
+              <span class="isolation-badge">
+                {plugin.capabilities?.destructive_actions ? "Approval required" : "Broker isolated"}
+              </span>
+            </div>
+            <div class="capability-list">
+              {#each capabilityDetails(plugin) as detail}
+                <span><strong>{detail.label}:</strong> {detail.value}</span>
+              {/each}
+            </div>
+            {#if plugin.capabilities?.destructive_actions}
+              <p class="approval-note">
+                Direct execution is disabled. Ask Heliox in chat so the guarded approval flow can review this action.
+              </p>
+            {/if}
+          </div>
+
           <div class="tools-section">
             <span class="tools-label">{plugin.tools.length} tools</span>
             <div class="tools-list">
               {#each plugin.tools as tool}
                 <button
                   class="tool-tag"
-                  class:clickable={plugin.installed}
+                  class:clickable={plugin.installed && !plugin.capabilities?.destructive_actions}
                   onclick={() => {
-                    if (plugin.installed) toggleExpand(`${plugin.name}:${tool.name}`);
+                    if (plugin.installed && !plugin.capabilities?.destructive_actions) {
+                      toggleExpand(`${plugin.name}:${tool.name}`);
+                    }
                   }}
-                  title={plugin.installed ? `Run ${tool.name}` : tool.description}
+                  title={plugin.capabilities?.destructive_actions
+                    ? "Run this tool through chat approval"
+                    : plugin.installed
+                      ? `Run ${tool.name}`
+                      : tool.description}
                 >
                   {tool.name}
                   {#if plugin.installed}
@@ -903,6 +978,63 @@
     font-size: 12px;
     color: var(--text-secondary);
     margin: 0 0 10px 0;
+    line-height: 1.4;
+  }
+
+  .capability-panel {
+    margin: 0 0 12px;
+    padding: 10px;
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    border-radius: var(--radius-sm);
+    background: rgba(56, 189, 248, 0.05);
+  }
+
+  .capability-panel.destructive {
+    border-color: rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.06);
+  }
+
+  .capability-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .isolation-badge {
+    padding: 2px 7px;
+    border-radius: 999px;
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    font-size: 9px;
+  }
+
+  .destructive .isolation-badge {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.12);
+  }
+
+  .capability-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 12px;
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+
+  .capability-list strong {
+    color: var(--text-secondary);
+  }
+
+  .approval-note {
+    margin: 7px 0 0;
+    color: #f59e0b;
+    font-size: 10px;
     line-height: 1.4;
   }
 
