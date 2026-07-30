@@ -42,6 +42,9 @@ class ExperienceEventType(StrEnum):
     SUGGESTION_FEEDBACK = "suggestion_feedback"
     MEMORY_PROMOTED = "memory_promoted"
     STRATEGY_CANDIDATE = "strategy_candidate"
+    EVOLUTION_CANDIDATE = "evolution_candidate"
+    EVOLUTION_EVALUATION = "evolution_evaluation"
+    EVOLUTION_PROMOTION_REQUEST = "evolution_promotion_request"
 
 
 class PrivacyClass(StrEnum):

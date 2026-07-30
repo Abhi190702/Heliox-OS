@@ -429,6 +429,7 @@ class PilotServer:
         self._experience_ledger: ExperienceLedger | None = None
         self._online_learning: Any = None
         self._strategy_evolution: Any = None
+        self._evolution_harness: Any = None
         self._active_experience_context = ExperienceContext()
         self._vault: Any = None
         self._permission_audit: Any = None
@@ -744,6 +745,16 @@ class PilotServer:
         )
         await self._strategy_evolution.initialize()
         self._strategy_evolution.set_experience_ledger(self._experience_ledger)
+        from pilot.intelligence.evolution_harness import EvolutionHarness
+
+        self._evolution_harness = EvolutionHarness(
+            DATA_DIR / "evolution_harness.db",
+            Path(__file__).parent.parent.parent,
+            DATA_DIR / "evolution_worktrees",
+            model_router=model_router,
+        )
+        await self._evolution_harness.initialize()
+        self._evolution_harness.set_experience_ledger(self._experience_ledger)
 
         # Plugin Ecosystem
         from pilot.plugins import PluginRegistry
@@ -1043,6 +1054,13 @@ class PilotServer:
             "strategy_record_canary": self._handle_strategy_record_canary,
             "strategy_promote": self._handle_strategy_promote,
             "strategy_rollback": self._handle_strategy_rollback,
+            "evolution_status": self._handle_evolution_status,
+            "evolution_runs": self._handle_evolution_runs,
+            "evolution_candidates": self._handle_evolution_candidates,
+            "evolution_create_run": self._handle_evolution_create_run,
+            "evolution_generate_candidates": self._handle_evolution_generate_candidates,
+            "evolution_evaluate": self._handle_evolution_evaluate,
+            "evolution_request_promotion": self._handle_evolution_request_promotion,
             "plugin_list": self._handle_plugin_list,
             "plugin_tools": self._handle_plugin_tools,
             "plugin_toggle": self._handle_plugin_toggle,
@@ -5372,6 +5390,98 @@ class PilotServer:
             "assignment": assignment.to_dict() if assignment is not None else None,
         }
 
+    async def _handle_evolution_status(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._evolution_harness is None:
+            return {"enabled": False, "message": "Evolution harness is not initialized"}
+        return await self._evolution_harness.status()
+
+    async def _handle_evolution_runs(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._evolution_harness is None:
+            return {"runs": [], "message": "Evolution harness is not initialized"}
+        runs = await self._evolution_harness.list_runs(
+            limit=max(1, min(int(params.get("limit", 100)), 500)),
+        )
+        return {"runs": [run.to_dict() for run in runs]}
+
+    async def _handle_evolution_candidates(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._evolution_harness is None:
+            return {"candidates": [], "message": "Evolution harness is not initialized"}
+        run_id = str(params.get("run_id", "")).strip()
+        candidates = await self._evolution_harness.list_candidates(
+            run_id=run_id or None,
+            limit=max(1, min(int(params.get("limit", 100)), 500)),
+            include_patch=bool(params.get("include_patch", False)),
+        )
+        return {
+            "candidates": [
+                candidate.to_dict(include_patch=bool(params.get("include_patch", False))) for candidate in candidates
+            ]
+        }
+
+    async def _handle_evolution_create_run(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._evolution_harness is None:
+            return {"status": "error", "message": "Evolution harness is not initialized"}
+        run = await self._evolution_harness.create_run(
+            str(params.get("problem", "")),
+            profile=str(params.get("profile", "python")),
+        )
+        return {"status": run.state.value, "run": run.to_dict()}
+
+    async def _handle_evolution_generate_candidates(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._evolution_harness is None:
+            return {"status": "error", "message": "Evolution harness is not initialized"}
+        candidates = await self._evolution_harness.generate_candidates(
+            str(params.get("run_id", "")),
+            count=max(2, min(int(params.get("count", 3)), 8)),
+        )
+        return {
+            "status": "collecting",
+            "candidates": [candidate.to_dict() for candidate in candidates],
+        }
+
+    async def _handle_evolution_evaluate(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._evolution_harness is None:
+            return {"status": "error", "message": "Evolution harness is not initialized"}
+        run = await self._evolution_harness.evaluate(str(params.get("run_id", "")))
+        return {"status": run.state.value, "run": run.to_dict()}
+
+    async def _handle_evolution_request_promotion(
+        self,
+        params: dict,
+        ws: ServerConnection,
+    ) -> dict:
+        if self._evolution_harness is None:
+            return {"status": "error", "message": "Evolution harness is not initialized"}
+        return await self._evolution_harness.request_promotion(
+            str(params.get("candidate_id", "")),
+            actor=str(params.get("actor", "")),
+            confirmation=str(params.get("confirmation", "")),
+        )
+
     # -- Plugin Ecosystem --
 
     async def _handle_plugin_list(self, params: dict, ws: ServerConnection) -> dict:
@@ -6178,6 +6288,9 @@ def handle_tool(tool_name, params):
         if self._strategy_evolution is not None:
             await self._strategy_evolution.close()
             self._strategy_evolution = None
+        if self._evolution_harness is not None:
+            await self._evolution_harness.close()
+            self._evolution_harness = None
         if hasattr(self, "_reflector") and self._reflector:
             if hasattr(self._reflector, "close"):
                 await self._reflector.close()
