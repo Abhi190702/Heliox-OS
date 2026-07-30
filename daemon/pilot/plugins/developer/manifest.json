@@ -55,5 +55,16 @@
   ],
   "agent_type": "code",
   "entry_point": "developer_plugin.py",
-  "dependencies": ["git", "gh"]
+  "dependencies": ["git", "gh"],
+  "runtime_type": "python",
+  "capabilities": {
+    "filesystem": {"read": [], "write": []},
+    "network_domains": ["api.github.com", "github.com"],
+    "processes": ["git", "gh"],
+    "credentials": [],
+    "clipboard": {"read": false, "write": false},
+    "media": {"camera": false, "microphone": false},
+    "data_retention": {"mode": "none", "max_days": 0},
+    "destructive_actions": true
+  }
 }

@@ -24,5 +24,15 @@
   "agent_type": "system",
   "entry_point": "plugin.py",
   "runtime_type": "python",
-  "dependencies": []
+  "dependencies": [],
+  "capabilities": {
+    "filesystem": {"read": [], "write": []},
+    "network_domains": ["wttr.in"],
+    "processes": [],
+    "credentials": [],
+    "clipboard": {"read": false, "write": false},
+    "media": {"camera": false, "microphone": false},
+    "data_retention": {"mode": "none", "max_days": 0},
+    "destructive_actions": false
+  }
 }

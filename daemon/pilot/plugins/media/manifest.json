@@ -71,5 +71,16 @@
   ],
   "agent_type": "system",
   "entry_point": "media_plugin.py",
-  "dependencies": []
+  "dependencies": [],
+  "runtime_type": "python",
+  "capabilities": {
+    "filesystem": {"read": [], "write": []},
+    "network_domains": ["api.spotify.com", "www.youtube.com"],
+    "processes": ["powershell", "amixer", "osascript", "xdotool"],
+    "credentials": [],
+    "clipboard": {"read": false, "write": false},
+    "media": {"camera": false, "microphone": false},
+    "data_retention": {"mode": "none", "max_days": 0},
+    "destructive_actions": false
+  }
 }

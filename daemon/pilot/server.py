@@ -5706,6 +5706,16 @@ def handle_tool(tool_name, params):
             "entry_point": "plugin.py",
             "runtime_type": "python",
             "enabled": True,
+            "capabilities": {
+                "filesystem": {"read": [], "write": []},
+                "network_domains": [],
+                "processes": [],
+                "credentials": [],
+                "clipboard": {"read": False, "write": False},
+                "media": {"camera": False, "microphone": False},
+                "data_retention": {"mode": "none", "max_days": 0},
+                "destructive_actions": False,
+            },
         }
         (plugin_dir / "manifest.json").write_text(json.dumps(manifest_dict, indent=2), encoding="utf-8")
         (plugin_dir / "plugin.py").write_text(code_content, encoding="utf-8")
@@ -5817,6 +5827,16 @@ def handle_tool(tool_name, params):
             "entry_point": "plugin.py",
             "runtime_type": "python",
             "enabled": True,
+            "capabilities": {
+                "filesystem": {"read": [], "write": []},
+                "network_domains": [],
+                "processes": [],
+                "credentials": [],
+                "clipboard": {"read": False, "write": False},
+                "media": {"camera": False, "microphone": False},
+                "data_retention": {"mode": "none", "max_days": 0},
+                "destructive_actions": False,
+            },
         }
         code_content = params.get("code", "")
         if not code_content.strip():
@@ -5861,7 +5881,11 @@ def handle_tool(tool_name, params):
         if not self._plugin_registry:
             return {"error": "Plugin registry not initialized"}
 
-        result = self._plugin_registry.call_tool(tool_name, args)
+        result = await asyncio.to_thread(
+            self._plugin_registry.call_tool,
+            tool_name,
+            args,
+        )
         return {"result": result}
 
     async def _handle_skills_list(self, params: dict, ws: ServerConnection) -> dict:

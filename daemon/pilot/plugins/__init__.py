@@ -74,6 +74,10 @@ import contextlib
 import hashlib
 import json
 import logging
+import os
+import re
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -83,8 +87,16 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from pilot.config import PLUGINS_DIR
+from pilot.plugins.capabilities import (
+    PluginCapabilities,
+    PluginCapabilityError,
+    parse_plugin_capabilities,
+    validate_credential_urls,
+)
 
 logger = logging.getLogger("pilot.plugins")
+_PLUGIN_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
+_TOOL_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 PLUGIN_PUBLIC_KEY_FILE = "plugin.ed25519.pub"
 PLUGIN_SIGNATURE_FILE = "plugin.ed25519.sig"
@@ -98,6 +110,13 @@ PLUGIN_SIGNATURE_EXCLUDES = frozenset(
 
 class PluginSignatureError(ValueError):
     """Raised when a plugin signature is missing, malformed, or invalid."""
+
+
+def _safe_plugin_file(raw_path: str, *, field_name: str) -> str:
+    path = Path(raw_path)
+    if not raw_path or path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"{field_name} must be a plugin-relative file")
+    return str(path)
 
 
 def _load_public_key(raw: bytes, *, source: str) -> Ed25519PublicKey:
@@ -246,6 +265,7 @@ class PluginManifest:
     path: str = ""
     runtime_type: str = "python"  # "python" | "wasm"
     wasm_module: str = ""  # relative path to .wasm file, e.g. "plugin.wasm"
+    capabilities: PluginCapabilities = field(default_factory=PluginCapabilities)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -260,6 +280,8 @@ class PluginManifest:
             "enabled": self.enabled,
             "runtime_type": self.runtime_type,
             "wasm_module": self.wasm_module,
+            "capabilities": self.capabilities.to_dict(),
+            "capability_risks": self.capabilities.risk_labels,
             "tool_count": len(self.tools),
         }
 
@@ -288,7 +310,6 @@ class PluginRegistry:
         self._require_signatures = require_signatures
         self._trusted_public_keys = tuple(_coerce_public_key(key) for key in (trusted_public_keys or []))
         self._wasm_plugins: dict[str, Any] = {}  # name -> WasmPlugin
-        self._python_modules: dict[str, Any] = {}
 
         # Add default plugin directories
         if PLUGINS_DIR not in self._plugin_dirs:
@@ -296,17 +317,12 @@ class PluginRegistry:
 
     def discover(self) -> int:
         """Scan plugin directories and load manifests. Returns count of loaded plugins."""
-        import sys
-
         for plugin in self._wasm_plugins.values():
             with contextlib.suppress(Exception):
                 plugin.close()
-        for module_key in self._python_modules:
-            sys.modules.pop(module_key, None)
         self._plugins.clear()
         self._tool_index.clear()
         self._wasm_plugins.clear()
-        self._python_modules.clear()
 
         loaded: int = 0
 
@@ -322,6 +338,14 @@ class PluginRegistry:
                             continue
                         manifest = self._load_manifest(manifest_path)
                         if manifest:
+                            collisions = sorted(tool.name for tool in manifest.tools if tool.name in self._tool_index)
+                            if collisions:
+                                logger.error(
+                                    "Rejected plugin %s because tool names already exist: %s",
+                                    manifest.name,
+                                    ", ".join(collisions),
+                                )
+                                continue
                             self._plugins[manifest.name] = manifest
                             # Index tools
                             for tool in manifest.tools:
@@ -354,12 +378,31 @@ class PluginRegistry:
         """Parse a plugin manifest.json file."""
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+            name = data.get("name", path.parent.name)
+            if not isinstance(name, str) or not _PLUGIN_NAME_PATTERN.fullmatch(name):
+                raise ValueError(f"Unsafe plugin name: {name!r}")
+            runtime_type = data.get("runtime_type", "python")
+            if runtime_type not in {"python", "wasm"}:
+                raise ValueError(f"Unsupported plugin runtime: {runtime_type!r}")
+            entry_point = _safe_plugin_file(
+                data.get("entry_point", "plugin.py"),
+                field_name="entry_point",
+            )
+            wasm_module = data.get("wasm_module", "")
+            if wasm_module:
+                wasm_module = _safe_plugin_file(
+                    wasm_module,
+                    field_name="wasm_module",
+                )
 
             tools = []
             for tool_data in data.get("tools", []):
+                tool_name = tool_data.get("name", "")
+                if not isinstance(tool_name, str) or not _TOOL_NAME_PATTERN.fullmatch(tool_name):
+                    raise ValueError(f"Unsafe plugin tool name: {tool_name!r}")
                 tools.append(
                     PluginTool(
-                        name=tool_data.get("name", ""),
+                        name=tool_name,
                         description=tool_data.get("description", ""),
                         inputs=tool_data.get("inputs", []),
                         outputs=tool_data.get("outputs", []),
@@ -369,20 +412,21 @@ class PluginRegistry:
                 )
 
             return PluginManifest(
-                name=data.get("name", path.parent.name),
+                name=name,
                 version=data.get("version", "1.0.0"),
                 description=data.get("description", ""),
                 author=data.get("author", ""),
                 tools=tools,
                 agent_type=data.get("agent_type", "system"),
-                entry_point=data.get("entry_point", ""),
+                entry_point=entry_point,
                 dependencies=data.get("dependencies", []),
                 enabled=data.get("enabled", True),
                 path=str(path.parent),
-                runtime_type=data.get("runtime_type", "python"),
-                wasm_module=data.get("wasm_module", ""),
+                runtime_type=runtime_type,
+                wasm_module=wasm_module,
+                capabilities=parse_plugin_capabilities(data.get("capabilities")),
             )
-        except Exception:
+        except (OSError, json.JSONDecodeError, PluginCapabilityError, TypeError, ValueError):
             logger.error("Failed to load plugin manifest: %s", path, exc_info=True)
             return None
 
@@ -396,7 +440,20 @@ class PluginRegistry:
 
         wasm_path = Path(manifest.path) / manifest.wasm_module
         try:
-            plugin = WasmPlugin(wasm_path, WasmConfig())
+            if manifest.capabilities.network_domains:
+                raise WasmRuntimeError(
+                    "WASM network access is not brokered; remove network_domains or use a reviewed native plugin"
+                )
+            plugin = WasmPlugin(
+                wasm_path,
+                WasmConfig(
+                    read_paths=manifest.capabilities.filesystem.read,
+                    write_paths=manifest.capabilities.filesystem.write,
+                    env_vars={
+                        name: os.environ[name] for name in manifest.capabilities.credentials if name in os.environ
+                    },
+                ),
+            )
             self._wasm_plugins[manifest.name] = plugin
             logger.info("Loaded WASM plugin: %s (%s)", manifest.name, wasm_path.name)
         except (WasmRuntimeError, ImportError) as exc:
@@ -404,7 +461,13 @@ class PluginRegistry:
 
     # ── Query APIs ──
 
-    def call_tool(self, tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
+    def call_tool(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+        *,
+        approved: bool = False,
+    ) -> dict[str, Any]:
         """Call a tool provided by any loaded plugin (Python or WASM) and return its JSON result."""
         result = self.find_tool(tool_name)
         if result is None:
@@ -412,43 +475,82 @@ class PluginRegistry:
         manifest, tool = result
         if not manifest.enabled:
             return {"error": f"Plugin {manifest.name!r} is disabled"}
+        if manifest.capabilities.destructive_actions and not approved:
+            return {
+                "error": (
+                    f"Plugin {manifest.name!r} declares destructive actions and must run "
+                    "through the guarded planner approval flow"
+                )
+            }
 
         if manifest.runtime_type == "wasm":
             return self.call_wasm_tool(tool_name, params)
 
-        # Python runtime execution
+        # Native Python executes once in a constrained child process. Plugin
+        # code is never imported into the long-lived daemon.
         entry = manifest.entry_point or "plugin.py"
         script_path = Path(manifest.path) / entry
         if not script_path.exists():
             return {"error": f"Plugin script not found: {script_path}"}
 
         try:
-            import importlib.util
-            import sys
-
-            module_key = f"plugin_{manifest.name}"
-
-            if module_key not in self._python_modules:
-                spec = importlib.util.spec_from_file_location(module_key, str(script_path))
-                if not spec or not spec.loader:
-                    return {"error": f"Could not load script module spec: {script_path}"}
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_key] = module
-                spec.loader.exec_module(module)
-                self._python_modules[module_key] = module
-            else:
-                module = self._python_modules[module_key]
-
-            if hasattr(module, "handle_tool"):
-                res = module.handle_tool(tool_name, params)
-                return res if isinstance(res, dict) else {"result": res}
-            elif hasattr(module, tool_name):
-                fn = getattr(module, tool_name)
-                res = fn(**params) if isinstance(params, dict) else fn()
-                return res if isinstance(res, dict) else {"result": res}
-            else:
-                return {"error": f"Neither handle_tool nor function {tool_name!r} found in {entry}"}
-        except Exception as exc:
+            inherited_environment = os.environ
+            validate_credential_urls(manifest.capabilities, inherited_environment)
+            child_environment = {
+                name: inherited_environment[name]
+                for name in (
+                    "COMSPEC",
+                    "PATH",
+                    "SYSTEMROOT",
+                    "TEMP",
+                    "TMP",
+                    "WINDIR",
+                )
+                if name in inherited_environment
+            }
+            child_environment["PYTHONIOENCODING"] = "utf-8"
+            child_environment.update(
+                {
+                    name: inherited_environment[name]
+                    for name in manifest.capabilities.credentials
+                    if name in inherited_environment
+                }
+            )
+            runner = Path(__file__).with_name("native_runner.py")
+            request = {
+                "plugin_dir": manifest.path,
+                "script_path": str(script_path),
+                "tool_name": tool_name,
+                "params": params,
+                "capabilities": manifest.capabilities.to_dict(),
+            }
+            creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            completed = subprocess.run(
+                [sys.executable, "-I", str(runner)],
+                input=json.dumps(request),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                cwd=manifest.path,
+                env=child_environment,
+                creationflags=creation_flags,
+                check=False,
+            )
+            stdout = completed.stdout.strip()
+            if not stdout:
+                return {"error": (f"Plugin broker exited with code {completed.returncode} without a JSON response")}
+            try:
+                response = json.loads(stdout.splitlines()[-1])
+            except json.JSONDecodeError:
+                return {"error": "Plugin broker returned invalid JSON"}
+            if not isinstance(response, dict):
+                return {"result": response}
+            return response
+        except subprocess.TimeoutExpired:
+            return {"error": "Plugin execution exceeded the 30-second broker timeout"}
+        except (OSError, PluginCapabilityError, TypeError, ValueError) as exc:
             logger.error("Error executing Python plugin tool %s: %s", tool_name, exc, exc_info=True)
             return {"error": f"Plugin execution exception: {exc}"}
 
@@ -535,8 +637,6 @@ class PluginRegistry:
 
     def remove_plugin(self, name: str) -> bool:
         """Remove all in-memory state for a plugin after uninstall."""
-        import sys
-
         plugin = self._plugins.pop(name, None)
         if plugin is None:
             return False
@@ -547,9 +647,6 @@ class PluginRegistry:
         if wasm_plugin is not None:
             with contextlib.suppress(Exception):
                 wasm_plugin.close()
-        module_key = f"plugin_{name}"
-        self._python_modules.pop(module_key, None)
-        sys.modules.pop(module_key, None)
         return True
 
     def get_stats(self) -> dict[str, Any]:

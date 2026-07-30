@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from pilot.plugins import PluginManifest, PluginRegistry, PluginTool, verify_plugin_signature
+from pilot.plugins.capabilities import PluginCapabilities
 from pilot.plugins.marketplace import (
     GitHubMarketplace,
     MarketplaceError,
@@ -50,6 +51,36 @@ def test_validate_catalog_rejects_path_traversal():
 
     with pytest.raises(MarketplaceError, match="Unsafe marketplace package path"):
         validate_catalog(catalog)
+
+
+def test_validate_catalog_requires_complete_capabilities():
+    catalog = json.loads((REPO_ROOT / "plugins" / "registry.json").read_text(encoding="utf-8"))
+    del catalog["plugins"][0]["capabilities"]["network_domains"]
+
+    with pytest.raises(MarketplaceError, match="unsafe capabilities"):
+        validate_catalog(catalog)
+
+
+def test_staged_manifest_capabilities_must_match_reviewed_catalog(tmp_path):
+    staging = tmp_path / "weather"
+    staging.mkdir()
+    manifest = json.loads((REPO_ROOT / "plugins" / "weather" / "manifest.json").read_text(encoding="utf-8"))
+    manifest["capabilities"]["network_domains"] = ["other.example"]
+    (staging / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (staging / "plugin.py").write_text(
+        "def handle_tool(tool_name, params):\n    return {'ok': True}\n",
+        encoding="utf-8",
+    )
+    expected = json.loads((REPO_ROOT / "plugins" / "weather" / "manifest.json").read_text(encoding="utf-8"))[
+        "capabilities"
+    ]
+
+    with pytest.raises(MarketplaceError, match="do not match"):
+        GitHubMarketplace._validate_staged_plugin(
+            staging,
+            expected_name="weather",
+            expected_capabilities=expected,
+        )
 
 
 def test_offline_catalog_uses_bundled_snapshot(tmp_path, monkeypatch):
@@ -189,6 +220,7 @@ def test_discover_rebuilds_indexes_after_plugin_removal(tmp_path):
                 "author": "tests",
                 "entry_point": "plugin.py",
                 "runtime_type": "python",
+                "capabilities": PluginCapabilities().to_dict(),
                 "tools": [
                     {
                         "name": "temporary_tool",
@@ -272,6 +304,11 @@ async def test_marketplace_handlers_install_list_and_uninstall(
     assert installed["success"] is True
     weather = next(plugin for plugin in listed["plugins"] if plugin["name"] == "weather")
     assert weather["installed"] is True
+    assert weather["capabilities"]["network_domains"] == ["wttr.in"]
+    assert weather["capabilities"]["data_retention"] == {
+        "mode": "none",
+        "max_days": 0,
+    }
     assert listed["source"] == "bundled"
     assert removed == {"success": True, "plugin": "weather"}
     assert registry.find_tool("get_weather") is None

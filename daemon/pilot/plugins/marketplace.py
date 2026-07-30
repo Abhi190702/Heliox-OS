@@ -19,6 +19,11 @@ from typing import Any
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
+from pilot.plugins.capabilities import (
+    PluginCapabilityError,
+    parse_plugin_capabilities,
+)
+
 MARKETPLACE_SCHEMA_VERSION = 1
 DEFAULT_MARKETPLACE_REGISTRY_URL = (
     "https://raw.githubusercontent.com/VyomKulshrestha/Heliox-OS/main/plugins/registry.json"
@@ -127,6 +132,10 @@ def validate_catalog(data: Any) -> dict[str, Any]:
         for field_name in ("version", "description", "author"):
             if not isinstance(plugin.get(field_name), str) or not plugin[field_name].strip():
                 raise MarketplaceError(f"Plugin {name!r} requires {field_name}")
+        try:
+            parse_plugin_capabilities(plugin.get("capabilities"))
+        except PluginCapabilityError as exc:
+            raise MarketplaceError(f"Plugin {name!r} has unsafe capabilities: {exc}") from exc
 
         tools = plugin.get("tools")
         if not isinstance(tools, list) or not tools:
@@ -236,7 +245,11 @@ class GitHubMarketplace:
         staging.mkdir()
         try:
             self._materialize_package(catalog, plugin, staging)
-            manifest = self._validate_staged_plugin(staging, expected_name=name)
+            manifest = self._validate_staged_plugin(
+                staging,
+                expected_name=name,
+                expected_capabilities=plugin["capabilities"],
+            )
 
             from pilot.plugins import sign_plugin_directory
 
@@ -298,7 +311,12 @@ class GitHubMarketplace:
         destination.write_bytes(canonical_payload)
 
     @staticmethod
-    def _validate_staged_plugin(staging: Path, *, expected_name: str) -> dict[str, Any]:
+    def _validate_staged_plugin(
+        staging: Path,
+        *,
+        expected_name: str,
+        expected_capabilities: dict[str, Any],
+    ) -> dict[str, Any]:
         manifest_path = staging / "manifest.json"
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -311,6 +329,13 @@ class GitHubMarketplace:
             raise MarketplaceError(f"Plugin entry point is missing: {entry_point}")
         if manifest.get("runtime_type", "python") != "python":
             raise MarketplaceError("GitHub marketplace MVP currently supports Python plugins")
+        try:
+            manifest_capabilities = parse_plugin_capabilities(manifest.get("capabilities"))
+            catalog_capabilities = parse_plugin_capabilities(expected_capabilities)
+        except PluginCapabilityError as exc:
+            raise MarketplaceError(f"Plugin manifest has unsafe capabilities: {exc}") from exc
+        if manifest_capabilities != catalog_capabilities:
+            raise MarketplaceError("Plugin manifest capabilities do not match the reviewed catalog")
         return manifest
 
     @staticmethod

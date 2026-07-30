@@ -2536,6 +2536,7 @@ class Executor:
         return "\n".join(lines)
 
     async def _exec_wasm_call(self, action: Action) -> str:
+        import asyncio
         import json
 
         params: WasmCallParams = action.parameters  # type: ignore[assignment]
@@ -2544,7 +2545,12 @@ class Executor:
             raise ValueError("wasm_call requires a tool name (either in target or parameters)")
         if self._plugin_registry is None:
             raise RuntimeError("Plugin registry not initialized in Executor")
-        result = self._plugin_registry.call_tool(tool_name, params.args)
+        result = await asyncio.to_thread(
+            self._plugin_registry.call_tool,
+            tool_name,
+            params.args,
+            approved=True,
+        )
         if "error" in result:
             raise RuntimeError(f"Plugin tool execution failed: {result['error']}")
         return json.dumps(result)

@@ -76,7 +76,8 @@ class WasmConfig:
     memory_mb: int = 128
     timeout_secs: int = 30
     allow_network: bool = False
-    allow_filesystem: bool = False
+    read_paths: tuple[str, ...] = ()
+    write_paths: tuple[str, ...] = ()
     env_vars: dict[str, str] = field(default_factory=dict)
 
 
@@ -119,16 +120,33 @@ class WasmPlugin:
 
     def _make_store(self) -> wasmtime.Store:
         store = wasmtime.Store(self._engine)
+        store.set_limits(memory_size=self._config.memory_mb * 1024 * 1024, memories=1)
         # Enforce epoch-based timeout: each call bumps the deadline by 1.
         # The engine's epoch counter must be incremented externally (or via a
         # thread) to trigger interruption; here we set a generous fuel limit
         # instead for simplicity.
         store.set_epoch_deadline(1)
         wasi_cfg = wasmtime.WasiConfig()
-        wasi_cfg.inherit_stdin()
-        # Filesystem: no preopen directories unless explicitly allowed.
-        if self._config.allow_filesystem:
-            wasi_cfg.preopen_dir(".", ".")
+        if self._config.env_vars:
+            wasi_cfg.env = tuple(self._config.env_vars.items())
+        write_paths = {str(Path(path).expanduser().resolve(strict=False)) for path in self._config.write_paths}
+        for index, raw_path in enumerate(self._config.read_paths):
+            path = str(Path(raw_path).expanduser().resolve(strict=False))
+            if path in write_paths:
+                continue
+            wasi_cfg.preopen_dir(
+                path,
+                f"/read/{index}",
+                wasmtime.DirPerms.READ,
+                wasmtime.FilePerms.READ,
+            )
+        for index, path in enumerate(sorted(write_paths)):
+            wasi_cfg.preopen_dir(
+                path,
+                f"/write/{index}",
+                wasmtime.DirPerms.READ_WRITE,
+                wasmtime.FilePerms.READ_WRITE,
+            )
         # No network sockets — wasmtime does not expose a socket cap in Python
         # bindings; network isolation is provided by default.
         store.set_wasi(wasi_cfg)

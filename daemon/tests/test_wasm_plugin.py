@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from pilot.plugins import PluginManifest, PluginRegistry
+from pilot.plugins.capabilities import PluginCapabilities
 from pilot.plugins.wasm_runtime import WasmConfig, WasmPlugin, WasmRuntimeError
 
 # ---------------------------------------------------------------------------
@@ -23,7 +24,8 @@ def test_wasm_config_defaults():
     assert cfg.memory_mb == 128
     assert cfg.timeout_secs == 30
     assert cfg.allow_network is False
-    assert cfg.allow_filesystem is False
+    assert cfg.read_paths == ()
+    assert cfg.write_paths == ()
     assert cfg.env_vars == {}
 
 
@@ -231,6 +233,7 @@ def test_load_manifest_wasm_fields(tmp_path: Path):
         "author": "test",
         "runtime_type": "wasm",
         "wasm_module": "plugin.wasm",
+        "capabilities": PluginCapabilities().to_dict(),
         "tools": [],
     }
     manifest_path = tmp_path / "manifest.json"
@@ -245,8 +248,12 @@ def test_load_manifest_wasm_fields(tmp_path: Path):
 
 
 def test_load_manifest_defaults_runtime_type(tmp_path: Path):
-    """Manifests without runtime_type default to 'python'."""
-    manifest_data = {"name": "py-plugin", "tools": []}
+    """Capability-complete manifests without runtime_type default to Python."""
+    manifest_data = {
+        "name": "py-plugin",
+        "tools": [],
+        "capabilities": PluginCapabilities().to_dict(),
+    }
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest_data))
 
@@ -282,6 +289,7 @@ def test_registry_discover_wasm_plugin(tmp_path: Path, minimal_wasm_file: Path):
         "author": "test",
         "runtime_type": "wasm",
         "wasm_module": "plugin.wasm",
+        "capabilities": PluginCapabilities().to_dict(),
         "tools": [
             {
                 "name": "wasm_greet",
@@ -311,6 +319,7 @@ def test_registry_discover_wasm_plugin_mocked(tmp_path: Path):
         "name": "mock-wasm-plugin",
         "runtime_type": "wasm",
         "wasm_module": "plugin.wasm",
+        "capabilities": PluginCapabilities().to_dict(),
         "tools": [],
     }
     (plugin_dir / "manifest.json").write_text(json.dumps(manifest_data))
@@ -339,6 +348,7 @@ def test_call_wasm_tool_python_plugin(tmp_path: Path):
     manifest_data = {
         "name": "py-plugin",
         "runtime_type": "python",
+        "capabilities": PluginCapabilities().to_dict(),
         "tools": [{"name": "py_tool", "description": "", "inputs": [], "outputs": []}],
     }
     (plugin_dir / "manifest.json").write_text(json.dumps(manifest_data))
@@ -424,7 +434,11 @@ async def test_wasm_executor_integration(default_config, tmp_path: Path):
     assert len(results) == 1
     assert results[0].success is True
     assert json.loads(results[0].output) == {"status": "success", "result": 123}
-    mock_registry.call_tool.assert_called_once_with("my_wasm_tool", {"x": 42})
+    mock_registry.call_tool.assert_called_once_with(
+        "my_wasm_tool",
+        {"x": 42},
+        approved=True,
+    )
 
     # 2. Failure case (registry returns error)
     mock_registry.reset_mock()
@@ -434,7 +448,11 @@ async def test_wasm_executor_integration(default_config, tmp_path: Path):
     assert len(results) == 1
     assert results[0].success is False
     assert "Plugin tool execution failed: Some WASM trap/panic" in results[0].error
-    mock_registry.call_tool.assert_called_once_with("my_wasm_tool", {"x": 42})
+    mock_registry.call_tool.assert_called_once_with(
+        "my_wasm_tool",
+        {"x": 42},
+        approved=True,
+    )
 
 
 async def test_wasm_executor_integration_uninitialized(default_config, tmp_path: Path):

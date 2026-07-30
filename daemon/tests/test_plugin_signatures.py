@@ -15,6 +15,7 @@ from pilot.plugins import (
     PluginRegistry,
     _plugin_digest,
 )
+from pilot.plugins.capabilities import PluginCapabilities
 
 
 def _write_plugin(plugin_dir: Path, *, name: str = "signed-plugin") -> None:
@@ -26,6 +27,7 @@ def _write_plugin(plugin_dir: Path, *, name: str = "signed-plugin") -> None:
                 "version": "1.0.0",
                 "description": "Signed test plugin",
                 "entry_point": "plugin.py",
+                "capabilities": PluginCapabilities().to_dict(),
                 "tools": [
                     {
                         "name": "signed_tool",
