@@ -9,6 +9,7 @@ import {
   mapCursorTargetToScreen,
   predictCursorTarget,
   trajectoryAgreement,
+  measureRecentMotion,
   type Landmark,
 } from "./spatialModel";
 
@@ -341,5 +342,38 @@ describe("trajectoryAgreement", () => {
   it("treats a near-zero observed delta as nothing to contradict", () => {
     expect(trajectoryAgreement(0, 5)).toBe(1);
     expect(trajectoryAgreement(0, -5)).toBe(1);
+  });
+});
+
+describe("measureRecentMotion", () => {
+  it("measures wrist-to-wrist movement instead of mixing landmark identities", () => {
+    const history = [
+      { x: 0.4, y: 0.5, z: 0, t: 0 },
+      { x: 0.42, y: 0.5, z: 0, t: 40 },
+      { x: 0.44, y: 0.5, z: 0, t: 80 },
+      { x: 0.47, y: 0.5, z: 0, t: 120 },
+      { x: 0.5, y: 0.5, z: 0, t: 160 },
+    ];
+    const motion = measureRecentMotion(history);
+    expect(motion?.dx).toBeCloseTo(0.1, 12);
+    expect(motion).toMatchObject({ dy: 0, dz: 0, elapsedMs: 160 });
+  });
+
+  it("does not classify a stationary hand as motion", () => {
+    const history = Array.from({ length: 6 }, (_, index) => ({ x: 0.5, y: 0.5, z: 0.02, t: index * 40 }));
+    expect(measureRecentMotion(history)).toEqual({ dx: 0, dy: 0, dz: 0, elapsedMs: 200 });
+  });
+
+  it("rejects too-short, too-sparse, or stale windows", () => {
+    expect(measureRecentMotion([{ x: 0, y: 0, t: 0 }])).toBeNull();
+    const sparse = [
+      { x: 0, y: 0, t: 0 },
+      { x: 0.1, y: 0, t: 40 },
+      { x: 0.2, y: 0, t: 80 },
+      { x: 0.3, y: 0, t: 120 },
+    ];
+    expect(measureRecentMotion(sparse)).toBeNull();
+    const stale = Array.from({ length: 5 }, (_, index) => ({ x: index * 0.1, y: 0, t: index * 200 }));
+    expect(measureRecentMotion(stale)).toBeNull();
   });
 });

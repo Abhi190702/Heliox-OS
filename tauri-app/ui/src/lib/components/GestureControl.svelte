@@ -53,6 +53,7 @@
     mapCursorTargetToScreen,
     predictCursorTarget,
     trajectoryAgreement,
+    measureRecentMotion,
     THUMB_EXTENDED_RATIO,
     type Landmark,
   } from "../gesture/spatialModel";
@@ -374,7 +375,6 @@
 
   // Finger trail tracking for air drawing
   let fingerTrail: { x: number; y: number; t: number }[] = [];
-  let prevIndexPos: { x: number; y: number } | null = null;
 
   // Motion tracking buffers for dynamic gestures
   let wristHistory: { x: number; y: number; z: number; t: number }[] = [];
@@ -843,7 +843,6 @@
     confidence = 0;
     handDetected = false;
     fingerTrail = [];
-    prevIndexPos = null;
     candidateGesture = "";
     candidateCount = 0;
     wristHistory = [];
@@ -992,7 +991,6 @@
       }
       currentGesture = "";
       confidence = 0;
-      prevIndexPos = null;
       candidateGesture = "";
       candidateCount = 0;
       landmarkFilter.reset(); // avoid smearing stale filter state into the next detected hand
@@ -1171,8 +1169,6 @@
         drawTrail();
       }
     }
-
-    prevIndexPos = { x: indexTip.x, y: indexTip.y };
   }
 
   function drawTrail() {
@@ -1307,30 +1303,35 @@
     // detectCircularMotion()/detectPushPull(): "agreement" isn't a simple
     // dx/dy sign check for a tangential/depth motion.
     const predictedMotion = landmarkFilter.predictAhead(MOTION_PREDICTION_MS);
+    const wristMotion = measureRecentMotion(wristHistory);
 
     // Two-finger swipe (peace sign + horizontal motion)
-    if (prevIndexPos && indexUp && middleUp && !ringUp && !pinkyUp) {
-      const dx = landmarks[WRIST].x - prevIndexPos.x;
-      const predictedDx = predictedMotion ? predictedMotion[WRIST].x - prevIndexPos.x : dx;
+    if (wristMotion && indexUp && middleUp && !ringUp && !pinkyUp) {
+      const dx = wristMotion.dx;
+      const predictedDx = predictedMotion ? predictedMotion[WRIST].x - landmarks[WRIST].x : dx;
       if (dx < -0.09) {
+        wristHistory = [];
         return { name: "two_finger_swipe_left", confidence: 0.75 * trajectoryAgreement(dx, predictedDx) };
       }
       if (dx > 0.09) {
+        wristHistory = [];
         return { name: "two_finger_swipe_right", confidence: 0.75 * trajectoryAgreement(dx, predictedDx) };
       }
     }
 
     // Full-hand swipe (all fingers up + horizontal motion)
-    if (prevIndexPos && indexUp && middleUp && ringUp && pinkyUp) {
-      const dx = landmarks[WRIST].x - prevIndexPos.x;
-      const dy = landmarks[WRIST].y - prevIndexPos.y;
-      const predictedDx = predictedMotion ? predictedMotion[WRIST].x - prevIndexPos.x : dx;
-      const predictedDy = predictedMotion ? predictedMotion[WRIST].y - prevIndexPos.y : dy;
+    if (wristMotion && indexUp && middleUp && ringUp && pinkyUp) {
+      const dx = wristMotion.dx;
+      const dy = wristMotion.dy;
+      const predictedDx = predictedMotion ? predictedMotion[WRIST].x - landmarks[WRIST].x : dx;
+      const predictedDy = predictedMotion ? predictedMotion[WRIST].y - landmarks[WRIST].y : dy;
       if (Math.abs(dx) > 0.08) {
+        wristHistory = [];
         if (dx < -0.08) return { name: "swipe_left", confidence: 0.7 * trajectoryAgreement(dx, predictedDx) };
         if (dx > 0.08) return { name: "swipe_right", confidence: 0.7 * trajectoryAgreement(dx, predictedDx) };
       }
       if (Math.abs(dy) > 0.08) {
+        wristHistory = [];
         if (dy < -0.08) return { name: "swipe_up", confidence: 0.7 * trajectoryAgreement(dy, predictedDy) };
         if (dy > 0.08) return { name: "swipe_down", confidence: 0.7 * trajectoryAgreement(dy, predictedDy) };
       }

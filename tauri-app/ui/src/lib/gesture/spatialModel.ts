@@ -50,6 +50,17 @@ export interface Landmark {
   z?: number;
 }
 
+export interface TimedLandmark extends Landmark {
+  t: number;
+}
+
+export interface LandmarkMotion {
+  dx: number;
+  dy: number;
+  dz: number;
+  elapsedMs: number;
+}
+
 // MediaPipe Hands 21-landmark topology.
 const WRIST = 0;
 const INDEX_MCP = 5;
@@ -277,6 +288,40 @@ export function trajectoryAgreement(observedDelta: number, predictedDelta: numbe
   if (Math.abs(observedDelta) < 1e-6) return 1;
   const agrees = Math.sign(observedDelta) === Math.sign(predictedDelta);
   return agrees ? 1 : TRAJECTORY_DISAGREEMENT_FLOOR;
+}
+
+/**
+ * Measures motion between the current sample and the oldest usable sample in
+ * a bounded recent window. This deliberately compares the same landmark
+ * across frames; comparing a current wrist to a previous fingertip creates a
+ * large pose-dependent offset that looks like a swipe even when the hand is
+ * stationary.
+ */
+export function measureRecentMotion(
+  history: TimedLandmark[],
+  minElapsedMs = 100,
+  maxElapsedMs = 600,
+  minSamples = 5,
+): LandmarkMotion | null {
+  if (history.length < minSamples) return null;
+  const last = history[history.length - 1];
+  if (!Number.isFinite(last.t)) return null;
+
+  let firstIndex = history.length - 1;
+  while (firstIndex > 0 && last.t - history[firstIndex - 1].t <= maxElapsedMs) {
+    firstIndex--;
+  }
+  if (history.length - firstIndex < minSamples) return null;
+
+  const first = history[firstIndex];
+  const elapsedMs = last.t - first.t;
+  if (elapsedMs < minElapsedMs || elapsedMs > maxElapsedMs) return null;
+  return {
+    dx: last.x - first.x,
+    dy: last.y - first.y,
+    dz: (last.z ?? 0) - (first.z ?? 0),
+    elapsedMs,
+  };
 }
 
 // ── Occlusion/visibility-aware quality score ──
