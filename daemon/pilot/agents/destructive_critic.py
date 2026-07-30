@@ -239,6 +239,39 @@ class CriticVerdict:
         }
 
 
+def constrain_verdict_to_plan_authority(plan: ActionPlan, verdict: Any) -> Any:
+    """Prevent an LLM critic from inventing destructive authority a plan lacks.
+
+    Learned and LLM risk signals may still warn and force confirmation, but a
+    hard block is reserved for plans whose validated action metadata contains a
+    destructive, root-critical, or irreversible operation.
+    """
+    payload = verdict.to_dict()
+    is_blocked = bool(getattr(verdict, "is_blocked", payload.get("verdict") == "BLOCK"))
+    can_hard_block = any(
+        action.permission_tier >= PermissionTier.DESTRUCTIVE or action.is_irreversible for action in plan.actions
+    )
+    if not is_blocked or can_hard_block:
+        return verdict
+
+    issue = (
+        "The critic requested a hard block without a destructive, root-critical, "
+        "or irreversible action in the validated plan."
+    )
+    return CriticVerdict(
+        verdict="WARN",
+        risk_score=min(float(payload.get("risk_score", 1.0)), 0.74),
+        issues=[*list(payload.get("issues", [])), issue],
+        safe_actions=list(payload.get("safe_actions", [])),
+        flagged_actions=list(payload.get("flagged_actions", [])),
+        recommendation=(
+            "Safety review raised concerns, but the validated plan has no destructive "
+            "or irreversible authority. Show the warning and require normal approval."
+        ),
+        raw_response=str(getattr(verdict, "raw_response", "")),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------

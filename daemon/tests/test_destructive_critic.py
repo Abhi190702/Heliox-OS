@@ -3,7 +3,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pilot.agents.destructive_critic import DestructiveCriticAgent
+from pilot.actions import Action, ActionPlan, ActionType, BrowserParams, PowerParams
+from pilot.agents.destructive_critic import (
+    CriticVerdict,
+    DestructiveCriticAgent,
+    constrain_verdict_to_plan_authority,
+)
 
 
 @pytest.mark.asyncio
@@ -123,3 +128,49 @@ async def test_critic_error_falls_back_to_warn():
 
     assert verdict.verdict == "WARN"
     assert verdict.has_warnings is True
+
+
+def test_low_authority_plan_cannot_be_hard_blocked_for_invented_privileges():
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.BROWSER_NAVIGATE,
+                target="https://example.com",
+                parameters=BrowserParams(url="https://example.com"),
+            )
+        ],
+        explanation="Open a public webpage.",
+    )
+    verdict = CriticVerdict(
+        verdict="BLOCK",
+        risk_score=0.95,
+        issues=["Browser navigation allegedly requires root."],
+        recommendation="Do not proceed.",
+    )
+
+    constrained = constrain_verdict_to_plan_authority(plan, verdict)
+
+    assert constrained.verdict == "WARN"
+    assert constrained.risk_score == 0.74
+    assert "normal approval" in constrained.recommendation
+
+
+def test_root_critical_plan_retains_hard_block():
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.POWER_SHUTDOWN,
+                target="system",
+                parameters=PowerParams(),
+                requires_root=True,
+            )
+        ],
+        explanation="Shut down the system.",
+    )
+    verdict = CriticVerdict(
+        verdict="BLOCK",
+        risk_score=1.0,
+        recommendation="Unsafe power operation.",
+    )
+
+    assert constrain_verdict_to_plan_authority(plan, verdict) is verdict

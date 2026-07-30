@@ -560,7 +560,11 @@ class AgentGateway:
         if critic_already_reviewed:
             return None
 
-        from pilot.agents.destructive_critic import HEURISTIC_RISK_THRESHOLD, assess_plan_risk
+        from pilot.agents.destructive_critic import (
+            HEURISTIC_RISK_THRESHOLD,
+            assess_plan_risk,
+            constrain_verdict_to_plan_authority,
+        )
 
         plan_has_tier4 = any(a.permission_tier == PermissionTier.ROOT_CRITICAL for a in plan.actions)
         plan_has_tier3 = any(a.permission_tier == PermissionTier.DESTRUCTIVE for a in plan.actions)
@@ -591,6 +595,7 @@ class AgentGateway:
             }
 
         verdict = await self._destructive_critic.review(plan.raw_input, plan)
+        verdict = constrain_verdict_to_plan_authority(plan, verdict)
         payload = verdict.to_dict()
         payload["world_model"] = risk_assessment.to_dict()
         return payload

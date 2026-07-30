@@ -1783,7 +1783,11 @@ class PilotServer:
                     )
 
             from pilot.actions import PermissionTier
-            from pilot.agents.destructive_critic import HEURISTIC_RISK_THRESHOLD, assess_plan_risk
+            from pilot.agents.destructive_critic import (
+                HEURISTIC_RISK_THRESHOLD,
+                assess_plan_risk,
+                constrain_verdict_to_plan_authority,
+            )
 
             critic_verdict_payload: dict[str, Any] | None = None
             plan_has_tier4 = any(a.permission_tier == PermissionTier.ROOT_CRITICAL for a in plan.actions)
@@ -1833,6 +1837,7 @@ class PilotServer:
                     verdict = await self._await_execution_tracked(self._destructive_critic.review(user_input, plan))
                 except asyncio.CancelledError:
                     return await _phase_cancelled("safety review")
+                verdict = constrain_verdict_to_plan_authority(plan, verdict)
                 critic_verdict_payload = verdict.to_dict()
                 critic_verdict_payload["world_model"] = risk_assessment.to_dict()
                 await ws.send(_notification("critic_verdict", critic_verdict_payload))
