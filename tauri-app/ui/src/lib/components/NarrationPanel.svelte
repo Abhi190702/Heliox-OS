@@ -10,6 +10,7 @@
   let liveCorrectionsEnabled = $state(true);
   let followUpEnabled = $state(true);
   let confirmTimeoutSeconds = $state(120);
+  let advisoryTimeoutSeconds = $state(5);
   let loading = $state(true);
   let saving = $state(false);
   let saved = $state(false);
@@ -34,6 +35,7 @@
         live_corrections_enabled: boolean;
         follow_up_enabled: boolean;
         confirm_timeout_seconds: number;
+        advisory_timeout_seconds: number;
       };
       enabled = result.enabled ?? false;
       narrateSteps = result.narrate_steps ?? true;
@@ -42,6 +44,7 @@
       liveCorrectionsEnabled = result.live_corrections_enabled ?? true;
       followUpEnabled = result.follow_up_enabled ?? true;
       confirmTimeoutSeconds = result.confirm_timeout_seconds ?? 120;
+      advisoryTimeoutSeconds = result.advisory_timeout_seconds ?? 5;
     } catch {
       /* daemon unreachable -- keep last known state */
     } finally {
@@ -61,6 +64,7 @@
         live_corrections_enabled: liveCorrectionsEnabled,
         follow_up_enabled: followUpEnabled,
         confirm_timeout_seconds: confirmTimeoutSeconds,
+        advisory_timeout_seconds: advisoryTimeoutSeconds,
       });
       saved = true;
       setTimeout(() => (saved = false), 2500);
@@ -202,6 +206,22 @@
         min="10"
         max="600"
         step="10"
+      />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">{$_("settings.narration_advisory_timeout")}</span>
+        <span class="setting-desc">{$_("settings.narration_advisory_timeout_desc")}</span>
+      </div>
+      <input
+        type="number"
+        class="input-sm"
+        value={advisoryTimeoutSeconds}
+        onchange={(e) => (advisoryTimeoutSeconds = Number((e.target as HTMLInputElement).value))}
+        min="1"
+        max="30"
+        step="1"
       />
     </div>
 

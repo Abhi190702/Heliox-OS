@@ -11,6 +11,7 @@ def test_default_is_disabled():
     assert config.narration.follow_up_enabled is True
     assert config.narration.max_auto_revisions == 2
     assert config.narration.confirm_timeout_seconds == 120.0
+    assert config.narration.advisory_timeout_seconds == 5.0
 
 
 def test_narration_section_merges_scalars():
@@ -27,6 +28,7 @@ def test_narration_section_merges_scalars():
                 "follow_up_enabled": False,
                 "max_auto_revisions": 4,
                 "confirm_timeout_seconds": 30.0,
+                "advisory_timeout_seconds": 4.0,
             }
         },
     )
@@ -38,6 +40,7 @@ def test_narration_section_merges_scalars():
     assert merged.narration.follow_up_enabled is False
     assert merged.narration.max_auto_revisions == 4
     assert merged.narration.confirm_timeout_seconds == 30.0
+    assert merged.narration.advisory_timeout_seconds == 4.0
 
 
 def test_missing_section_leaves_default():

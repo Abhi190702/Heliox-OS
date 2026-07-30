@@ -566,7 +566,10 @@ class PilotServer:
         self._destructive_critic = DestructiveCriticAgent(model_router)
         from pilot.agents.execution_companion import ExecutionCompanion
 
-        self._execution_companion = ExecutionCompanion(model_router)
+        self._execution_companion = ExecutionCompanion(
+            model_router,
+            timeout_seconds=self.config.narration.advisory_timeout_seconds,
+        )
 
         # Agent Gateway — source-scoped permission floor (interactive/
         # autonomous/web_agent/voice/gesture), checked alongside
@@ -3966,6 +3969,7 @@ class PilotServer:
             "proactive_review_enabled": cfg.proactive_review_enabled,
             "live_corrections_enabled": cfg.live_corrections_enabled,
             "follow_up_enabled": cfg.follow_up_enabled,
+            "advisory_timeout_seconds": cfg.advisory_timeout_seconds,
             "max_auto_revisions": cfg.max_auto_revisions,
             "confirm_timeout_seconds": cfg.confirm_timeout_seconds,
         }
@@ -3999,6 +4003,11 @@ class PilotServer:
             cfg.live_corrections_enabled = bool(params["live_corrections_enabled"])
         if "follow_up_enabled" in params:
             cfg.follow_up_enabled = bool(params["follow_up_enabled"])
+        if "advisory_timeout_seconds" in params:
+            cfg.advisory_timeout_seconds = max(
+                1.0,
+                min(30.0, float(params["advisory_timeout_seconds"])),
+            )
         if "max_auto_revisions" in params:
             cfg.max_auto_revisions = max(0, min(5, int(params["max_auto_revisions"])))
         if "confirm_timeout_seconds" in params:
@@ -4013,6 +4022,7 @@ class PilotServer:
             "proactive_review_enabled": cfg.proactive_review_enabled,
             "live_corrections_enabled": cfg.live_corrections_enabled,
             "follow_up_enabled": cfg.follow_up_enabled,
+            "advisory_timeout_seconds": cfg.advisory_timeout_seconds,
             "max_auto_revisions": cfg.max_auto_revisions,
             "confirm_timeout_seconds": cfg.confirm_timeout_seconds,
         }

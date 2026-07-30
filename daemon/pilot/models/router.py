@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from pilot.config import DATA_DIR
@@ -39,6 +40,8 @@ class ModelRouter:
         self._cloud: CloudClient | None = None
         self._llamacpp: object | None = None
         self._resolved_ollama_model: str | None = None
+        self._cloud_unavailable_until = 0.0
+        self._cloud_unavailable_reason = ""
         redis_adapter = RedisCacheAdapter.from_config(config.redis)
         self._cache = LLMCache(DATA_DIR / "llm_cache.db", redis=redis_adapter)
         self._budget_tracker: BudgetTracker | None = None
@@ -244,6 +247,7 @@ class ModelRouter:
 
         # Cloud provider
         if provider == "cloud" and self._cloud:
+            self._raise_if_cloud_circuit_open()
             try:
                 response = await self._cloud.generate(
                     prompt,
@@ -264,10 +268,18 @@ class ModelRouter:
                         system,
                     )
 
+                self._clear_cloud_circuit()
                 return response
 
+            except asyncio.CancelledError:
+                self._open_cloud_circuit(
+                    f"{self._config.model.cloud_provider.title()} API advisory request timed out.",
+                    seconds=30.0,
+                )
+                raise
             except Exception as e:
                 safe_error = safe_provider_error(e, self._config.model.cloud_provider)
+                self._open_cloud_circuit(safe_error)
                 logger.error("%s", safe_error)
                 raise RuntimeError(safe_error) from None
 
@@ -390,6 +402,7 @@ class ModelRouter:
             model = self._config.model.cloud_model or "unknown"
 
             logger.warning("Falling back to cloud API — Ollama unavailable")
+            self._raise_if_cloud_circuit_open()
 
             try:
                 response = await self._cloud.generate(
@@ -399,8 +412,16 @@ class ModelRouter:
                     temperature=temperature,
                     stream_callback=stream_callback,
                 )
+                self._clear_cloud_circuit()
+            except asyncio.CancelledError:
+                self._open_cloud_circuit(
+                    f"{self._config.model.cloud_provider.title()} API advisory request timed out.",
+                    seconds=30.0,
+                )
+                raise
             except Exception as e:
                 safe_error = safe_provider_error(e, self._config.model.cloud_provider)
+                self._open_cloud_circuit(safe_error)
                 logger.error("%s", safe_error)
                 raise RuntimeError(safe_error) from None
 
@@ -418,6 +439,19 @@ class ModelRouter:
             return response
 
         raise RuntimeError("No model backend available. Start Ollama or configure a cloud API key.")
+
+    def _open_cloud_circuit(self, reason: str, *, seconds: float = 60.0) -> None:
+        self._cloud_unavailable_reason = reason
+        self._cloud_unavailable_until = time.monotonic() + seconds
+
+    def _clear_cloud_circuit(self) -> None:
+        self._cloud_unavailable_reason = ""
+        self._cloud_unavailable_until = 0.0
+
+    def _raise_if_cloud_circuit_open(self) -> None:
+        if time.monotonic() < self._cloud_unavailable_until:
+            reason = self._cloud_unavailable_reason or "Cloud provider is temporarily unavailable."
+            raise RuntimeError(f"{reason} Retry shortly or configure a healthy provider.")
 
     async def _resolve_ollama_model(self) -> str:
         """Return a valid Ollama model name, falling back to an installed model if needed."""

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from pilot.actions import Action, ActionPlan, ActionResult, ActionType, SystemInfoParams, VerificationResult
@@ -56,6 +58,21 @@ async def test_review_returns_structured_revision_with_safe_structural_values():
 @pytest.mark.asyncio
 async def test_review_failure_keeps_existing_safety_pipeline_authoritative():
     companion = ExecutionCompanion(_Model(error=RuntimeError("offline")))
+
+    review = await companion.review("Show the OS version.", _plan())
+
+    assert review.decision == "CONTINUE"
+    assert review.issues == ["review_unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_review_timeout_keeps_existing_safety_pipeline_authoritative():
+    class _SlowModel:
+        async def generate(self, *args, **kwargs):
+            await asyncio.Event().wait()
+
+    companion = ExecutionCompanion(_SlowModel())
+    companion._timeout_seconds = 0.01
 
     review = await companion.review("Show the OS version.", _plan())
 

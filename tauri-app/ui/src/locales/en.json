@@ -194,6 +194,8 @@
     "narration_follow_up_desc": "After a verified task, suggest grounded next steps and keep them as context for your reply",
     "narration_timeout": "Interrupt Timeout (seconds)",
     "narration_timeout_desc": "How long to wait for a response before treating an interrupt as denied",
+    "narration_advisory_timeout": "Companion Review Timeout (seconds)",
+    "narration_advisory_timeout_desc": "Fail open after this delay so an unavailable model cannot stall execution",
     "adaptive_learning": "Adaptive Suggestion Learning",
     "adaptive_learning_desc": "{patterns} learned patterns from {shown} suggestions: {accepted} accepted, {dismissed} dismissed. Preferences stay on this device.",
     "reset_learning": "Reset learning",

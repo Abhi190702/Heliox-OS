@@ -194,6 +194,8 @@
     "narration_follow_up_desc": "सत्यापित कार्य के बाद प्रासंगिक अगले चरण सुझाएँ और आपके उत्तर के लिए संदर्भ बनाए रखें",
     "narration_timeout": "रुकावट समय-सीमा (सेकंड)",
     "narration_timeout_desc": "रुकावट को अस्वीकृत मानने से पहले प्रतिक्रिया के लिए कितनी देर प्रतीक्षा करें",
+    "narration_advisory_timeout": "सहायक समीक्षा समय-सीमा (सेकंड)",
+    "narration_advisory_timeout_desc": "मॉडल उपलब्ध न होने पर कार्य को रुकने से बचाने के लिए इस समय के बाद आगे बढ़ें",
     "adaptive_learning": "अनुकूलित सुझाव सीखना",
     "adaptive_learning_desc": "{shown} सुझावों से {patterns} सीखे पैटर्न: {accepted} स्वीकार, {dismissed} खारिज। प्राथमिकताएँ इसी डिवाइस पर रहती हैं।",
     "reset_learning": "सीखना रीसेट करें",

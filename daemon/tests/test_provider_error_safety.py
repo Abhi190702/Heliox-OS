@@ -3,6 +3,7 @@ import pytest
 
 from pilot.config import PilotConfig
 from pilot.models.cloud import CloudClient, safe_provider_error
+from pilot.models.router import ModelRouter
 
 
 class _Vault:
@@ -54,3 +55,16 @@ async def test_cloud_client_raises_sanitized_error_without_original_exception_ch
     assert str(raised.value) == "Gemini API unavailable (429): quota or rate limit reached."
     assert raised.value.__suppress_context__ is True
     await client.close()
+
+
+def test_cloud_circuit_breaker_fails_fast_with_sanitized_reason():
+    config = PilotConfig()
+    config.model.cloud_provider = "gemini"
+    router = ModelRouter(config, _Vault())
+    router._open_cloud_circuit("Gemini API unavailable (429): quota or rate limit reached.")
+
+    with pytest.raises(RuntimeError) as raised:
+        router._raise_if_cloud_circuit_open()
+
+    assert "Retry shortly" in str(raised.value)
+    assert "key=" not in str(raised.value)

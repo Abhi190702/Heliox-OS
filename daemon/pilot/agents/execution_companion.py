@@ -15,6 +15,7 @@ language model was trained as a native full-duplex interaction model.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -128,14 +129,18 @@ class CompanionFollowUp:
 class ExecutionCompanion:
     """Read-only second-model review of every interactive action plan."""
 
-    def __init__(self, model_router: ModelRouter) -> None:
+    def __init__(self, model_router: ModelRouter, *, timeout_seconds: float = 5.0) -> None:
         self._model = model_router
+        self._timeout_seconds = max(1.0, min(30.0, timeout_seconds))
 
     async def review(self, user_input: str, plan: ActionPlan) -> CompanionReview:
         prompt = self._format_prompt(user_input, plan)
         raw = ""
         try:
-            raw = await self._model.generate(prompt, system=_SYSTEM_PROMPT, json_mode=True)
+            raw = await asyncio.wait_for(
+                self._model.generate(prompt, system=_SYSTEM_PROMPT, json_mode=True),
+                timeout=self._timeout_seconds,
+            )
             return self._parse(raw)
         except Exception as exc:
             # Existing deterministic permission, risk, confirmation and
@@ -176,7 +181,10 @@ class ExecutionCompanion:
             f"Verification passed: {bool(getattr(verification, 'passed', False))}"
         )
         try:
-            raw = await self._model.generate(prompt, system=_FOLLOW_UP_SYSTEM_PROMPT, json_mode=True)
+            raw = await asyncio.wait_for(
+                self._model.generate(prompt, system=_FOLLOW_UP_SYSTEM_PROMPT, json_mode=True),
+                timeout=self._timeout_seconds,
+            )
             data = self._parse_json_object(raw)
             message = " ".join(str(data.get("message", "")).split()).strip()
             raw_suggestions = data.get("suggestions", [])

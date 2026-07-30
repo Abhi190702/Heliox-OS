@@ -19,6 +19,7 @@ async def test_status_reports_config_defaults():
     assert result["follow_up_enabled"] is True
     assert result["max_auto_revisions"] == 2
     assert result["confirm_timeout_seconds"] == 120.0
+    assert result["advisory_timeout_seconds"] == 5.0
 
 
 @pytest.mark.asyncio
@@ -48,6 +49,7 @@ async def test_config_update_sets_sub_toggles_and_timeout(monkeypatch):
             "follow_up_enabled": False,
             "max_auto_revisions": 3,
             "confirm_timeout_seconds": 45.0,
+            "advisory_timeout_seconds": 4.0,
         },
         ws=None,
     )
@@ -59,6 +61,7 @@ async def test_config_update_sets_sub_toggles_and_timeout(monkeypatch):
     assert result["follow_up_enabled"] is False
     assert result["max_auto_revisions"] == 3
     assert result["confirm_timeout_seconds"] == 45.0
+    assert result["advisory_timeout_seconds"] == 4.0
 
 
 @pytest.mark.asyncio

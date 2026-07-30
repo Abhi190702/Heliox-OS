@@ -350,6 +350,7 @@ class NarrationConfig:
     follow_up_enabled: bool = True
     max_auto_revisions: int = 2
     confirm_timeout_seconds: float = 120.0
+    advisory_timeout_seconds: float = 5.0
 
 
 @dataclass
@@ -910,6 +911,11 @@ def _merge_config(config: PilotConfig, raw: dict[str, Any]) -> PilotConfig:
             config.narration.live_corrections_enabled = bool(n_raw["live_corrections_enabled"])
         if "follow_up_enabled" in n_raw:
             config.narration.follow_up_enabled = bool(n_raw["follow_up_enabled"])
+        if "advisory_timeout_seconds" in n_raw:
+            config.narration.advisory_timeout_seconds = max(
+                1.0,
+                min(30.0, float(n_raw["advisory_timeout_seconds"])),
+            )
         if "max_auto_revisions" in n_raw:
             config.narration.max_auto_revisions = int(n_raw["max_auto_revisions"])
         if "confirm_timeout_seconds" in n_raw:
