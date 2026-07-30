@@ -73,7 +73,7 @@ test.describe("Chat Interface", () => {
   test("error message renders correctly", async ({ page }) => {
     await page.fill(".command-input input", "Trigger error");
     await page.keyboard.press("Enter");
-    
+
     // Send the error response back through the mock WS
     await page.evaluate(() => {
       const ws = (window as any).__mock_ws__;
@@ -81,13 +81,13 @@ test.describe("Chat Interface", () => {
         // Find the last sent message ID to reply to it
         const lastSend = (window as any).__last_ws_send__;
         const msgId = lastSend ? lastSend.id : 1;
-        
+
         ws.onmessage({
           data: JSON.stringify({
             jsonrpc: "2.0",
             id: msgId,
-            result: { status: "error", explanation: "Connection to daemon lost. Please restart." }
-          })
+            result: { status: "error", explanation: "Connection to daemon lost. Please restart." },
+          }),
         });
       }
     });
@@ -115,16 +115,29 @@ test.describe("Chat Interface", () => {
       timestamp: 1716768000000 + index,
     }));
     await page.evaluate((messages) => {
-      localStorage.setItem("heliox_session_history", JSON.stringify(messages));
+      const sessionId = "visual-scroll-session";
+      localStorage.setItem(
+        "heliox_chat_sessions_v1",
+        JSON.stringify([
+          {
+            id: sessionId,
+            title: "Long conversation",
+            createdAt: messages[0]?.timestamp ?? Date.now(),
+            updatedAt: messages.at(-1)?.timestamp ?? Date.now(),
+            messages,
+            totalTokens: 0,
+            estimatedCost: 0,
+          },
+        ]),
+      );
+      localStorage.setItem("heliox_active_chat_session", sessionId);
     }, history);
     await page.reload();
 
     const scroller = page.locator(".vl-scroller");
     await expect(scroller).toBeVisible();
     await expect
-      .poll(() =>
-        scroller.evaluate((element) => element.scrollHeight - element.clientHeight),
-      )
+      .poll(() => scroller.evaluate((element) => element.scrollHeight - element.clientHeight))
       .toBeGreaterThan(500);
 
     await scroller.evaluate((element) => {
@@ -148,8 +161,7 @@ test.describe("Chat Interface", () => {
   test("world-model risk visibly interrupts execution before the action runs", async ({ page }) => {
     await emitNotification(page, "confirm_required", {
       plan_id: "world-plan",
-      reason:
-        "World model paused this plan at 80% predicted risk: predicted disk usage 96% exceeds the safe threshold",
+      reason: "World model paused this plan at 80% predicted risk: predicted disk usage 96% exceeds the safe threshold",
       risk_assessment: {
         world_model_score: 0.8,
         prediction_sources: ["learned", "rule"],
@@ -170,13 +182,9 @@ test.describe("Chat Interface", () => {
 
     const dialog = page.locator(".confirm-dialog");
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole("alert")).toContainText(
-      "World model interruption · 80% predicted risk"
-    );
+    await expect(dialog.getByRole("alert")).toContainText("World model interruption · 80% predicted risk");
     await expect(dialog.getByRole("alert")).toContainText("learned + rule");
-    await expect(dialog.getByRole("alert")).toContainText(
-      "predicted disk usage 96% exceeds the safe threshold"
-    );
+    await expect(dialog.getByRole("alert")).toContainText("predicted disk usage 96% exceeds the safe threshold");
 
     await dialog.getByRole("button", { name: "Deny" }).click();
     await expect
