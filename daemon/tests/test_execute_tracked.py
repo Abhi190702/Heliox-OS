@@ -490,6 +490,44 @@ async def test_handle_execute_critic_block_is_terminal_and_never_executes():
 
 
 @pytest.mark.asyncio
+async def test_high_heuristic_low_authority_plan_skips_destructive_llm_critic():
+    class _Executor:
+        async def execute(self, plan, **kwargs):
+            return [ActionResult(action=action, success=True, output=f"{action.target} ok") for action in plan.actions]
+
+    class _Verifier:
+        async def verify(self, plan, results):
+            return VerificationResult(
+                passed=True,
+                details=[f"Action {index}: VERIFIED" for index in range(len(results))],
+                failed_actions=[],
+            )
+
+    class _CriticThatMustNotRun:
+        async def review(self, user_input, plan):
+            raise AssertionError("non-destructive plans must not wait on the destructive critic")
+
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.SYSTEM_INFO,
+                target=target,
+                parameters=SystemInfoParams(),
+            )
+            for target in ("os", "cpu", "memory", "disk")
+        ],
+        explanation="Inspect four system findings.",
+    )
+    server = _server_ready_for_handle_execute(_Executor(), plan)
+    server._verifier = _Verifier()
+    server._destructive_critic = _CriticThatMustNotRun()
+
+    result = await server._handle_execute({"input": "inspect four metrics"}, _FakeWs())
+
+    assert result["status"] == "success"
+
+
+@pytest.mark.asyncio
 async def test_live_correction_cancels_current_step_and_replans_in_same_request():
     class _CorrectableExecutor:
         def __init__(self):

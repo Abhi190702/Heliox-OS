@@ -1806,6 +1806,7 @@ class PilotServer:
             plan_has_tier4 = any(a.permission_tier == PermissionTier.ROOT_CRITICAL for a in plan.actions)
             plan_has_tier3 = any(a.permission_tier == PermissionTier.DESTRUCTIVE for a in plan.actions)
             plan_has_irreversible = any(getattr(a, "is_irreversible", False) for a in plan.actions)
+            plan_has_blockable_authority = plan_has_tier4 or plan_has_tier3 or plan_has_irreversible
             risk_assessment = assess_plan_risk(plan, self.config)
             risk_score = risk_assessment.combined_score
             world_model_interrupt = risk_assessment.requires_confirmation
@@ -1823,12 +1824,13 @@ class PilotServer:
             # round-trip only when the heuristic or risk world model crosses
             # the review threshold; trivial single-file deletes still skip
             # straight to confirmation and say so in the audit trail.
-            needs_critic_review = (
-                plan_has_tier4 or plan_has_tier3 or plan_has_irreversible or risk_score >= HEURISTIC_RISK_THRESHOLD
+            needs_critic_review = plan_has_blockable_authority and (
+                plan_has_tier4 or risk_score >= HEURISTIC_RISK_THRESHOLD
             )
             critic_skipped_reason: str | None = None
-            if needs_critic_review and not (plan_has_tier4 or risk_score >= HEURISTIC_RISK_THRESHOLD):
-                needs_critic_review = False
+            if not plan_has_blockable_authority and risk_score >= HEURISTIC_RISK_THRESHOLD:
+                critic_skipped_reason = "no_destructive_authority"
+            elif plan_has_tier3 and not (plan_has_tier4 or risk_score >= HEURISTIC_RISK_THRESHOLD):
                 critic_skipped_reason = "low_risk_heuristic"
 
             if needs_critic_review and self._destructive_critic and not dry_run:
@@ -1916,10 +1918,15 @@ class PilotServer:
                 critic_verdict_payload = {
                     "verdict": "SKIPPED",
                     "risk_score": risk_score,
-                    "issues": [],
+                    "issues": risk_assessment.reasons,
                     "safe_actions": [],
                     "flagged_actions": [],
-                    "recommendation": "Low-risk heuristic — LLM safety review was skipped.",
+                    "recommendation": (
+                        "The world-model warning remains active and normal approval is required; "
+                        "the destructive LLM critic was skipped because this plan has no destructive authority."
+                        if critic_skipped_reason == "no_destructive_authority"
+                        else "Low-risk heuristic — LLM safety review was skipped."
+                    ),
                     "critic_skipped": critic_skipped_reason,
                     "world_model": risk_assessment.to_dict(),
                 }

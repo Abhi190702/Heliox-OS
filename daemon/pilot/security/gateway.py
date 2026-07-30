@@ -569,16 +569,28 @@ class AgentGateway:
         plan_has_tier4 = any(a.permission_tier == PermissionTier.ROOT_CRITICAL for a in plan.actions)
         plan_has_tier3 = any(a.permission_tier == PermissionTier.DESTRUCTIVE for a in plan.actions)
         plan_has_irreversible = any(getattr(a, "is_irreversible", False) for a in plan.actions)
+        plan_has_blockable_authority = plan_has_tier4 or plan_has_tier3 or plan_has_irreversible
 
         risk_assessment = assess_plan_risk(plan, self._config)
         risk_score = risk_assessment.combined_score
-        needs_review = (
-            plan_has_tier4 or plan_has_tier3 or plan_has_irreversible or risk_score >= HEURISTIC_RISK_THRESHOLD
-        )
-        if not needs_review:
-            return None
+        if not plan_has_blockable_authority:
+            if not risk_assessment.requires_confirmation:
+                return None
+            return {
+                "verdict": "WARN",
+                "risk_score": risk_assessment.combined_score,
+                "issues": risk_assessment.reasons,
+                "safe_actions": [],
+                "flagged_actions": [action.action_type.value for action in plan.actions],
+                "recommendation": (
+                    "World model predicted a risky outcome; the validated plan has no destructive authority."
+                ),
+                "critic_skipped": "no_destructive_authority",
+                "world_model": risk_assessment.to_dict(),
+            }
 
-        if not (plan_has_tier4 or risk_score >= HEURISTIC_RISK_THRESHOLD):
+        needs_review = plan_has_tier4 or risk_score >= HEURISTIC_RISK_THRESHOLD
+        if not needs_review:
             return None
 
         if self._destructive_critic is None:

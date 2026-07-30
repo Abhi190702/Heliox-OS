@@ -196,7 +196,7 @@ class TestCriticBypassFix:
         assert critic.calls == 0
 
     @pytest.mark.asyncio
-    async def test_world_model_can_escalate_a_low_tier_plan_to_critic(self):
+    async def test_world_model_warns_without_destructive_critic_for_low_tier_plan(self):
         config = PilotConfig()
         config.restrictions.protected_folders = ["/protected"]
         permissions = PermissionChecker(config)
@@ -228,5 +228,7 @@ class TestCriticBypassFix:
 
         verdict = await gateway._maybe_run_critic(plan, critic_already_reviewed=False)
 
-        assert critic.calls == 1
+        assert critic.calls == 0
+        assert verdict["verdict"] == "WARN"
+        assert verdict["critic_skipped"] == "no_destructive_authority"
         assert verdict["verdict"] == "WARN"
