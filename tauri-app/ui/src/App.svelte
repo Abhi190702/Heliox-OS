@@ -311,6 +311,18 @@
           </aside>
         {/if}
 
+        {#if $session.durableTask && !$session.loading}
+          <aside class="task-recovery" aria-live="polite">
+            <div>
+              <strong>Interrupted task saved</strong>
+              <span>Heliox will continue from its last safe checkpoint without repeating completed actions.</span>
+            </div>
+            <button type="button" disabled={!$session.daemonConnected} onclick={() => session.resumeDurableTask()}>
+              {$session.daemonConnected ? "Resume safely" : "Waiting for daemon"}
+            </button>
+          </aside>
+        {/if}
+
         <div class="results">
           {#if $session.messages.length === 0 && !$session.loading}
             <div class="empty-state">
@@ -975,6 +987,44 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .task-recovery {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 8px 16px 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.08);
+    color: var(--text-primary);
+  }
+
+  .task-recovery div {
+    display: grid;
+    gap: 2px;
+  }
+
+  .task-recovery span {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .task-recovery button {
+    flex: 0 0 auto;
+    border: 1px solid rgba(245, 158, 11, 0.55);
+    border-radius: 8px;
+    padding: 7px 11px;
+    background: rgba(245, 158, 11, 0.14);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .task-recovery button:disabled {
+    cursor: wait;
+    opacity: 0.55;
   }
 
   .msg-label {

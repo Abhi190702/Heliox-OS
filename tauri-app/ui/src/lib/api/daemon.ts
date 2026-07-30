@@ -16,11 +16,13 @@ type JsonRpcResponse = {
 };
 
 type NotificationHandler = (method: string, params: unknown) => void;
+type ConnectionHandler = (connected: boolean) => void;
 
 let ws: WebSocket | null = null;
 let messageId = 0;
 const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 const notificationHandlers: NotificationHandler[] = [];
+const connectionHandlers: ConnectionHandler[] = [];
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function onNotification(handler: NotificationHandler) {
@@ -30,6 +32,19 @@ export function onNotification(handler: NotificationHandler) {
 export function offNotification(handler: NotificationHandler) {
   const idx = notificationHandlers.indexOf(handler);
   if (idx !== -1) notificationHandlers.splice(idx, 1);
+}
+
+export function onConnectionState(handler: ConnectionHandler) {
+  connectionHandlers.push(handler);
+}
+
+export function offConnectionState(handler: ConnectionHandler) {
+  const idx = connectionHandlers.indexOf(handler);
+  if (idx !== -1) connectionHandlers.splice(idx, 1);
+}
+
+function notifyConnectionState(connected: boolean) {
+  for (const handler of connectionHandlers) handler(connected);
 }
 
 export function isConnected(): boolean {
@@ -91,7 +106,10 @@ export async function connect(): Promise<boolean> {
 
         // Register a one-shot pending resolver for the auth response
         pending.set(authId, {
-          resolve: (_v) => finish(true),
+          resolve: (_v) => {
+            notifyConnectionState(true);
+            finish(true);
+          },
           reject: (_e) => {
             ws = null;
             finish(false);
@@ -138,12 +156,18 @@ export async function connect(): Promise<boolean> {
 
       ws.onclose = () => {
         ws = null;
+        for (const [id, waiter] of pending) {
+          pending.delete(id);
+          waiter.reject(new Error("Daemon connection was interrupted"));
+        }
+        notifyConnectionState(false);
         scheduleReconnect();
         finish(false);
       };
 
       ws.onerror = () => {
         ws = null;
+        notifyConnectionState(false);
         finish(false);
       };
     } catch {
@@ -194,6 +218,7 @@ export function disconnect() {
     ws.close();
     ws = null;
   }
+  notifyConnectionState(false);
 }
 
 function scheduleReconnect() {

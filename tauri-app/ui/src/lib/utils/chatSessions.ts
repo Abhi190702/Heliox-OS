@@ -12,6 +12,12 @@ export interface ChatSessionRecord {
   messages: Message[];
   totalTokens: number;
   estimatedCost: number;
+  durableTask?: DurableTaskReference;
+}
+
+export interface DurableTaskReference {
+  taskId: string;
+  resumeToken: string;
 }
 
 export interface ChatSessionSummary {
@@ -44,6 +50,7 @@ export function createChatSession(now = Date.now()): ChatSessionRecord {
     messages: [],
     totalTokens: 0,
     estimatedCost: 0,
+    durableTask: undefined,
   };
 }
 
@@ -98,6 +105,17 @@ function parseRecord(value: unknown): ChatSessionRecord | null {
     messages,
     totalTokens: Math.max(0, Number(raw.totalTokens) || 0),
     estimatedCost: Math.max(0, Number(raw.estimatedCost) || 0),
+    durableTask:
+      raw.durableTask &&
+      typeof raw.durableTask.taskId === "string" &&
+      raw.durableTask.taskId &&
+      typeof raw.durableTask.resumeToken === "string" &&
+      raw.durableTask.resumeToken
+        ? {
+            taskId: raw.durableTask.taskId,
+            resumeToken: raw.durableTask.resumeToken,
+          }
+        : undefined,
   };
 }
 

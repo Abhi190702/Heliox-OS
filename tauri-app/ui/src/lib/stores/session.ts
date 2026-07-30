@@ -1,5 +1,5 @@
 import { writable, get } from "svelte/store";
-import { call, connect, isConnected, onNotification } from "../api/daemon";
+import { call, connect, isConnected, onConnectionState, onNotification } from "../api/daemon";
 import { classifyExecuteResponse, normalizeActionResult } from "../utils/executeResponse";
 import {
   LEGACY_CHAT_HISTORY_KEY,
@@ -10,6 +10,7 @@ import {
   summarizeChatSessions,
   type ChatSessionRecord,
   type ChatSessionSummary,
+  type DurableTaskReference,
 } from "../utils/chatSessions";
 import { settings } from "./settings";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
@@ -126,6 +127,7 @@ interface SessionState {
   proactiveSuggestion: ProactiveSuggestion | null;
   proactiveSuggestionPending: boolean;
   terminalStatus: string;
+  durableTask?: DurableTaskReference;
 }
 
 export interface Attachment {
@@ -174,6 +176,7 @@ const initialState: SessionState = {
   proactiveSuggestion: null,
   proactiveSuggestionPending: false,
   terminalStatus: "",
+  durableTask: loadedActiveChat.durableTask,
 };
 
 const MODEL_RATES: Record<string, number> = {
@@ -241,6 +244,8 @@ function createSession() {
   let lastPersistedMessages: Message[] | null = null;
   let lastPersistedTokens = Number.NaN;
   let lastPersistedCost = Number.NaN;
+  let lastPersistedDurableTask: DurableTaskReference | undefined;
+  let resumeInFlight = false;
 
   function persistActiveSession(state: SessionState, touch = true) {
     const index = chatSessions.findIndex((chat) => chat.id === state.activeSessionId);
@@ -249,7 +254,9 @@ function createSession() {
     const changed =
       previous.messages !== state.messages ||
       previous.totalTokens !== state.totalTokens ||
-      previous.estimatedCost !== state.estimatedCost;
+      previous.estimatedCost !== state.estimatedCost ||
+      previous.durableTask?.taskId !== state.durableTask?.taskId ||
+      previous.durableTask?.resumeToken !== state.durableTask?.resumeToken;
     chatSessions[index] = {
       ...previous,
       title: deriveChatTitle(state.messages),
@@ -257,6 +264,7 @@ function createSession() {
       messages: state.messages,
       totalTokens: state.totalTokens,
       estimatedCost: state.estimatedCost,
+      durableTask: state.durableTask,
     };
     saveChatSessions(browserStorage, chatSessions, state.activeSessionId);
     if (browserStorage) {
@@ -276,6 +284,7 @@ function createSession() {
       messages: chat.messages,
       totalTokens: chat.totalTokens,
       estimatedCost: chat.estimatedCost,
+      durableTask: chat.durableTask,
       liveActions: [],
       confirmActions: [],
     };
@@ -286,6 +295,19 @@ function createSession() {
     const p = params as Record<string, unknown>;
 
     switch (method) {
+      case "task_registered":
+        update((s) => {
+          if (String(p.session_id ?? "") !== s.activeSessionId) return s;
+          return {
+            ...s,
+            durableTask: {
+              taskId: String(p.task_id ?? ""),
+              resumeToken: String(p.resume_token ?? ""),
+            },
+          };
+        });
+        break;
+
       case "status":
         update((s) => ({ ...s, phase: String(p.phase ?? "") }));
         break;
@@ -542,6 +564,11 @@ function createSession() {
     }
   });
 
+  onConnectionState((connected) => {
+    update((s) => ({ ...s, daemonConnected: connected }));
+    if (connected) void resumeDurableTask();
+  });
+
   async function init() {
     await connect();
     update((s) => ({ ...s, daemonConnected: isConnected() }));
@@ -549,6 +576,132 @@ function createSession() {
     setInterval(() => {
       update((s) => ({ ...s, daemonConnected: isConnected() }));
     }, 500);
+  }
+
+  async function resumeDurableTask() {
+    const current = get({ subscribe });
+    if (!current.durableTask || !isConnected() || resumeInFlight) return;
+    resumeInFlight = true;
+    update((s) => ({
+      ...s,
+      loading: true,
+      phase: "recovering interrupted task",
+      confirmError: "",
+    }));
+    try {
+      const result = (await call("resume_task", {
+        task_id: current.durableTask.taskId,
+        resume_token: current.durableTask.resumeToken,
+      })) as Record<string, unknown>;
+      if (result.status === "awaiting_approval") {
+        const approval = (result.approval ?? {}) as Record<string, unknown>;
+        update((s) => ({
+          ...s,
+          loading: true,
+          phase: "awaiting approval",
+          confirmRequired: true,
+          confirmPlanId: String(result.plan_id ?? ""),
+          confirmActions: (approval.actions ?? []) as PlanAction[],
+          confirmReason: String(approval.reason ?? ""),
+          confirmRiskAssessment:
+            approval.risk_assessment && typeof approval.risk_assessment === "object"
+              ? (approval.risk_assessment as Record<string, unknown>)
+              : null,
+          confirmSubmitting: false,
+          confirmError: "",
+        }));
+      } else if (result.status === "error" && !result.task_id) {
+        throw new Error(String(result.message ?? "The interrupted task could not be resumed."));
+      } else {
+        applyTaskResult(result);
+      }
+    } catch (err) {
+      update((s) => ({
+        ...s,
+        loading: false,
+        phase: "resume needs attention",
+        confirmSubmitting: false,
+        messages: [
+          ...s.messages,
+          {
+            type: "error" as MessageType,
+            text: `Safe resume paused: ${String(err instanceof Error ? err.message : err)}`,
+            timestamp: Date.now(),
+          },
+        ],
+      }));
+    } finally {
+      resumeInFlight = false;
+    }
+  }
+
+  function applyTaskResult(result: Record<string, unknown>) {
+    const rawResults = (result.results ?? []) as Array<Record<string, unknown>>;
+    const actionResults: ActionResultData[] = rawResults.map((r) => {
+      const action = (r.action ?? {}) as Record<string, unknown>;
+      return normalizeActionResult({
+        action_type: String(action.action_type ?? "unknown"),
+        target: String(action.target ?? ""),
+        success: Boolean(r.success),
+        output: String(r.output ?? ""),
+        error: r.error ? String(r.error) : null,
+      });
+    });
+
+    const rawVerification = result.verification as Record<string, unknown> | undefined;
+    const verification: VerificationData | undefined = rawVerification
+      ? {
+          passed: Boolean(rawVerification.passed),
+          details: (rawVerification.details ?? []) as string[],
+        }
+      : undefined;
+
+    const terminal = classifyExecuteResponse(result);
+    const estimatedTokens = estimateTokens(terminal.text);
+    let estimatedCost = 0;
+    if (terminal.messageType === "result") {
+      const settingsState = get(settings);
+      const model = settingsState?.model?.cloud_model || settingsState?.model?.cloud_provider || "ollama";
+      const normalizedModel = model.toLowerCase();
+      let rate = 0;
+      if (normalizedModel.includes("gemini")) {
+        rate = MODEL_RATES["gemini-1.5-pro"];
+      } else if (normalizedModel.includes("gpt-4o")) {
+        rate = MODEL_RATES["gpt-4o"];
+      } else if (normalizedModel.includes("claude")) {
+        rate = MODEL_RATES["claude-sonnet"];
+      }
+      estimatedCost = Number((estimatedTokens * rate).toFixed(6));
+    }
+
+    update((s) => ({
+      ...s,
+      loading: false,
+      phase: "",
+      currentPlan: null,
+      confirmRequired: false,
+      confirmPlanId: "",
+      confirmActions: [],
+      confirmReason: "",
+      confirmRiskAssessment: null,
+      confirmSubmitting: false,
+      confirmError: "",
+      streamingText: "",
+      terminalStatus: terminal.status,
+      durableTask: undefined,
+      totalTokens: s.totalTokens + (terminal.messageType === "result" ? estimatedTokens : 0),
+      estimatedCost: s.estimatedCost + estimatedCost,
+      messages: [
+        ...s.messages,
+        {
+          type: terminal.messageType as MessageType,
+          text: terminal.text,
+          timestamp: Date.now(),
+          actionResults,
+          verification,
+        },
+      ],
+    }));
   }
 
   async function sendCommand(input: string, attachments: Attachment[] = []) {
@@ -668,72 +821,21 @@ function createSession() {
         attachments,
         session_id: current.activeSessionId,
       })) as Record<string, unknown>;
-      const rawResults = (result.results ?? []) as Array<Record<string, unknown>>;
-      const actionResults: ActionResultData[] = rawResults.map((r) => {
-        const action = (r.action ?? {}) as Record<string, unknown>;
-        return normalizeActionResult({
-          action_type: String(action.action_type ?? "unknown"),
-          target: String(action.target ?? ""),
-          success: Boolean(r.success),
-          output: String(r.output ?? ""),
-          error: r.error ? String(r.error) : null,
-        });
-      });
-
-      const rawVerification = result.verification as Record<string, unknown> | undefined;
-      const verification: VerificationData | undefined = rawVerification
-        ? {
-            passed: Boolean(rawVerification.passed),
-            details: (rawVerification.details ?? []) as string[],
-          }
-        : undefined;
-
-      const terminal = classifyExecuteResponse(result);
-      const estimatedTokens = estimateTokens(terminal.text);
-      let estimatedCost = 0;
-      if (terminal.messageType === "result") {
-        const settingsState = get(settings);
-        const model = settingsState?.model?.cloud_model || settingsState?.model?.cloud_provider || "ollama";
-        const normalizedModel = model.toLowerCase();
-        let rate = 0;
-        if (normalizedModel.includes("gemini")) {
-          rate = MODEL_RATES["gemini-1.5-pro"];
-        } else if (normalizedModel.includes("gpt-4o")) {
-          rate = MODEL_RATES["gpt-4o"];
-        } else if (normalizedModel.includes("claude")) {
-          rate = MODEL_RATES["claude-sonnet"];
-        }
-        estimatedCost = Number((estimatedTokens * rate).toFixed(6));
-      }
-
-      update((s) => ({
-        ...s,
-        loading: false,
-        phase: "",
-        currentPlan: null,
-        confirmRequired: false,
-        confirmPlanId: "",
-        confirmActions: [],
-        confirmReason: "",
-        confirmRiskAssessment: null,
-        confirmSubmitting: false,
-        confirmError: "",
-        streamingText: "",
-        terminalStatus: terminal.status,
-        totalTokens: s.totalTokens + (terminal.messageType === "result" ? estimatedTokens : 0),
-        estimatedCost: s.estimatedCost + estimatedCost,
-        messages: [
-          ...s.messages,
-          {
-            type: terminal.messageType as MessageType,
-            text: terminal.text,
-            timestamp: Date.now(),
-            actionResults,
-            verification,
-          },
-        ],
-      }));
+      applyTaskResult(result);
     } catch (err) {
+      const state = get({ subscribe });
+      if (
+        state.durableTask &&
+        String(err instanceof Error ? err.message : err).includes("connection was interrupted")
+      ) {
+        update((s) => ({
+          ...s,
+          loading: true,
+          phase: "connection interrupted — resuming safely",
+          confirmSubmitting: false,
+        }));
+        return;
+      }
       update((s) => ({
         ...s,
         loading: false,
@@ -797,6 +899,9 @@ function createSession() {
         confirmSubmitting: false,
         confirmError: "",
       }));
+      if (Boolean(result.resume_required)) {
+        await resumeDurableTask();
+      }
     } catch (err) {
       const message = String(err instanceof Error ? err.message : err);
       update((s) => ({
@@ -919,6 +1024,7 @@ function createSession() {
     persistActiveSession(current, false);
     saveChatSessions(browserStorage, chatSessions, target.id);
     set(stateForChat(current, target));
+    if (target.durableTask && isConnected()) void resumeDurableTask();
     return true;
   }
 
@@ -936,13 +1042,16 @@ function createSession() {
     if (
       s.messages === lastPersistedMessages &&
       s.totalTokens === lastPersistedTokens &&
-      s.estimatedCost === lastPersistedCost
+      s.estimatedCost === lastPersistedCost &&
+      s.durableTask?.taskId === lastPersistedDurableTask?.taskId &&
+      s.durableTask?.resumeToken === lastPersistedDurableTask?.resumeToken
     ) {
       return;
     }
     lastPersistedMessages = s.messages;
     lastPersistedTokens = s.totalTokens;
     lastPersistedCost = s.estimatedCost;
+    lastPersistedDurableTask = s.durableTask;
     try {
       persistActiveSession(s);
     } catch (error) {
@@ -1009,6 +1118,7 @@ function createSession() {
     confirmRollback,
     exportChat,
     abort,
+    resumeDurableTask,
     addSystemMessage,
     clearMessages,
     listChatSessions,

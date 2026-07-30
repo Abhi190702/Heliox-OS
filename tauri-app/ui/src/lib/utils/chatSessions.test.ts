@@ -53,6 +53,37 @@ describe("chat session persistence", () => {
     expect(loaded.activeSessionId).toBe(second.id);
   });
 
+  it("persists the resume capability with its owning chat only", () => {
+    const target = storage();
+    const interrupted = createChatSession(10);
+    interrupted.durableTask = {
+      taskId: "task-1",
+      resumeToken: "local-resume-capability",
+    };
+    const idle = createChatSession(20);
+
+    saveChatSessions(target, [interrupted, idle], interrupted.id);
+    const loaded = loadChatSessions(target);
+
+    expect(loaded.sessions[0].durableTask).toEqual(interrupted.durableTask);
+    expect(loaded.sessions[1].durableTask).toBeUndefined();
+  });
+
+  it("drops malformed resume capabilities instead of sending partial authority", () => {
+    const target = storage();
+    target.setItem(
+      CHAT_SESSIONS_KEY,
+      JSON.stringify([
+        {
+          ...createChatSession(10),
+          durableTask: { taskId: "task-1" },
+        },
+      ]),
+    );
+
+    expect(loadChatSessions(target).sessions[0].durableTask).toBeUndefined();
+  });
+
   it("derives concise titles and sorts summaries by recent activity", () => {
     const older = createChatSession(10);
     older.messages = [{ type: "user", text: "A".repeat(70), timestamp: 10 }];
