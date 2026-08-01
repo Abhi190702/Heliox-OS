@@ -778,6 +778,8 @@ async def _transcribe_windows(audio_path: str) -> str:
 # detects "utterance started" while listening also detects "user started
 # talking" while Heliox is mid-speech (see speak_interruptible() below).
 
+_RECORDER_STOP = object()
+
 
 class _ContinuousRecorder:
     """Wraps a single continuous `sounddevice.InputStream` and exposes
@@ -972,28 +974,30 @@ class _ContinuousRecorder:
             except Exception:
                 pass
             self._stream = None
+        if self._queue is not None:
+            self._queue.put_nowait(_RECORDER_STOP)
         self._queue = None
 
     @property
     def is_active(self) -> bool:
         return self._stream is not None or self._soundcard_recorder is not None
 
-    async def _drain_stale_frames(self) -> None:
+    async def _drain_stale_frames(self, queue: asyncio.Queue[Any]) -> None:
         """Discards any frames queued while nobody was waiting, so a fresh
         wait starts listening from "now" instead of replaying a backlog."""
-        assert self._queue is not None
-        while not self._queue.empty():
-            self._queue.get_nowait()
+        while not queue.empty():
+            queue.get_nowait()
 
     async def wait_for_speech_start(self, timeout: float | None = None) -> bool:
         """Waits until sustained speech is detected (used for barge-in:
         the caller cares only that the user started talking, not the full
         utterance). Returns False on timeout or if the stream isn't
         active."""
-        if self._queue is None:
+        queue = self._queue
+        if queue is None:
             return False
 
-        await self._drain_stale_frames()
+        await self._drain_stale_frames(queue)
         endpointer = self._make_endpointer()
         deadline = None if timeout is None else asyncio.get_event_loop().time() + timeout
 
@@ -1002,8 +1006,11 @@ class _ContinuousRecorder:
             if remaining is not None and remaining <= 0:
                 return False
             try:
-                frame = await asyncio.wait_for(self._queue.get(), timeout=remaining)
+                frame = await asyncio.wait_for(queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
+                return False
+
+            if frame is _RECORDER_STOP:
                 return False
 
             if endpointer.push(frame_rms(frame)) == EndpointEvent.STARTED:
@@ -1013,10 +1020,11 @@ class _ContinuousRecorder:
         """Waits for a full utterance (speech start through endpoint) and
         returns the path to a WAV file containing it, or None if nothing
         was captured before `timeout`."""
-        if self._queue is None:
+        queue = self._queue
+        if queue is None:
             return None
 
-        await self._drain_stale_frames()
+        await self._drain_stale_frames(queue)
         endpointer = self._make_endpointer()
         deadline = None if timeout is None else asyncio.get_event_loop().time() + timeout
         # Small pre-roll so the moment speech is CONFIRMED (after
@@ -1029,8 +1037,11 @@ class _ContinuousRecorder:
             if remaining is not None and remaining <= 0:
                 return None
             try:
-                frame = await asyncio.wait_for(self._queue.get(), timeout=remaining)
+                frame = await asyncio.wait_for(queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
+                return None
+
+            if frame is _RECORDER_STOP:
                 return None
 
             event = endpointer.push(frame_rms(frame))

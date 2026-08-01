@@ -67,6 +67,17 @@ async def test_wait_for_speech_start_returns_false_when_queue_is_none():
 
 
 @pytest.mark.asyncio
+async def test_wait_for_speech_start_exits_cleanly_when_recorder_stops():
+    recorder = _recorder()
+    waiting = asyncio.create_task(recorder.wait_for_speech_start(timeout=None))
+    await asyncio.sleep(0)
+
+    recorder.stop()
+
+    assert await asyncio.wait_for(waiting, timeout=1) is False
+
+
+@pytest.mark.asyncio
 async def test_record_utterance_writes_wav_and_returns_path():
     recorder = _recorder(start_frames=1, silence_frames=2, sample_rate=16000)
     feeder = asyncio.create_task(
@@ -93,6 +104,17 @@ async def test_record_utterance_returns_none_on_timeout_without_speech():
 async def test_record_utterance_returns_none_when_queue_is_none():
     recorder = _ContinuousRecorder()
     assert await recorder.record_utterance(timeout=0.1) is None
+
+
+@pytest.mark.asyncio
+async def test_record_utterance_exits_cleanly_when_recorder_stops():
+    recorder = _recorder()
+    recording = asyncio.create_task(recorder.record_utterance(timeout=None))
+    await asyncio.sleep(0)
+
+    recorder.stop()
+
+    assert await asyncio.wait_for(recording, timeout=1) is None
 
 
 def test_stop_is_safe_when_never_started():
