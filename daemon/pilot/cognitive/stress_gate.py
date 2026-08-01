@@ -70,6 +70,8 @@ SAFE_ACTIONS: set[ActionType] = {
     ActionType.BROWSER_PAGE_INFO,
     ActionType.BROWSER_LIST_TABS,
     ActionType.BROWSER_SCREENSHOT,
+    ActionType.BROWSER_NAVIGATE,
+    ActionType.BROWSER_NEW_TAB,
     ActionType.SCHEDULE_LIST,
     ActionType.TRIGGER_LIST,
     ActionType.MOUSE_POSITION,
@@ -78,6 +80,7 @@ SAFE_ACTIONS: set[ActionType] = {
     ActionType.PACKAGE_SEARCH,
     ActionType.GNOME_SETTING_READ,
     ActionType.NOTIFY,
+    ActionType.OPEN_URL,
 }
 
 # High-risk actions that are ALWAYS gated under stress (even moderate)

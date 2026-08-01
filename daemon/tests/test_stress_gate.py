@@ -79,6 +79,20 @@ class TestSafeActionsNeverGated:
         assert decision.gated is False
         assert decision.reason == "safe_action"
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "action_type",
+        [ActionType.OPEN_URL, ActionType.BROWSER_NAVIGATE, ActionType.BROWSER_NEW_TAB],
+    )
+    async def test_read_only_navigation_never_sleeps_for_cognitive_gating(self, action_type):
+        engine = CognitiveEngine()
+        gate = StressGate(engine)
+
+        decision = await gate.evaluate(action_type)
+
+        assert decision.gated is False
+        assert decision.reason == "safe_action"
+
 
 class TestToggle:
     def test_disabled_gate_never_evaluates(self):
