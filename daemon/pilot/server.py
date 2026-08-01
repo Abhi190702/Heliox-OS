@@ -6826,12 +6826,19 @@ def handle_tool(tool_name, params):
         # utterance. Sharing its recorder with the TTS watcher would make two
         # coroutines race for the same audio frames and lose corrections.
         recorder = None
-        outcome = await self._speech_coordinator.speak(
-            text,
-            channel=channel,
-            dedupe_key=dedupe_key,
-            recorder=recorder,
-        )
+        listener = self._voice_listener if self._voice_listener and self._voice_listener.is_running else None
+        if listener:
+            listener.suppress_wake_free_commands()
+        try:
+            outcome = await self._speech_coordinator.speak(
+                text,
+                channel=channel,
+                dedupe_key=dedupe_key,
+                recorder=recorder,
+            )
+        finally:
+            if listener:
+                listener.resume_wake_free_commands()
         if outcome.status == "interrupted":
             await self._broadcast_notification("voice_status", {"status": "interrupted"})
         return outcome
@@ -6874,6 +6881,21 @@ def handle_tool(tool_name, params):
         )
         self._interaction_speech_tasks.add(task)
         task.add_done_callback(self._interaction_speech_tasks.discard)
+
+    async def _arm_voice_follow_up(self) -> bool:
+        """Open one wake-free conversational turn after Heliox stops talking."""
+        if not self._voice_listener or not self._voice_listener.is_running:
+            return False
+        self._voice_listener.arm_follow_up_window()
+        await self._broadcast_notification(
+            "voice_status",
+            {
+                "status": "follow_up_ready",
+                "message": "Listening continuously",
+                "seconds": self.config.voice.follow_up_window_seconds,
+            },
+        )
+        return True
 
     async def _voice_command_dispatch_legacy(self, command_text: str) -> None:
         """Called by ContinuousVoiceListener when a voice command is recognized.
@@ -7117,6 +7139,7 @@ def handle_tool(tool_name, params):
                 channel=SpeechChannel.FINAL_ANSWER,
                 dedupe_key=f"proactive-dismissed:{proactive_decision['suggestion_id']}",
             )
+            await self._arm_voice_follow_up()
             return
         if proactive_decision and proactive_decision["decision"] == "accepted":
             command_text = (
@@ -7202,10 +7225,10 @@ def handle_tool(tool_name, params):
                 ),
                 dedupe_key=f"voice-result:{spoken_command.casefold()}",
             )
-            if self._voice_listener and self._voice_listener.is_running:
+            if await self._arm_voice_follow_up():
                 await self._interaction_runtime.transition(
                     InteractionPhase.LISTENING,
-                    message="Listening for your next request",
+                    message="Listening continuously",
                     interaction_id=interaction_id,
                 )
         except Exception as error:
@@ -7231,6 +7254,7 @@ def handle_tool(tool_name, params):
                     channel=SpeechChannel.TASK_FAILURE,
                     dedupe_key=f"voice-exception:{spoken_command.casefold()}",
                 )
+                await self._arm_voice_follow_up()
             except Exception:
                 pass
 
@@ -7244,6 +7268,8 @@ def handle_tool(tool_name, params):
         await self._broadcast_notification("voice_status", {"status": status, **data})
         phase_map = {
             "wake_detected": InteractionPhase.UNDERSTANDING,
+            "follow_up_detected": InteractionPhase.UNDERSTANDING,
+            "follow_up_ready": InteractionPhase.LISTENING,
             "listening": InteractionPhase.LISTENING,
             "timeout": InteractionPhase.LISTENING,
             "interrupted": InteractionPhase.INTERRUPTED,

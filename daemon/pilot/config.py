@@ -146,6 +146,15 @@ class VoiceConfig:
     # UX improvement (doesn't expand what the system can do, unlike e.g.
     # gesture_cursor), so on by default like adaptive_calibration.
     barge_in_enabled: bool = True
+    # Autonomous companion mode: every completed user utterance is eligible
+    # for command routing while listening is on; the wake phrase remains an
+    # optional barge-in signal. Safety/approval policy still applies to the
+    # resulting action plan. The listener suppresses Heliox's own TTS audio.
+    continuous_conversation_enabled: bool = True
+    # Keep one bounded conversational turn open after Heliox finishes
+    # speaking, so the next instruction does not require the wake word.
+    # The listener arms this only after TTS stops to avoid self-triggering.
+    follow_up_window_seconds: float = 30.0
     # Local model-backed speech or the existing OS-native TTS (Windows
     # SAPI/macOS say/Linux espeak). Kokoro is the more natural built-in
     # option; Pocket remains available for existing installations. Both
@@ -631,6 +640,8 @@ def _validate_config_types(raw: dict) -> None:
             "vad_silence_ms": (int, float),
             "vad_max_utterance_seconds": (int, float),
             "barge_in_enabled": bool,
+            "continuous_conversation_enabled": bool,
+            "follow_up_window_seconds": (int, float),
             "tts_engine": str,
             "tts_voice": str,
         },

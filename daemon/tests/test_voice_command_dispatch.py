@@ -31,6 +31,14 @@ def _bare_server() -> PilotServer:
     return server
 
 
+class _RunningVoiceListener:
+    is_running = True
+    last_detected_language = "en"
+
+    def __init__(self) -> None:
+        self.arm_follow_up_window = MagicMock()
+
+
 @pytest.mark.asyncio
 async def test_voice_runs_through_unified_interactive_handler():
     server = _bare_server()
@@ -47,6 +55,23 @@ async def test_voice_runs_through_unified_interactive_handler():
         channel=SpeechChannel.FINAL_ANSWER,
         dedupe_key="voice-result:read my notes",
     )
+
+
+@pytest.mark.asyncio
+async def test_completed_voice_response_arms_bounded_conversational_follow_up():
+    server = _bare_server()
+    listener = _RunningVoiceListener()
+    server._voice_listener = listener
+
+    await server._voice_command_dispatch("open the world monitor")
+
+    listener.arm_follow_up_window.assert_called_once_with()
+    follow_up_status = next(
+        call.args[1]
+        for call in server._broadcast_notification.await_args_list
+        if call.args[0] == "voice_status" and call.args[1].get("status") == "follow_up_ready"
+    )
+    assert follow_up_status["seconds"] == 30.0
 
 
 @pytest.mark.asyncio

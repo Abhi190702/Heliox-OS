@@ -14,7 +14,7 @@
   import { companion } from "../stores/companion";
   import AudioVisualizer from "./AudioVisualizer.svelte";
   import { call, offNotification, onNotification } from "../api/daemon";
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { get } from "svelte/store";
 
   // ── State ──
@@ -27,6 +27,8 @@
   let error = $state("");
   let pushToTalkEnabled = $state(true);
   let wakeWordBusy = $state(false);
+  const continuousPreferenceKey = "heliox-continuous-listening-enabled";
+  let listenerHealthTimer: ReturnType<typeof setInterval> | null = null;
 
   // ── Speech Recognition ──
   let recognition: any = null;
@@ -183,6 +185,7 @@
         }
         wakeWordActive = false;
         isListening = false;
+        localStorage.setItem(continuousPreferenceKey, "false");
       } else {
         const result = await call<{ status: string; message?: string }>("voice_listener_start", {
           wake_words: ["hey heliox", "heliox", "hey pilot"],
@@ -192,6 +195,7 @@
         }
         wakeWordActive = true;
         isListening = true;
+        localStorage.setItem(continuousPreferenceKey, "true");
       }
     } catch (err) {
       error = err instanceof Error ? err.message : "Wake-word listener unavailable";
@@ -204,11 +208,13 @@
     if (method !== "voice_status") return;
     const payload = (params ?? {}) as Record<string, unknown>;
     const status = String(payload.status ?? "");
-    if (status === "wake_detected") {
+    if (status === "wake_detected" || status === "follow_up_detected") {
       companion.humanSpeechStarted();
       companion.humanSpeechEnded();
       transcript = String(payload.transcript ?? "");
       pulseIntensity = 1;
+    } else if (status === "follow_up_ready") {
+      pulseIntensity = 0.6;
     } else if (status === "timeout") {
       companion.humanSpeechEnded();
       error = String(payload.message ?? "Voice command timed out.");
@@ -219,7 +225,38 @@
   };
 
   onNotification(voiceStatusHandler);
-  onDestroy(() => offNotification(voiceStatusHandler));
+  onDestroy(() => {
+    offNotification(voiceStatusHandler);
+    if (listenerHealthTimer) clearInterval(listenerHealthTimer);
+  });
+
+  async function ensureContinuousListener() {
+    const preferred = localStorage.getItem(continuousPreferenceKey) !== "false";
+    if (!preferred || wakeWordBusy) return;
+    try {
+      const stats = await call<{ running: boolean }>("voice_listener_stats");
+      if (!stats.running) {
+        const result = await call<{ status: string; message?: string }>("voice_listener_start", {
+          wake_words: ["hey heliox", "heliox", "hey pilot"],
+        });
+        if (result.status !== "started" && result.status !== "already_running") {
+          throw new Error(result.message || "Daemon rejected continuous listening");
+        }
+      }
+      wakeWordActive = true;
+      isListening = true;
+      error = "";
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Continuous voice listener unavailable";
+    }
+  }
+
+  onMount(() => {
+    void ensureContinuousListener();
+    // Re-arm after a daemon restart or transient disconnect. The persisted
+    // preference remains false when the user explicitly turns listening off.
+    listenerHealthTimer = setInterval(() => void ensureContinuousListener(), 5_000);
+  });
 
   async function submitVoiceCommand(text: string) {
     // Stop listening temporarily in push-to-talk mode
@@ -336,14 +373,14 @@
     class:disabled={wakeWordBusy}
     onclick={toggleWakeWord}
     disabled={wakeWordBusy}
-    title={wakeWordActive ? 'Disable "Hey Heliox"' : 'Enable "Hey Heliox" wake word'}
+    title={wakeWordActive ? "Disable continuous listening" : "Enable continuous listening"}
   >
     <svg class="wave-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
       <path d="M8 12a4 4 0 0 0 8 0" />
       <circle cx="12" cy="10" r="1.5" fill="currentColor" />
     </svg>
-    <span class="wake-label">{wakeWordActive ? "Heliox Active" : "Hey Heliox"}</span>
+    <span class="wake-label">{wakeWordActive ? "Always listening" : "Start listening"}</span>
   </button>
 
   <!-- Speaking Indicator -->

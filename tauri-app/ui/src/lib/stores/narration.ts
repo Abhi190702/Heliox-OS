@@ -142,6 +142,14 @@ function createNarration() {
       if (get(store).planId === planId) {
         store.set({ ...DEFAULT_STATE });
       }
+      return;
+    }
+
+    // A terminal task notification is authoritative. Clear any interrupt UI
+    // left behind by a daemon restart, timeout race, or late target assessment
+    // so a completed command never leaves Heliox visibly "paused".
+    if (["task_complete", "task_failed", "task_cancelled", "task_aborted"].includes(method)) {
+      store.set({ ...DEFAULT_STATE });
     }
   };
 

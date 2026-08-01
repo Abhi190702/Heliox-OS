@@ -168,6 +168,22 @@ describe("narration store", () => {
     expect(state.preview).toBeNull();
   });
 
+  it("clears stale interrupt UI when the task reaches a terminal state", async () => {
+    const { narration } = await import("./narration");
+
+    capturedHandler!("execution_interrupt", {
+      plan_id: "stale-interrupt",
+      reason: "Target is ambiguous",
+      kind: "target_assessment",
+    });
+    capturedHandler!("task_complete", { status: "success" });
+
+    let state: any;
+    narration.subscribe((s) => (state = s))();
+    expect(state.active).toBe(false);
+    expect(state.planId).toBe("");
+  });
+
   it("sends the interrupt decision through the shared confirm RPC", async () => {
     const { narration } = await import("./narration");
     const { call } = await import("../api/daemon");

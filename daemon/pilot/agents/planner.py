@@ -548,12 +548,12 @@ class Planner:
             return ActionPlan(
                 actions=[
                     Action(
-                        action_type=ActionType.OPEN_URL,
+                        action_type=ActionType.BROWSER_NAVIGATE,
                         target=url,
-                        parameters=OpenUrlParams(url=url),
+                        parameters=BrowserParams(url=url),
                     )
                 ],
-                explanation=f"Open {url} in the default web browser",
+                explanation=f"Open {url} in Heliox's controllable browser session",
                 raw_input=user_input,
             )
 
@@ -571,14 +571,38 @@ class Planner:
             return ActionPlan(
                 actions=[
                     Action(
-                        action_type=ActionType.OPEN_URL,
+                        action_type=ActionType.BROWSER_NAVIGATE,
                         target=url,
-                        parameters=OpenUrlParams(url=url),
+                        parameters=BrowserParams(url=url),
                     )
                 ],
                 explanation="Open a live map-first global intelligence dashboard",
                 raw_input=user_input,
             )
+
+        # --- "click [on] Launch [on the website]" ---
+        # Short follow-ups stay deterministic and operate on the current
+        # Playwright page. Longer browser tasks still go through the model.
+        simple_click_match = re.fullmatch(
+            r"(?:click|press|choose|select)\s+(?:on\s+)?(?:the\s+)?"
+            r"(?P<label>.+?)"
+            r"(?:\s+on\s+(?:the\s+)?(?:website|webpage|page|screen))?",
+            text,
+        )
+        if simple_click_match:
+            label = simple_click_match.group("label").strip(" \t\"'.,!?-")
+            if 1 <= len(label) <= 80:
+                return ActionPlan(
+                    actions=[
+                        Action(
+                            action_type=ActionType.BROWSER_CLICK_TEXT,
+                            target=label,
+                            parameters=BrowserParams(text=label),
+                        )
+                    ],
+                    explanation=f"Click the visible browser control labeled '{label}'",
+                    raw_input=user_input,
+                )
 
         # --- "take a screenshot" / "screenshot" ---
         if re.match(r"^(?:take\s+(?:a\s+)?)?screenshot$", text):

@@ -41,8 +41,23 @@ def test_live_world_situation_opens_a_useful_map_visualization():
     plan = Planner._try_fast_path("Show me a live map of the current world situation")
 
     assert plan is not None
-    assert [action.action_type for action in plan.actions] == [ActionType.OPEN_URL]
+    assert [action.action_type for action in plan.actions] == [ActionType.BROWSER_NAVIGATE]
     assert plan.actions[0].parameters.url == "https://www.worldmonitor.app/"
+
+
+def test_explicit_url_uses_controllable_browser_session():
+    plan = Planner._try_fast_path("open https://example.com")
+
+    assert plan is not None
+    assert [action.action_type for action in plan.actions] == [ActionType.BROWSER_NAVIGATE]
+
+
+def test_short_spoken_click_targets_current_browser_page():
+    plan = Planner._try_fast_path("click on Launch on the website")
+
+    assert plan is not None
+    assert [action.action_type for action in plan.actions] == [ActionType.BROWSER_CLICK_TEXT]
+    assert plan.actions[0].parameters.text == "launch"
 
 
 def test_plain_world_news_question_still_requires_grounded_research():

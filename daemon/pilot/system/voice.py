@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
@@ -27,6 +28,40 @@ _VOICE_TRANSCRIPTION_PROMPT = (
     "Hey Heliox. Computer command vocabulary: open, close, search, launch. "
     "Proper names: GitHub, Google, YouTube, Gmail, Spotify."
 )
+
+_AUTONOMOUS_COMMAND_START = re.compile(
+    r"^(?:"
+    r"open|click|press|choose|select|show|find|search|look|tell|explain|summari[sz]e|"
+    r"read|write|create|launch|close|stop|cancel|continue|go|navigate|visit|browse|"
+    r"play|pause|send|type|scroll|switch|check|inspect|research|remind|schedule|turn|"
+    r"set|run|execute|use|approve|deny|save|download|upload|install|uninstall|"
+    r"what|who|where|when|why|how|which|can\s+you|could\s+you|would\s+you|will\s+you|"
+    r"do\s+you|is\s+(?:this|that|there|it)|are\s+(?:you|there|these|those)"
+    r")\b",
+    re.IGNORECASE,
+)
+_AUTONOMOUS_SHORT_DECISIONS = frozenset(
+    {
+        "yes",
+        "no",
+        "do it",
+        "go ahead",
+        "continue",
+        "cancel",
+        "stop",
+        "approve",
+        "deny",
+        "not now",
+        "sounds good",
+    }
+)
+
+
+def _looks_like_autonomous_voice_intent(text: str) -> bool:
+    """Reject ambient fragments while preserving natural hands-free intent."""
+    normalized = " ".join(text.casefold().strip(" \t,.:;!?-").split())
+    return normalized in _AUTONOMOUS_SHORT_DECISIONS or bool(_AUTONOMOUS_COMMAND_START.match(normalized))
+
 
 # The currently in-flight speak() call, if any -- module-level so that ANY
 # two callers anywhere in the daemon (executor.py's cognitive-stress-gate
@@ -1122,6 +1157,9 @@ class ContinuousVoiceListener:
         self._task: asyncio.Task[None] | None = None
         self._command_tasks: set[asyncio.Task[None]] = set()
         self._listening_for_command = False
+        self._follow_up_until = 0.0
+        self._wake_free_suppression_depth = 0
+        self._wake_free_suppression_generation = 0
         self._sample_rate = 16000
 
         # The daemon passes its live config instance so Settings changes take
@@ -1152,6 +1190,38 @@ class ContinuousVoiceListener:
     def is_running(self) -> bool:
         return self._running
 
+    @property
+    def follow_up_remaining_seconds(self) -> float:
+        """Seconds left in the bounded wake-free conversation turn."""
+        return max(0.0, self._follow_up_until - time.monotonic())
+
+    def arm_follow_up_window(self, seconds: float | None = None) -> None:
+        """Allow exactly the next utterance to omit the wake word briefly.
+
+        The server calls this only after Heliox has finished speaking, which
+        avoids treating TTS echo as user intent. Accepting an utterance consumes
+        the window; a completed response arms a fresh turn.
+        """
+        configured = self.config.voice.follow_up_window_seconds if seconds is None else seconds
+        duration = max(0.0, min(float(configured), 120.0))
+        self._follow_up_until = time.monotonic() + duration if duration else 0.0
+
+    def clear_follow_up_window(self) -> None:
+        self._follow_up_until = 0.0
+
+    def suppress_wake_free_commands(self) -> None:
+        """Block wake-free routing while Heliox is speaking.
+
+        Wake-word barge-in remains available. Incrementing the generation also
+        invalidates an utterance whose capture overlapped TTS, even if speech
+        finished before transcription returned.
+        """
+        self._wake_free_suppression_depth += 1
+        self._wake_free_suppression_generation += 1
+
+    def resume_wake_free_commands(self) -> None:
+        self._wake_free_suppression_depth = max(0, self._wake_free_suppression_depth - 1)
+
     async def start(self) -> str:
         if self._running:
             return "Voice listener is already running."
@@ -1172,6 +1242,8 @@ class ContinuousVoiceListener:
             recorder_active,
         )
 
+        if self.config.voice.continuous_conversation_enabled:
+            return "Continuous voice listener started. Speak naturally; the wake phrase is optional."
         return f"Voice listener started. Say '{self.wake_words[0]}' to activate."
 
     async def stop(self) -> str:
@@ -1203,6 +1275,7 @@ class ContinuousVoiceListener:
                 # Ambient wake-word listening: no timeout on the VAD path —
                 # it waits for the next actual utterance instead of polling
                 # a blind fixed window every cycle.
+                capture_generation = self._wake_free_suppression_generation
                 transcript = await self._record_and_transcribe(duration=3, timeout=None)
 
                 if not transcript or transcript.strip() == "No speech detected":
@@ -1217,6 +1290,13 @@ class ContinuousVoiceListener:
 
                 wake_detected = False
                 command_text = transcript_lower
+                wake_free_allowed = (
+                    self._wake_free_suppression_depth == 0
+                    and capture_generation == self._wake_free_suppression_generation
+                )
+                conversational_follow_up = wake_free_allowed and (
+                    self.config.voice.continuous_conversation_enabled or self.follow_up_remaining_seconds > 0
+                )
 
                 for wake in self.wake_words:
                     if wake in transcript_lower:
@@ -1235,13 +1315,13 @@ class ContinuousVoiceListener:
                     self._wake_calibrator.confirm_pending_if_followed_by_hit()
                 elif self.config.adaptive_calibration.voice_wake_word_enabled:
                     variant_hit = self._wake_calibrator.match_promoted_variant(transcript_lower)
-                    if variant_hit:
+                    if isinstance(variant_hit, str) and variant_hit:
                         wake_detected = True
                         command_text = transcript_lower.replace(variant_hit, "").strip()
                         self._wake_calibrator.confirm_pending_if_followed_by_hit()
                     else:
                         near_miss = self._wake_calibrator.check_near_miss(transcript_lower)
-                        if near_miss:
+                        if isinstance(near_miss, str) and near_miss:
                             # Whisper commonly renders a product wake word
                             # phonetically (for example "Heliocs"). When a
                             # close leading phrase is immediately followed by
@@ -1263,20 +1343,50 @@ class ContinuousVoiceListener:
 
                 self._wake_calibrator.tick()
 
-                if not wake_detected:
+                if not wake_detected and not conversational_follow_up:
                     await asyncio.sleep(0.1)
                     continue
 
+                if conversational_follow_up and not wake_detected:
+                    if self.config.voice.continuous_conversation_enabled and not _looks_like_autonomous_voice_intent(
+                        transcript_lower
+                    ):
+                        logger.debug("Ignored ambient non-command speech: '%s'", transcript_lower)
+                        if self._on_status:
+                            try:
+                                await self._on_status(
+                                    "ambient_ignored",
+                                    {"transcript": transcript, "reason": "no command intent"},
+                                )
+                            except Exception:
+                                pass
+                        continue
+                    # Consume before dispatch so room speech cannot enqueue
+                    # multiple wake-free commands while this one is running.
+                    self.clear_follow_up_window()
+                    command_text = transcript_lower.strip(" \t,.:;!?-")
+                    logger.info("Conversational voice follow-up detected: '%s'", command_text)
+
                 logger.info(
-                    "Wake word detected! Command: '%s'",
+                    "%s Command: '%s'",
+                    "Conversational follow-up detected."
+                    if conversational_follow_up and not wake_detected
+                    else "Wake word detected!",
                     command_text,
                 )
 
                 if self._on_status:
                     try:
                         await self._on_status(
-                            "wake_detected",
-                            {"transcript": transcript},
+                            (
+                                "follow_up_detected"
+                                if conversational_follow_up and not wake_detected
+                                else "wake_detected"
+                            ),
+                            {
+                                "transcript": transcript,
+                                "wake_free": conversational_follow_up and not wake_detected,
+                            },
                         )
                     except Exception:
                         pass
@@ -1425,6 +1535,10 @@ class ContinuousVoiceListener:
             "utterances_captured": self._recorder.utterances_captured,
             "transcripts_received": self.transcripts_received,
             "last_transcript": self.last_transcript,
+            "follow_up_active": self.follow_up_remaining_seconds > 0,
+            "follow_up_remaining_seconds": round(self.follow_up_remaining_seconds, 1),
+            "continuous_conversation_enabled": self.config.voice.continuous_conversation_enabled,
+            "wake_free_suppressed": self._wake_free_suppression_depth > 0,
         }
 
 
