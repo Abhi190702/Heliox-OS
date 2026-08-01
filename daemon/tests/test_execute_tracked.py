@@ -19,6 +19,7 @@ from pilot.actions import (
     ActionType,
     BrowserParams,
     FileParams,
+    OpenApplicationParams,
     PowerParams,
     ScreenVisionParams,
     SystemInfoParams,
@@ -505,6 +506,67 @@ async def test_missing_file_read_returns_truthful_failure_without_llm_retry():
 
     assert result["status"] == "partial_failure"
     assert "File not found" in result["message"]
+    assert planner_calls == 1
+    assert executor.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_application_returns_truthful_failure_without_llm_retry():
+    class _Executor:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, plan, **kwargs):
+            self.calls += 1
+            return [
+                ActionResult(
+                    action=plan.actions[0],
+                    success=False,
+                    error=(
+                        "Application 'Definitely Missing Product' was not found in the Start menu, "
+                        "PATH, or Windows app registry."
+                    ),
+                )
+            ]
+
+    class _Verifier:
+        async def verify(self, plan, results):
+            return VerificationResult(
+                passed=False,
+                details=["Action 0 (open_application): FAILED - application was not found"],
+                failed_actions=[0],
+            )
+
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.OPEN_APPLICATION,
+                target="Definitely Missing Product",
+                parameters=OpenApplicationParams(name="Definitely Missing Product"),
+            )
+        ],
+        explanation="Open the requested application.",
+    )
+    executor = _Executor()
+    server = _server_ready_for_handle_execute(executor, plan)
+    server._verifier = _Verifier()
+    planner_calls = 0
+
+    class _Planner:
+        async def plan(self, user_input, **kwargs):
+            nonlocal planner_calls
+            planner_calls += 1
+            return plan
+
+    server._planner = _Planner()
+
+    result = await server._handle_execute(
+        {"input": "Open Definitely Missing Product"},
+        _FakeWs(),
+    )
+
+    assert result["status"] == "partial_failure"
+    assert "was not found" in result["message"]
     assert planner_calls == 1
     assert executor.calls == 1
 

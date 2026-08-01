@@ -182,17 +182,26 @@ def _notification(method: str, params: Any) -> str:
     return json.dumps({"jsonrpc": "2.0", "method": method, "params": params})
 
 
-def _is_terminal_read_failure(results: list[Any]) -> bool:
-    """Return True when retrying cannot repair an exact missing-file read."""
+def _is_terminal_execution_failure(results: list[Any]) -> bool:
+    """Return True when replanning cannot repair an exact local resolution failure."""
     failed = [result for result in results if not result.success]
     if not failed:
         return False
-    terminal_markers = ("file not found", "no such file", "cannot find the file")
-    return all(
-        getattr(result.action.action_type, "value", str(result.action.action_type)) == "file_read"
-        and any(marker in str(result.error or "").lower() for marker in terminal_markers)
-        for result in failed
-    )
+
+    terminal_markers = {
+        "file_read": ("file not found", "no such file", "cannot find the file"),
+        "open_application": (
+            "was not found in the start menu, path, or windows app registry",
+            "is ambiguous",
+            "is registered, but its executable is missing",
+        ),
+    }
+    for result in failed:
+        action_type = getattr(result.action.action_type, "value", str(result.action.action_type))
+        markers = terminal_markers.get(action_type)
+        if markers is None or not any(marker in str(result.error or "").lower() for marker in markers):
+            return False
+    return True
 
 
 @dataclass
@@ -2959,8 +2968,8 @@ class PilotServer:
                     "verification", VERIFICATION_FAILED, "; ".join(verification.details[:3]), parent_id=verify_phase
                 )
 
-            if _is_terminal_read_failure(results):
-                logger.info("Terminal file-read failure; returning the exact error without LLM retry")
+            if _is_terminal_execution_failure(results):
+                logger.info("Terminal execution failure; returning the exact error without LLM retry")
                 break
 
             # Execution failed — use PlanDiffer for partial re-plan
