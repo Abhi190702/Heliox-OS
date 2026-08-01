@@ -9,125 +9,65 @@ the new specialist-orchestrator routing with a voice-derived scope_override.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pilot.actions import Action, ActionPlan, ActionResult, ActionType, EmptyParams
 from pilot.config import PilotConfig
-from pilot.security.gateway import DEFAULT_SOURCE_PROFILES
+from pilot.security.gateway import DEFAULT_SOURCE_PROFILES, InvocationSource
 from pilot.server import PilotServer
+from pilot.system.companion_speech import SpeechChannel
 
 
-def _plan() -> ActionPlan:
-    action = Action(action_type=ActionType.FILE_READ, target="notes.txt", parameters=EmptyParams())
-    return ActionPlan(actions=[action], raw_input="read notes.txt", explanation="reading notes.txt")
-
-
-class _StubPlanner:
-    def __init__(self, plan: ActionPlan):
-        self._plan = plan
-
-    async def plan(self, description, **kwargs):
-        return self._plan
-
-
-class _StubVerifier:
-    async def verify(self, plan, results):
-        return SimpleNamespace(passed=all(r.success for r in results))
-
-
-def _bare_server(plan: ActionPlan) -> PilotServer:
+def _bare_server() -> PilotServer:
     server = PilotServer(PilotConfig())
-    server._planner = _StubPlanner(plan)
-    server._verifier = _StubVerifier()
-    server._screen_vision = None
     server._voice_listener = None
+    server._broadcast_notification = AsyncMock()
+    server._handle_execute = AsyncMock(
+        return_value={"status": "success", "message": "The notes are ready."},
+    )
+    server._speak_voice_response = AsyncMock(return_value=False)
+    server._spawn_interaction_speech = MagicMock()
     return server
 
 
 @pytest.mark.asyncio
-async def test_no_orchestrator_falls_back_to_executor_with_voice_source():
-    plan = _plan()
-    server = _bare_server(plan)
-    server._orchestrator = None
-    server._executor = AsyncMock()
-    server._executor.execute.return_value = [ActionResult(action=plan.actions[0], success=True, output="ok")]
+async def test_voice_runs_through_unified_interactive_handler():
+    server = _bare_server()
 
-    with patch("pilot.system.voice.speak", new=AsyncMock(return_value="")):
-        await server._voice_command_dispatch("read my notes")
+    await server._voice_command_dispatch("read my notes")
 
-    server._executor.execute.assert_awaited_once()
-    _, kwargs = server._executor.execute.call_args
-    assert kwargs["plan_id"] == "voice"
-    from pilot.security.gateway import InvocationSource
+    server._handle_execute.assert_awaited_once()
+    params = server._handle_execute.await_args.args[0]
+    assert params["input"] == "read my notes"
+    assert params["source"] == "voice"
+    server._spawn_interaction_speech.assert_called_once()
+    server._speak_voice_response.assert_awaited_once_with(
+        "The notes are ready.",
+        channel=SpeechChannel.FINAL_ANSWER,
+        dedupe_key="voice-result:read my notes",
+    )
 
-    assert kwargs["invocation_source"] == InvocationSource.VOICE
 
+def test_voice_source_resolves_to_voice_scope_override():
+    server = PilotServer(PilotConfig())
 
-@pytest.mark.asyncio
-async def test_orchestrator_routes_with_voice_scope_override():
-    plan = _plan()
-    server = _bare_server(plan)
-    server._orchestrator = AsyncMock()
-    server._orchestrator.execute_plan.return_value = [ActionResult(action=plan.actions[0], success=True, output="ok")]
+    invocation_source, override = server._execution_scope_for_source("voice")
 
-    with patch("pilot.system.voice.speak", new=AsyncMock(return_value="")):
-        await server._voice_command_dispatch("read my notes")
-
-    server._orchestrator.execute_plan.assert_awaited_once()
-    args, kwargs = server._orchestrator.execute_plan.call_args
-    assert args[0] == "read my notes"
-    assert args[1] is plan
-    assert kwargs["plan_id"] == "voice"
-
-    override = kwargs["scope_override"]
+    assert invocation_source == InvocationSource.VOICE
     voice_profile = DEFAULT_SOURCE_PROFILES["voice"]
     assert override.max_tier == voice_profile.max_tier
     assert override.deny_action_types == voice_profile.deny_action_types
     assert override.allow_root == voice_profile.allow_root
 
 
-@pytest.mark.asyncio
-async def test_voice_scope_override_is_never_wider_than_voice_profile():
+def test_voice_scope_override_is_never_wider_than_voice_profile():
     """A user-configured 'voice' profile in gateway.source_profiles (not just
     the hardcoded default) must be what's used to build the override."""
-    plan = _plan()
-    server = _bare_server(plan)
+    server = PilotServer(PilotConfig())
     server.config.gateway.source_profiles["voice"].allow_root = False
-    server._orchestrator = AsyncMock()
-    server._orchestrator.execute_plan.return_value = [ActionResult(action=plan.actions[0], success=True, output="ok")]
-
-    with patch("pilot.system.voice.speak", new=AsyncMock(return_value="")):
-        await server._voice_command_dispatch("read my notes")
-
-    override = server._orchestrator.execute_plan.call_args.kwargs["scope_override"]
+    _, override = server._execution_scope_for_source("voice")
     assert override.allow_root is False
-
-
-@pytest.mark.asyncio
-async def test_voice_planner_receives_learned_persona_as_advisory_context():
-    plan = _plan()
-    server = _bare_server(plan)
-    server._planner = AsyncMock()
-    server._planner.plan.return_value = plan
-    server._executor = AsyncMock()
-    server._executor.execute.return_value = [
-        ActionResult(action=plan.actions[0], success=True, output="ok"),
-    ]
-    server._subconscious = AsyncMock()
-    server._subconscious.get_persona_context.return_value = (
-        "User persona (learned preferences):\n  - [style] Prefer concise summaries"
-    )
-
-    with patch("pilot.system.voice.speak", new=AsyncMock(return_value="")):
-        await server._voice_command_dispatch("read my notes")
-
-    context = server._planner.plan.call_args.kwargs["screen_context"]
-    assert "[LEARNED USER BEHAVIOR]" in context
-    assert "Prefer concise summaries" in context
-    assert "never as permission to bypass" in context
 
 
 @pytest.mark.asyncio

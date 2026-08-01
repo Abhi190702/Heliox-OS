@@ -33,6 +33,32 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
 }));
 
 describe("voice command session notifications", () => {
+  it("tracks the daemon's unified interaction state", async () => {
+    const { session } = await import("./session");
+
+    notificationHandler!("interaction_state", {
+      interaction_id: "interaction-1",
+      source: "voice",
+      phase: "planning",
+      message: "Planning the safest useful action",
+      active: true,
+      elapsed_ms: 42,
+      sequence: 2,
+    });
+
+    expect(get(session)).toMatchObject({
+      phase: "Planning the safest useful action",
+      interaction: {
+        interactionId: "interaction-1",
+        source: "voice",
+        phase: "planning",
+        active: true,
+        elapsedMs: 42,
+        sequence: 2,
+      },
+    });
+  });
+
   beforeEach(() => {
     localStorage.clear();
     notificationHandler = null;
@@ -106,8 +132,7 @@ describe("voice command session notifications", () => {
     expect(state.messages.at(-2)).toMatchObject({ type: "result", text: "Windows 11" });
     expect(state.messages.at(-1)).toMatchObject({
       type: "assistant",
-      text:
-        "The system report is ready.\n\nPossible next steps:\n- Compare it with the app requirements\n- Save a baseline",
+      text: "The system report is ready.\n\nPossible next steps:\n- Compare it with the app requirements\n- Save a baseline",
     });
   });
 });

@@ -744,12 +744,22 @@ async def test_proactive_companion_revises_plan_before_any_action_runs():
                 return CompanionReview(
                     decision="REVISE",
                     reason="The plan does more work than the request needs.",
-                    planner_feedback="Use one direct system-info action and report its output.",
+                    planner_feedback="Use one direct file-read action and report its output.",
                 )
             return CompanionReview(decision="CONTINUE", reason="The revised plan is minimal.")
 
     executor = _Executor()
-    server = _server_ready_for_handle_execute(executor)
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.FILE_READ,
+                target="notes.txt",
+                parameters=FileParams(path="notes.txt"),
+            )
+        ],
+        explanation="Read the requested notes.",
+    )
+    server = _server_ready_for_handle_execute(executor, plan)
     server._verifier = _Verifier()
     companion = _Companion()
     server._execution_companion = companion
@@ -764,12 +774,12 @@ async def test_proactive_companion_revises_plan_before_any_action_runs():
     server._planner = _RecordingPlanner()
     ws = _FakeWs()
 
-    result = await server._handle_execute({"input": "show the OS version"}, ws)
+    result = await server._handle_execute({"input": "read my notes"}, ws)
 
     assert result["status"] == "success"
     assert companion.calls == 2
     assert executor.calls == 1
     assert len(planned_inputs) == 2
     assert "[INDEPENDENT COMPANION REVIEW]" in planned_inputs[1]
-    assert "Use one direct system-info action" in planned_inputs[1]
+    assert "Use one direct file-read action" in planned_inputs[1]
     assert any(method == "companion_plan_intervention" for method, _ in server.test_broadcasts)

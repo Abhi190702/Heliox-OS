@@ -104,6 +104,16 @@ export interface ProactiveSuggestion {
   learnedRelevance: number;
 }
 
+export interface InteractionState {
+  interactionId: string;
+  source: string;
+  phase: string;
+  message: string;
+  active: boolean;
+  elapsedMs: number;
+  sequence: number;
+}
+
 interface SessionState {
   activeSessionId: string;
   daemonConnected: boolean;
@@ -118,6 +128,7 @@ interface SessionState {
   confirmSubmitting: boolean;
   confirmError: string;
   phase: string;
+  interaction: InteractionState | null;
   liveActions: LiveActionState[];
   totalTokens: number;
   estimatedCost: number;
@@ -167,6 +178,7 @@ const initialState: SessionState = {
   confirmSubmitting: false,
   confirmError: "",
   phase: "",
+  interaction: null,
   liveActions: [],
   totalTokens: loadedActiveChat.totalTokens,
   estimatedCost: loadedActiveChat.estimatedCost,
@@ -296,6 +308,24 @@ function createSession() {
     const p = params as Record<string, unknown>;
 
     switch (method) {
+      case "interaction_state": {
+        const interaction = {
+          interactionId: String(p.interaction_id ?? ""),
+          source: String(p.source ?? "system"),
+          phase: String(p.phase ?? "idle"),
+          message: String(p.message ?? ""),
+          active: Boolean(p.active),
+          elapsedMs: Number(p.elapsed_ms ?? 0),
+          sequence: Number(p.sequence ?? 0),
+        };
+        update((s) => ({
+          ...s,
+          interaction,
+          phase: interaction.message || interaction.phase.replaceAll("_", " "),
+        }));
+        break;
+      }
+
       case "task_registered":
         update((s) => {
           if (String(p.session_id ?? "") !== s.activeSessionId) return s;

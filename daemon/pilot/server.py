@@ -51,6 +51,7 @@ from pilot.system.companion_speech import (
     SpeechChannel,
     SpeechOutcome,
 )
+from pilot.system.interaction import InteractionPhase, InteractionRuntime, acknowledgement_for
 from pilot.workflows.durable_tasks import (
     ApprovalConflict,
     ApprovalStatus,
@@ -122,6 +123,19 @@ class JsonRpcRequest:
             params=params,
             id=data.get("id"),
         )
+
+
+class _BroadcastConnection:
+    """Duck-typed WebSocket sink used by non-socket interaction sources."""
+
+    def __init__(self, broadcast: Any) -> None:
+        self._broadcast = broadcast
+
+    async def send(self, raw: str) -> None:
+        payload = json.loads(raw)
+        method = payload.get("method")
+        if isinstance(method, str) and method:
+            await self._broadcast(method, payload.get("params", {}))
 
 
 def _success_response(req_id: str | int | None, result: Any) -> str:
@@ -448,6 +462,7 @@ class PilotServer:
         self._plan_history: PlanHistoryStore | None = None
         self._plan_history_tasks: set[asyncio.Task[None]] = set()
         self._companion_follow_up_tasks: set[asyncio.Task[None]] = set()
+        self._interaction_speech_tasks: set[asyncio.Task[SpeechOutcome]] = set()
         # Cognitive intelligence (lightweight heuristic engine)
         self._cognitive_engine: Any = None
         self._attention_ui: Any = None
@@ -455,6 +470,7 @@ class PilotServer:
         self._intent_predictor: Any = None
         self._voice_listener: Any = None
         self._speech_coordinator = CompanionSpeechCoordinator()
+        self._interaction_runtime = InteractionRuntime(self._broadcast_notification)
         self._autonomous: Any = None
         self._self_healing: Any = None
         self._self_healing_started_monitors: set[str] = set()
@@ -479,6 +495,7 @@ class PilotServer:
         self._interactive_request_active = False
         self._active_plan_id = ""
         self._active_task_id = ""
+        self._active_interaction_id = ""
         self._live_correction: str | None = None
         self._execution_companion: Any = None
         self._recent_companion_context = ""
@@ -1115,6 +1132,7 @@ class PilotServer:
             "voice_listener_start": self._handle_voice_listener_start,
             "voice_listener_stop": self._handle_voice_listener_stop,
             "voice_listener_stats": self._handle_voice_listener_stats,
+            "interaction_status": self._handle_interaction_status,
             "list_audio_input_devices": self._handle_list_audio_input_devices,
             "speak_text": self._handle_speak_text,
             "stop_speech": self._handle_stop_speech,
@@ -1468,6 +1486,22 @@ class PilotServer:
             reason="The local telemetry plan is bounded, read-only, and directly answers the request.",
         )
 
+    def _execution_scope_for_source(self, source_name: str) -> tuple[Any, Any | None]:
+        """Resolve an interaction source to its enforced gateway ceiling."""
+        from pilot.security.gateway import DEFAULT_SOURCE_PROFILES, InvocationSource, TaskScopeOverride
+
+        invocation_source = (
+            InvocationSource.VOICE if source_name.strip().lower() == "voice" else InvocationSource.INTERACTIVE
+        )
+        if invocation_source != InvocationSource.VOICE:
+            return invocation_source, None
+        profile = self.config.gateway.source_profiles.get("voice", DEFAULT_SOURCE_PROFILES["voice"])
+        return invocation_source, TaskScopeOverride(
+            max_tier=profile.max_tier,
+            deny_action_types=profile.deny_action_types,
+            allow_root=profile.allow_root,
+        )
+
     async def _execute_tracked(self, plan: ActionPlan, **kwargs: Any) -> list[Any]:
         """Wraps self._executor.execute() in a real asyncio.Task, tracked in
         self._active_execution_task, so _handle_abort can cancel the
@@ -1532,6 +1566,8 @@ class PilotServer:
     async def _handle_execute(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Run one interactive request while exposing an out-of-band control slot."""
         requested_task_id = str(params.get("task_id") or uuid.uuid4())
+        source_name = str(params.get("source") or "text").strip().lower()
+        interaction_id = str(params.get("_interaction_id") or "")
         resume_token = ""
         if self._durable_tasks is not None:
             existing = await self._durable_tasks.get(requested_task_id)
@@ -1569,7 +1605,19 @@ class PilotServer:
                 TaskStatus.PLANNING,
                 reason="interactive request accepted",
             )
+        if not interaction_id:
+            interaction = await self._interaction_runtime.start(
+                str(params.get("input") or ""),
+                source=source_name,
+            )
+            interaction_id = str(interaction["interaction_id"])
+        await self._interaction_runtime.transition(
+            InteractionPhase.PLANNING,
+            message="Planning the safest useful action",
+            interaction_id=interaction_id,
+        )
         self._interactive_request_active = True
+        self._active_interaction_id = interaction_id
         self._active_plan_id = ""
         self._active_task_id = requested_task_id
         self._live_correction = None
@@ -1612,8 +1660,26 @@ class PilotServer:
                         response = {**response, "task_id": context.task_id}
                         if resume_token:
                             response["resume_token"] = resume_token
+                    response_status = str(response.get("status") or "error")
+                    terminal_phase = (
+                        InteractionPhase.COMPLETED
+                        if response_status == "success"
+                        else InteractionPhase.INTERRUPTED
+                        if response_status in {"cancelled", "interrupted", "denied"}
+                        else InteractionPhase.FAILED
+                    )
+                    await self._interaction_runtime.transition(
+                        terminal_phase,
+                        message=str(response.get("message") or response.get("explanation") or response_status)[:160],
+                        interaction_id=interaction_id,
+                    )
                     return response
                 except Exception as exc:
+                    await self._interaction_runtime.transition(
+                        InteractionPhase.FAILED,
+                        message="The task failed before a verified result was available",
+                        interaction_id=interaction_id,
+                    )
                     await self._append_experience(
                         ExperienceEventType.OUTCOME_VERIFIED,
                         idempotency_key=f"task:{context.task_id}:unhandled_error",
@@ -1644,6 +1710,8 @@ class PilotServer:
             self._interactive_request_active = False
             self._active_plan_id = ""
             self._active_task_id = ""
+            if self._active_interaction_id == interaction_id:
+                self._active_interaction_id = ""
             self._live_correction = None
             self._cancel_event = None
             self._active_experience_context = ExperienceContext()
@@ -2415,6 +2483,11 @@ class PilotServer:
             ) and not dry_run
             partially_approved = False
             if needs_confirm:
+                await self._interaction_runtime.transition(
+                    InteractionPhase.AWAITING_APPROVAL,
+                    message="Waiting for your approval",
+                    interaction_id=self._active_interaction_id,
+                )
                 if self._durable_tasks is not None and self._active_task_id:
                     await self._durable_tasks.transition(
                         self._active_task_id,
@@ -2531,10 +2604,17 @@ class PilotServer:
             if emit:
                 exec_phase = await emit.phase_start("execution", EXECUTOR_STARTED, {"action_count": len(plan.actions)})
 
+            await self._interaction_runtime.transition(
+                InteractionPhase.ACTING,
+                message="Executing the approved plan",
+                interaction_id=self._active_interaction_id,
+            )
             await ws.send(_notification("status", {"phase": "executing"}))
             action_idx = 0
             _total_actions = len(plan.actions)
             completed_results: list[Any] = []
+            source_name = str(params.get("source") or "interactive").strip().lower()
+            invocation_source, scope_override = self._execution_scope_for_source(source_name)
 
             async def _on_action_start(
                 action: Any, _exec_phase: str = exec_phase, _total: int = _total_actions
@@ -2600,6 +2680,7 @@ class PilotServer:
                             plan_id=plan_id,
                             critic_already_reviewed=True,
                             user_confirmed=needs_confirm and approved_decision in {"approved", "partially_approved"},
+                            scope_override=scope_override,
                         )
                     )
                 else:
@@ -2615,6 +2696,8 @@ class PilotServer:
                         # redundant LLM round-trip.
                         critic_already_reviewed=True,
                         user_confirmed=needs_confirm and approved_decision in {"approved", "partially_approved"},
+                        invocation_source=invocation_source,
+                        scope_override=scope_override,
                     )
             except asyncio.CancelledError:
                 # ── Mid-flight cancellation: _handle_abort (Part 3) sets
@@ -2701,6 +2784,11 @@ class PilotServer:
                     reason="action execution finished",
                     plan_id=plan_id,
                 )
+            await self._interaction_runtime.transition(
+                InteractionPhase.VERIFYING,
+                message="Verifying the result",
+                interaction_id=self._active_interaction_id,
+            )
             await ws.send(_notification("status", {"phase": "verifying"}))
             if dry_run:
                 from pilot.actions import VerificationResult
@@ -6412,6 +6500,11 @@ def handle_tool(tool_name, params):
             self._tts_warmup_task.cancel()
             await asyncio.gather(self._tts_warmup_task, return_exceptions=True)
         await self._speech_coordinator.close()
+        if self._interaction_speech_tasks:
+            speech_tasks = tuple(self._interaction_speech_tasks)
+            for task in speech_tasks:
+                task.cancel()
+            await asyncio.gather(*speech_tasks, return_exceptions=True)
         if hasattr(self, "_prompt_improver") and self._prompt_improver:
             if hasattr(self._prompt_improver, "close"):
                 await self._prompt_improver.close()
@@ -6757,7 +6850,25 @@ def handle_tool(tool_name, params):
         )
         return outcome.status == "interrupted"
 
-    async def _voice_command_dispatch(self, command_text: str) -> None:
+    def _spawn_interaction_speech(
+        self,
+        text: str,
+        *,
+        channel: SpeechChannel,
+        dedupe_key: str,
+    ) -> None:
+        """Queue short interaction speech without delaying task execution."""
+        task = asyncio.create_task(
+            self._speak_companion_text(
+                text,
+                channel=channel,
+                dedupe_key=dedupe_key,
+            )
+        )
+        self._interaction_speech_tasks.add(task)
+        task.add_done_callback(self._interaction_speech_tasks.discard)
+
+    async def _voice_command_dispatch_legacy(self, command_text: str) -> None:
         """Called by ContinuousVoiceListener when a voice command is recognized.
 
         Runs the full ReAct pipeline and speaks the result back.
@@ -6951,6 +7062,143 @@ def handle_tool(tool_name, params):
             except Exception:
                 pass
 
+    async def _voice_command_dispatch(self, command_text: str) -> None:
+        """Run voice through the same safe interaction path as typed input."""
+        logger.info("Voice command received: '%s'", command_text)
+
+        if self.config.voice.barge_in_enabled and self._speech_coordinator.status()["active"]:
+            await self._speech_coordinator.stop_all()
+            await self._broadcast_notification(
+                "voice_status",
+                {"status": "interrupted", "reason": "new voice command"},
+            )
+
+        if self._interactive_request_active:
+            await self._interaction_runtime.transition(
+                InteractionPhase.CORRECTING,
+                message="Applying your spoken correction",
+            )
+            result = await self._handle_interject({"input": command_text}, None)
+            await self._broadcast_notification(
+                "voice_result",
+                {
+                    "command": command_text,
+                    "status": result.get("status", "error"),
+                    "message": result.get("message", ""),
+                    "coordinated_correction": True,
+                },
+            )
+            return
+
+        interaction = await self._interaction_runtime.start(command_text, source="voice")
+        interaction_id = str(interaction["interaction_id"])
+        language = getattr(
+            self._voice_listener,
+            "last_detected_language",
+            self.config.voice.language if self.config.voice.language != "auto" else "en",
+        )
+        await self._broadcast_notification(
+            "voice_command",
+            {
+                "command": command_text,
+                "status": "executing",
+                "language": language,
+            },
+        )
+        self._spawn_interaction_speech(
+            acknowledgement_for(command_text),
+            channel=SpeechChannel.TASK_NARRATION,
+            dedupe_key=f"voice-ack:{interaction_id}",
+        )
+
+        try:
+            await self._interaction_runtime.transition(
+                InteractionPhase.PLANNING,
+                message="Planning the safest useful action",
+                interaction_id=interaction_id,
+            )
+            response = await self._handle_execute(
+                {
+                    "input": command_text,
+                    "session_id": "voice",
+                    "user_id": "local",
+                    "source": "voice",
+                    "_interaction_id": interaction_id,
+                },
+                _BroadcastConnection(self._broadcast_notification),
+            )
+            status = str(response.get("status") or "error")
+            result_text = str(
+                response.get("message")
+                or response.get("explanation")
+                or "The request finished without a visible result."
+            )
+            voice_status = "partial" if status == "partial_failure" else status
+            await self._broadcast_notification(
+                "voice_result",
+                {
+                    "command": command_text,
+                    "status": voice_status,
+                    "result": result_text[:500],
+                    "language": language,
+                    "companion_follow_up": None,
+                },
+            )
+
+            terminal_phase = (
+                InteractionPhase.COMPLETED
+                if status == "success"
+                else InteractionPhase.INTERRUPTED
+                if status in {"cancelled", "interrupted", "denied"}
+                else InteractionPhase.FAILED
+            )
+            await self._interaction_runtime.transition(
+                terminal_phase,
+                message=result_text[:160],
+                interaction_id=interaction_id,
+            )
+            spoken = result_text[:300] if len(result_text) < 300 else result_text[:297] + "..."
+            await self._speak_voice_response(
+                spoken,
+                channel=(
+                    SpeechChannel.FINAL_ANSWER
+                    if terminal_phase == InteractionPhase.COMPLETED
+                    else SpeechChannel.TASK_FAILURE
+                ),
+                dedupe_key=f"voice-result:{command_text.casefold()}",
+            )
+            if self._voice_listener and self._voice_listener.is_running:
+                await self._interaction_runtime.transition(
+                    InteractionPhase.LISTENING,
+                    message="Listening for your next request",
+                    interaction_id=interaction_id,
+                )
+        except Exception as error:
+            logger.error("Voice command execution failed: %s", error)
+            message = "Something went wrong while executing your request."
+            await self._broadcast_notification(
+                "voice_result",
+                {
+                    "command": command_text,
+                    "status": "error",
+                    "message": str(error),
+                    "language": language,
+                },
+            )
+            await self._interaction_runtime.transition(
+                InteractionPhase.FAILED,
+                message=message,
+                interaction_id=interaction_id,
+            )
+            try:
+                await self._speak_voice_response(
+                    message,
+                    channel=SpeechChannel.TASK_FAILURE,
+                    dedupe_key=f"voice-exception:{command_text.casefold()}",
+                )
+            except Exception:
+                pass
+
     async def _voice_status_broadcast(self, status: str, data: dict) -> None:
         """Called by ContinuousVoiceListener for status updates.
 
@@ -6959,6 +7207,18 @@ def handle_tool(tool_name, params):
             data: Additional status data.
         """
         await self._broadcast_notification("voice_status", {"status": status, **data})
+        phase_map = {
+            "wake_detected": InteractionPhase.UNDERSTANDING,
+            "listening": InteractionPhase.LISTENING,
+            "timeout": InteractionPhase.LISTENING,
+            "interrupted": InteractionPhase.INTERRUPTED,
+        }
+        phase = phase_map.get(status)
+        if phase is not None:
+            await self._interaction_runtime.transition(
+                phase,
+                message=str(data.get("message") or status.replace("_", " ")),
+            )
 
     async def _handle_voice_listener_start(self, params: dict, ws: ServerConnection) -> dict:
         """Start the continuous JARVIS-mode voice listener.
@@ -6988,6 +7248,10 @@ def handle_tool(tool_name, params):
         if not self._voice_listener.is_running:
             self._voice_listener = None
             return {"status": "error", "message": result}
+        await self._interaction_runtime.transition(
+            InteractionPhase.LISTENING,
+            message="Listening for your wake word",
+        )
         return {"status": "started", "message": result, "wake_words": wake_words}
 
     async def _handle_voice_listener_stop(self, params: dict, ws: ServerConnection) -> dict:
@@ -7004,6 +7268,10 @@ def handle_tool(tool_name, params):
             return {"status": "not_running"}
 
         result = await self._voice_listener.stop()
+        await self._interaction_runtime.transition(
+            InteractionPhase.IDLE,
+            message="Voice listening is off",
+        )
         return {"status": "stopped", "message": result}
 
     async def _handle_voice_listener_stats(self, params: dict, ws: ServerConnection) -> dict:
@@ -7019,6 +7287,10 @@ def handle_tool(tool_name, params):
         if not self._voice_listener:
             return {"running": False, "message": "Voice listener not initialized"}
         return self._voice_listener.get_stats()
+
+    async def _handle_interaction_status(self, params: dict, ws: ServerConnection) -> dict:
+        """Return the shared text/voice interaction state."""
+        return self._interaction_runtime.status()
 
     async def _handle_list_audio_input_devices(
         self,
