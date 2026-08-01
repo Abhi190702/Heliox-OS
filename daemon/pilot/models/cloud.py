@@ -95,6 +95,24 @@ def _is_rate_limit_error(error: Exception) -> bool:
     )
 
 
+def _is_api_key_error(error: Exception) -> bool:
+    """Return whether another configured key can repair this provider failure."""
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        body = error.response.text.lower()
+        return status in {401, 403} or (status == 400 and ("api_key_invalid" in body or "api key not valid" in body))
+    message = str(error).lower()
+    return any(
+        marker in message
+        for marker in (
+            "api_key_invalid",
+            "api key not valid",
+            "invalid api key",
+            "authentication was rejected",
+        )
+    )
+
+
 class CloudClient:
     """Unified cloud LLM client. API keys are fetched from the vault at call time."""
 
@@ -163,8 +181,8 @@ class CloudClient:
                     return result
             except Exception as e:
                 last_error = e
-                is_rate_limit = _is_rate_limit_error(e)
-                if is_rate_limit and key_idx < len(api_keys) - 1:
+                can_try_another_key = _is_rate_limit_error(e) or _is_api_key_error(e)
+                if can_try_another_key and key_idx < len(api_keys) - 1:
                     logger.warning(
                         "API key %d/%d failed (%s), rotating to next key",
                         key_idx + 1,

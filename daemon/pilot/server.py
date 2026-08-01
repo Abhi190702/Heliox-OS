@@ -204,6 +204,19 @@ def _is_terminal_execution_failure(results: list[Any]) -> bool:
     return True
 
 
+def _is_terminal_planning_failure(error: str) -> bool:
+    """Return whether the planner already exhausted the configured provider path."""
+    normalized = error.casefold()
+    return any(
+        marker in normalized
+        for marker in (
+            "api unavailable",
+            "no api key configured",
+            "configure a healthy provider",
+        )
+    )
+
+
 @dataclass
 class PendingConfirmation:
     """Tracks a plan awaiting user confirmation."""
@@ -2238,9 +2251,11 @@ class PilotServer:
             if plan.error:
                 if emit:
                     await emit.phase_error("planning", PLANNER_ERROR, plan.error, parent_id=plan_phase)
-                if attempt < self.MAX_RETRIES:
+                if attempt < self.MAX_RETRIES and not _is_terminal_planning_failure(plan.error):
                     error_context = plan.error
                     continue
+                if _is_terminal_planning_failure(plan.error):
+                    logger.info("Terminal provider failure; skipping redundant planning retries")
                 await _emit_task_complete("error", plan.error)
                 return {"status": "error", "message": plan.error}
 

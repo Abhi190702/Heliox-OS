@@ -572,6 +572,36 @@ async def test_missing_application_returns_truthful_failure_without_llm_retry():
 
 
 @pytest.mark.asyncio
+async def test_exhausted_provider_failure_does_not_repeat_planning():
+    class _ExecutorThatMustNotRun:
+        async def execute(self, plan, **kwargs):
+            raise AssertionError("a failed plan must not reach the executor")
+
+    planner_calls = 0
+
+    class _Planner:
+        async def plan(self, user_input, **kwargs):
+            nonlocal planner_calls
+            planner_calls += 1
+            return ActionPlan(
+                error="Gemini API unavailable (400): the configured API key is invalid.",
+                explanation="",
+            )
+
+    server = _server_ready_for_handle_execute(_ExecutorThatMustNotRun())
+    server._planner = _Planner()
+
+    result = await server._handle_execute(
+        {"input": "Summarize the current workspace"},
+        _FakeWs(),
+    )
+
+    assert result["status"] == "error"
+    assert "configured API key is invalid" in result["message"]
+    assert planner_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_handle_execute_critic_block_is_terminal_and_never_executes():
     class _ExecutorThatMustNotRun:
         async def execute(self, plan, **kwargs):
