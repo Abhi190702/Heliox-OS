@@ -25,12 +25,38 @@ from pilot.system.platform_detect import CURRENT_PLATFORM, Platform, run_command
 
 logger = logging.getLogger("pilot.system.vision")
 
+VISION_MAX_DIMENSION = 1600
+VISION_CLOUD_TIMEOUT_SECONDS = 10.0
+VISION_LOCAL_TIMEOUT_SECONDS = 4.0
+VISION_OCR_TIMEOUT_SECONDS = 2.0
+VISION_FOREGROUND_TIMEOUT_SECONDS = 1.0
+
 # ──────────────────────────────────────────────────────────────────────
 #  Screenshot capture
 # ──────────────────────────────────────────────────────────────────────
 
 
-async def _capture_screenshot_bytes(region: tuple[int, int, int, int] | None = None) -> bytes:
+def _resize_png_for_vision(data: bytes, max_dimension: int) -> bytes:
+    """Bound a screenshot before network inference while preserving detail."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    with Image.open(BytesIO(data)) as image:
+        if max(image.size) <= max_dimension:
+            return data
+        bounded = image.copy()
+        bounded.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
+        output = BytesIO()
+        bounded.save(output, format="PNG", optimize=True)
+        return output.getvalue()
+
+
+async def _capture_screenshot_bytes(
+    region: tuple[int, int, int, int] | None = None,
+    *,
+    max_dimension: int | None = None,
+) -> bytes:
     """Capture screenshot and return PNG bytes."""
     try:
         from io import BytesIO
@@ -40,7 +66,8 @@ async def _capture_screenshot_bytes(region: tuple[int, int, int, int] | None = N
         img = pyautogui.screenshot(region=region)
         buf = BytesIO()
         img.save(buf, format="PNG")
-        return buf.getvalue()
+        data = buf.getvalue()
+        return _resize_png_for_vision(data, max_dimension) if max_dimension else data
     except Exception as e:
         logger.debug(f"pyautogui screenshot failed ({e}), falling back to system command")
         # Fallback: capture via system command and read file
@@ -50,7 +77,7 @@ async def _capture_screenshot_bytes(region: tuple[int, int, int, int] | None = N
         await screenshot(tmp)
         data = Path(tmp).read_bytes()
         os.unlink(tmp)
-        return data
+        return _resize_png_for_vision(data, max_dimension) if max_dimension else data
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -480,21 +507,98 @@ async def screen_find_text(
 # ──────────────────────────────────────────────────────────────────────
 
 
+async def _bounded_cloud_vision(
+    provider: str,
+    api_key: str,
+    b64_image: str,
+    prompt: str,
+    configured_model: str | None,
+) -> str | None:
+    """Run one configured vision provider under the interactive latency cap."""
+    calls = {
+        "gemini": _gemini_vision,
+        "openai": _openai_vision,
+        "claude": _claude_vision,
+    }
+    call = calls.get(provider)
+    if call is None:
+        return None
+    return await asyncio.wait_for(
+        call(api_key, b64_image, prompt, configured_model),
+        timeout=VISION_CLOUD_TIMEOUT_SECONDS,
+    )
+
+
+async def _bounded_local_vision(b64_image: str, prompt: str) -> str | None:
+    """Use only an installed local vision model under a small time budget."""
+    ollama_url = PilotConfig.load().model.ollama_base_url or "http://127.0.0.1:11434"
+
+    async def _run() -> str | None:
+        async with create_httpx_client(PilotConfig.load(), timeout=VISION_LOCAL_TIMEOUT_SECONDS) as client:
+            tags = await client.get(f"{ollama_url}/api/tags")
+            if tags.status_code != 200:
+                return None
+            installed = {
+                str(item.get("name", "")).split(":", 1)[0]
+                for item in tags.json().get("models", [])
+                if isinstance(item, dict)
+            }
+            for model_name in ("llava:7b", "llava", "bakllava", "moondream"):
+                if model_name.split(":", 1)[0] not in installed:
+                    continue
+                response = await client.post(
+                    f"{ollama_url}/api/generate",
+                    json={"model": model_name, "prompt": prompt, "images": [b64_image], "stream": False},
+                )
+                if response.status_code == 200:
+                    return response.json().get("response", "No response")
+        return None
+
+    try:
+        return await asyncio.wait_for(_run(), timeout=VISION_LOCAL_TIMEOUT_SECONDS)
+    except (TimeoutError, OSError):
+        return None
+
+
+async def _foreground_screen_fallback(detail: str) -> str:
+    """Return a truthful local observation when semantic vision is unavailable."""
+    try:
+        from pilot.agents.screen_vision import _get_active_window
+
+        app, title = await asyncio.wait_for(
+            asyncio.to_thread(_get_active_window),
+            timeout=VISION_FOREGROUND_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        app, title = "", ""
+
+    explanation = detail or "No configured vision provider returned a result"
+    if app or title:
+        return (
+            f"[Semantic screen analysis unavailable: {explanation}.]\n"
+            f"Verified foreground application: {app or 'Unknown application'}"
+            f"{f' — {title}' if title else ''}.\n"
+            "I did not infer the image contents."
+        )
+    return f"[Screen analysis unavailable: {explanation}. No foreground-window metadata or OCR result was available.]"
+
+
 async def screen_analyze(
     prompt: str = "Describe what you see on the screen",
     region: tuple[int, int, int, int] | None = None,
 ) -> str:
     """Analyze the screen using a vision-capable LLM.
 
-    Priority: Cloud Vision (Gemini/OpenAI/Claude) → Local Ollama → OCR fallback.
-    Includes retry logic for transient 503/429 errors.
+    Cloud and installed local vision race under one interactive deadline, then
+    a bounded OCR fallback provides a useful result instead of an open-ended
+    provider cascade.
     """
-    img_bytes = await _capture_screenshot_bytes(region)
+    img_bytes = await _capture_screenshot_bytes(region, max_dimension=VISION_MAX_DIMENSION)
     b64_image = base64.b64encode(img_bytes).decode("utf-8")
 
     cloud_errors: list[str] = []
+    vision_tasks: list[asyncio.Task[str | None]] = [asyncio.create_task(_bounded_local_vision(b64_image, prompt))]
 
-    # ── 1. Cloud Vision (Gemini / OpenAI / Claude) ───────────────────
     try:
         from pilot.security.vault import KeyVault
 
@@ -505,69 +609,54 @@ async def screen_analyze(
             if api_key:
                 provider = config.model.cloud_provider
 
-                if provider == "gemini":
-                    result = await _gemini_vision(api_key, b64_image, prompt, config.model.cloud_model)
-                    if result is not None:
-                        return result
-                    cloud_errors.append("Gemini Vision: all models returned errors")
-
-                elif provider == "openai":
-                    result = await _openai_vision(api_key, b64_image, prompt, config.model.cloud_model)
-                    if result is not None:
-                        return result
-                    cloud_errors.append("OpenAI Vision: request failed")
-
-                elif provider == "claude":
-                    result = await _claude_vision(api_key, b64_image, prompt, config.model.cloud_model)
-                    if result is not None:
-                        return result
-                    cloud_errors.append("Claude Vision: request failed")
-
-                else:
+                if provider not in {"gemini", "openai", "claude"}:
                     cloud_errors.append(f"Unsupported cloud provider for vision: {provider}")
+                else:
+                    vision_tasks.append(
+                        asyncio.create_task(
+                            _bounded_cloud_vision(
+                                provider,
+                                api_key,
+                                b64_image,
+                                prompt,
+                                config.model.cloud_model,
+                            )
+                        )
+                    )
             else:
                 cloud_errors.append(f"No API key stored for {config.model.cloud_provider}")
     except Exception as e:
         cloud_errors.append(f"Cloud vision init error: {e}")
         logger.warning("Cloud vision exception: %s", e)
 
-    # ── 2. Local Ollama with vision models ───────────────────────────
     try:
-        ollama_url = "http://127.0.0.1:11434"
-        try:
-            ollama_url = PilotConfig.load().model.ollama_base_url or ollama_url
-        except Exception:
-            pass
+        for completed in asyncio.as_completed(vision_tasks, timeout=VISION_CLOUD_TIMEOUT_SECONDS):
+            try:
+                result = await completed
+            except (TimeoutError, OSError):
+                continue
+            except Exception as exc:
+                cloud_errors.append(f"Vision provider failed: {exc}")
+                continue
+            if result:
+                return result
+    except TimeoutError:
+        cloud_errors.append(f"Vision providers exceeded the {VISION_CLOUD_TIMEOUT_SECONDS:g}s latency cap")
+    finally:
+        for pending in vision_tasks:
+            if not pending.done():
+                pending.cancel()
+        await asyncio.gather(*vision_tasks, return_exceptions=True)
 
-        async with create_httpx_client(PilotConfig.load(), timeout=60) as client:
-            for model_name in ["llava:7b", "llava", "bakllava", "moondream"]:
-                try:
-                    resp = await client.post(
-                        f"{ollama_url}/api/generate",
-                        json={"model": model_name, "prompt": prompt, "images": [b64_image], "stream": False},
-                    )
-                    if resp.status_code == 200:
-                        return resp.json().get("response", "No response")
-                except Exception:
-                    continue
-    except Exception:
-        pass
-
-    # ── 3. Fallback: OCR text dump ───────────────────────────────────
     try:
-        ocr_text = await screen_ocr(region)
+        ocr_text = await asyncio.wait_for(screen_ocr(region), timeout=VISION_OCR_TIMEOUT_SECONDS)
         if ocr_text and not ocr_text.startswith("[OCR unavailable"):
             return f"[Vision model not available — falling back to OCR]\nScreen text content:\n{ocr_text[:2000]}"
-    except Exception:
+    except (TimeoutError, OSError):
         pass
 
-    # ── All methods failed — return actionable error ─────────────────
     detail = "; ".join(cloud_errors) if cloud_errors else "No cloud provider configured"
-    return (
-        f"[Screen analysis unavailable. {detail}. "
-        f"Local Ollama vision models not found. OCR also unavailable. "
-        f"Please check your API key in Settings or install a local vision model.]"
-    )
+    return await _foreground_screen_fallback(detail)
 
 
 async def _gemini_vision(api_key: str, b64_image: str, prompt: str, configured_model: str | None = None) -> str | None:

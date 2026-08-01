@@ -1508,6 +1508,11 @@ class PilotServer:
             ActionType.BATTERY_INFO,
             ActionType.PROCESS_LIST,
             ActionType.PROCESS_INFO,
+            ActionType.SCREEN_OCR,
+            ActionType.SCREEN_ANALYZE,
+            ActionType.SCREEN_FIND_TEXT,
+            ActionType.SCREEN_ELEMENT_MAP,
+            ActionType.SCREENSHOT,
         }
         if len(plan.actions) != 1 or plan.actions[0].action_type not in telemetry_reads:
             return None

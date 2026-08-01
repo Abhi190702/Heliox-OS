@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pilot.actions import Action, ActionPlan, ActionType, SystemInfoParams, VerificationResult
+from pilot.actions import Action, ActionPlan, ActionType, ScreenVisionParams, SystemInfoParams, VerificationResult
 from pilot.agents.execution_companion import CompanionFollowUp
 from pilot.config import PilotConfig
 from pilot.server import PilotServer
@@ -76,3 +76,21 @@ def test_bounded_telemetry_plan_gets_immediate_local_companion_review():
     assert review is not None
     assert review.decision == "CONTINUE"
     assert "read-only" in review.reason
+
+
+def test_screen_analysis_gets_immediate_local_companion_review():
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.SCREEN_ANALYZE,
+                target="screen",
+                parameters=ScreenVisionParams(prompt="What is visible?"),
+            )
+        ],
+        explanation="Analyze the visible screen",
+    )
+
+    review = PilotServer._deterministic_companion_review(plan)
+
+    assert review is not None
+    assert review.decision == "CONTINUE"
