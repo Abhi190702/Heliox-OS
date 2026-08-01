@@ -74,6 +74,23 @@ def success_message(
             findings.append(f"{index}. {label}: {output or 'Verified.'}")
         return "\n".join(findings)
 
+    verified_outputs = [
+        _bound(_clean(result.output), 1200) for result in results if result.success and _clean(result.output)
+    ]
+    if len(results) == 1 and verified_outputs:
+        return verified_outputs[0]
+
+    if verified_outputs:
+        lines = []
+        for result in results:
+            output = _bound(_clean(result.output), 500)
+            if not result.success or not output:
+                continue
+            label = _clean(result.action.target) or result.action.action_type.value.replace("_", " ").title()
+            lines.append(f"- {label}: {output}")
+        if lines:
+            return "Verified results:\n" + "\n".join(lines)
+
     count = len(results)
     noun = "action" if count == 1 else "actions"
     intent = _clean(plan.explanation)
@@ -116,6 +133,12 @@ def partial_failure_message(
 
 def _clean(value: object) -> str:
     return " ".join(str(value).split())
+
+
+def _bound(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 3)].rstrip() + "..."
 
 
 def _extract_labeled_sections(output: str) -> list[tuple[str, str]]:

@@ -20,6 +20,7 @@ from pilot.actions import (
     BrowserParams,
     FileParams,
     PowerParams,
+    ScreenVisionParams,
     SystemInfoParams,
     VerificationResult,
 )
@@ -218,11 +219,63 @@ def _server_ready_for_handle_execute(executor, plan: ActionPlan | None = None) -
     )
 
     class _FakePlanner:
-        async def plan(self, user_input, error_context="", screen_context="", stream_callback=None):
+        async def plan(self, user_input, error_context="", screen_context="", stream_callback=None, **kwargs):
             return resolved_plan
 
     server._planner = _FakePlanner()
     return server
+
+
+@pytest.mark.asyncio
+async def test_verified_screen_observation_is_grounding_for_the_next_turn():
+    screen_plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.SCREEN_ANALYZE,
+                target="screen",
+                parameters=ScreenVisionParams(prompt="Identify what is visible"),
+            )
+        ],
+        explanation="Inspect the current screen.",
+    )
+
+    class _Executor:
+        async def execute(self, plan, **kwargs):
+            return [
+                ActionResult(
+                    action=plan.actions[0],
+                    success=True,
+                    output="Two climbers are standing on the Empire State Building antenna.",
+                )
+            ]
+
+    class _Verifier:
+        async def verify(self, plan, results):
+            return VerificationResult(passed=True, details=["Screen result verified"], failed_actions=[])
+
+    server = _server_ready_for_handle_execute(_Executor(), screen_plan)
+    server._verifier = _Verifier()
+    await server._handle_execute(
+        {"input": "what is on my screen", "session_id": "voice"},
+        _FakeWs(),
+    )
+
+    captured: dict[str, str] = {}
+
+    class _FollowThroughPlanner:
+        async def plan(self, user_input, **kwargs):
+            captured["screen_context"] = kwargs["screen_context"]
+            return ActionPlan(actions=[], explanation="I can research that subject next.")
+
+    server._planner = _FollowThroughPlanner()
+    await server._handle_execute(
+        {"input": "find out what this is about", "session_id": "voice"},
+        _FakeWs(),
+    )
+
+    assert "[RECENT COMPANION CONTEXT]" in captured["screen_context"]
+    assert "Two climbers" in captured["screen_context"]
+    assert "Empire State Building" in captured["screen_context"]
 
 
 @pytest.mark.asyncio
@@ -372,7 +425,7 @@ async def test_handle_execute_approved_success_reports_verified_outcome():
 
     assert result["status"] == "success"
     assert result["verification"]["passed"] is True
-    assert result["message"] == "Completed and verified 1 action. Open example.com."
+    assert result["message"] == "opened"
     assert sum('"method": "confirm_required"' in message for message in ws.sent) == 1
     assert [method for method, _ in server.test_broadcasts].count("task_complete") == 1
 

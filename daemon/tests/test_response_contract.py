@@ -15,9 +15,7 @@ def test_success_message_reports_verified_execution_not_just_plan_intent():
     result = ActionResult(action=_action(), success=True, output="Windows")
     verification = VerificationResult(passed=True, details=["Action 0: VERIFIED"])
 
-    assert success_message(plan, [result], verification, dry_run=False) == (
-        "Completed and verified 1 action. Inspect system information."
-    )
+    assert success_message(plan, [result], verification, dry_run=False) == "Windows"
 
 
 def test_dry_run_message_explicitly_says_no_changes_were_made():

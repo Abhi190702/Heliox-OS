@@ -2902,6 +2902,10 @@ class PilotServer:
                 )
 
                 message = success_message(plan, results, verification, dry_run=dry_run)
+                self._recent_companion_context_by_session[chat_session_id] = (
+                    f"Previous request: {_sanitize_summary(user_input, limit=300)}\n"
+                    f"Verified result: {_sanitize_summary(message, limit=700)}"
+                )
                 await _emit_task_complete("success", message)
 
                 if (

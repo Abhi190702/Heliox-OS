@@ -6,7 +6,7 @@ from pilot.system.interaction import InteractionPhase, InteractionRuntime, ackno
 
 
 @pytest.mark.parametrize(
-    ("request", "expected"),
+    ("utterance", "expected"),
     [
         ("find the latest update", "I’ll look into that."),
         ("show system information", "I’ll check."),
@@ -14,8 +14,8 @@ from pilot.system.interaction import InteractionPhase, InteractionRuntime, ackno
         ("build a release checklist", "I’ll put that together."),
     ],
 )
-def test_acknowledgement_describes_the_next_step_without_claiming_success(request, expected):
-    assert acknowledgement_for(request) == expected
+def test_acknowledgement_describes_the_next_step_without_claiming_success(utterance, expected):
+    assert acknowledgement_for(utterance) == expected
 
 
 @pytest.mark.asyncio
