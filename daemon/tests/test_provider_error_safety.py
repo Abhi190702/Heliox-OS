@@ -1,6 +1,9 @@
+import asyncio
+
 import httpx
 import pytest
 
+import pilot.models.cloud as cloud_module
 from pilot.config import PilotConfig
 from pilot.models.cloud import CloudClient, safe_provider_error
 from pilot.models.router import ModelRouter
@@ -82,6 +85,44 @@ async def test_cloud_client_rotates_past_an_invalid_key():
 
     assert await client.generate("hello") == "healthy response"
     assert attempted_keys == ["invalid-primary-key", "healthy-backup-key"]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_cloud_client_rotates_past_a_transient_timeout():
+    config = PilotConfig()
+    config.model.cloud_provider = "gemini"
+    client = CloudClient(config, _BackupVault())
+    attempted_keys: list[str] = []
+
+    async def _generate(api_key, *args, **kwargs):
+        attempted_keys.append(api_key)
+        if api_key == "invalid-primary-key":
+            raise httpx.ReadTimeout("provider stalled")
+        return "healthy response"
+
+    client._call_gemini_native = _generate
+
+    assert await client.generate("hello") == "healthy response"
+    assert attempted_keys == ["invalid-primary-key", "healthy-backup-key"]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_cloud_client_bounds_a_hung_generation(monkeypatch):
+    config = PilotConfig()
+    config.model.cloud_provider = "gemini"
+    client = CloudClient(config, _Vault())
+    monkeypatch.setattr(cloud_module, "CLOUD_GENERATION_BUDGET_SECONDS", 0.01)
+
+    async def _hang(*args, **kwargs):
+        await asyncio.sleep(1)
+        return "too late"
+
+    client._call_gemini_native = _hang
+
+    with pytest.raises(RuntimeError, match="request timed out"):
+        await client.generate("hello")
     await client.close()
 
 

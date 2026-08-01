@@ -44,6 +44,7 @@ DEFAULT_MODELS = {
 
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 3.0  # seconds
+CLOUD_GENERATION_BUDGET_SECONDS = 18.0
 _SECRET_VALUE = re.compile(r"(?i)(?P<prefix>(?:[?&](?:key|api[_-]?key|token)|authorization)\s*[=:]\s*)[^&\s]+")
 _GOOGLE_API_KEY = re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b")
 
@@ -51,6 +52,8 @@ _GOOGLE_API_KEY = re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b")
 def safe_provider_error(error: Exception, provider: str) -> str:
     """Return an actionable provider failure that never includes secrets or URLs."""
     provider_name = provider.title() or "Cloud"
+    if isinstance(error, TimeoutError | httpx.TimeoutException):
+        return f"{provider_name} API unavailable: the request timed out."
     if isinstance(error, httpx.HTTPStatusError):
         status = error.response.status_code
         body = error.response.text.lower()
@@ -113,6 +116,10 @@ def _is_api_key_error(error: Exception) -> bool:
     )
 
 
+def _is_transient_transport_error(error: Exception) -> bool:
+    return isinstance(error, TimeoutError | httpx.TimeoutException | httpx.TransportError)
+
+
 class CloudClient:
     """Unified cloud LLM client. API keys are fetched from the vault at call time."""
 
@@ -150,39 +157,42 @@ class CloudClient:
 
         has_backups = len(api_keys) > 1
         last_error = None
+        deadline = asyncio.get_running_loop().time() + CLOUD_GENERATION_BUDGET_SECONDS
         for key_idx, api_key in enumerate(api_keys):
             try:
-                if provider == "gemini":
-                    # When we have backup keys, reduce retries per key to rotate faster
-                    max_retries = 1 if (has_backups and key_idx < len(api_keys) - 1) else MAX_RETRIES
-                    result = await self._call_gemini_native(
-                        api_key,
-                        model,
-                        prompt,
-                        system,
-                        json_mode,
-                        temperature,
-                        max_retries=max_retries,
-                    )
-                    if stream_callback:
-                        await stream_callback(result)
-                    return result
-                elif provider == "claude":
-                    result = await self._call_anthropic(api_key, model, prompt, system, temperature)
-                    if stream_callback:
-                        await stream_callback(result)
-                    return result
-                else:
-                    result = await self._call_openai_compat(
-                        provider, api_key, model, prompt, system, json_mode, temperature
-                    )
-                    if stream_callback:
-                        await stream_callback(result)
-                    return result
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError
+                async with asyncio.timeout(remaining):
+                    if provider == "gemini":
+                        # When we have backup keys, reduce retries per key to rotate faster
+                        max_retries = 1 if (has_backups and key_idx < len(api_keys) - 1) else MAX_RETRIES
+                        result = await self._call_gemini_native(
+                            api_key,
+                            model,
+                            prompt,
+                            system,
+                            json_mode,
+                            temperature,
+                            max_retries=max_retries,
+                        )
+                    elif provider == "claude":
+                        result = await self._call_anthropic(api_key, model, prompt, system, temperature)
+                    else:
+                        result = await self._call_openai_compat(
+                            provider, api_key, model, prompt, system, json_mode, temperature
+                        )
+                if stream_callback:
+                    await stream_callback(result)
+                return result
             except Exception as e:
                 last_error = e
-                can_try_another_key = _is_rate_limit_error(e) or _is_api_key_error(e)
+                can_try_another_key = (
+                    _is_rate_limit_error(e) or _is_api_key_error(e) or _is_transient_transport_error(e)
+                )
                 if can_try_another_key and key_idx < len(api_keys) - 1:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        break
                     logger.warning(
                         "API key %d/%d failed (%s), rotating to next key",
                         key_idx + 1,
