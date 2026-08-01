@@ -10,6 +10,7 @@ from pilot.actions import (
     ActionResult,
     ActionType,
     BrowserParams,
+    OpenApplicationParams,
     SystemInfoParams,
     VerificationResult,
 )
@@ -178,6 +179,35 @@ async def test_follow_up_uses_grounded_local_fallback_when_model_is_offline():
     assert follow_up.message == "The requested task completed and passed verification."
     assert "final page" in follow_up.suggestions[0]
     assert "PRIVATE PAGE CONTENT" not in follow_up.spoken_text()
+
+
+@pytest.mark.asyncio
+async def test_application_follow_up_is_immediate_and_does_not_call_model():
+    model = _Model(error=AssertionError("model should not be called"))
+    companion = ExecutionCompanion(model)
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.OPEN_APPLICATION,
+                target="Openscreen",
+                parameters=OpenApplicationParams(name="Openscreen"),
+            )
+        ],
+        explanation="Launch Openscreen",
+    )
+    result = ActionResult(action=plan.actions[0], success=True, output="Launched Openscreen")
+
+    follow_up = await companion.follow_up(
+        "open Openscreen",
+        plan,
+        [result],
+        VerificationResult(passed=True, details=["verified"]),
+    )
+
+    assert follow_up is not None
+    assert follow_up.source == "local_fallback"
+    assert "inside the application" in follow_up.suggestions[0]
+    assert model.calls == []
 
 
 @pytest.mark.asyncio

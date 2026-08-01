@@ -139,7 +139,10 @@ class VoiceConfig:
     # boundaries. Approximate defaults, not tuned against real microphone
     # hardware; revisit if real usage shows false starts/premature cutoffs.
     vad_energy_threshold: float = 0.02
-    vad_silence_ms: float = 700.0
+    # A short conversational pause should complete the utterance quickly.
+    # 450 ms still tolerates natural spacing between words while avoiding the
+    # 1+ second dead-air penalty that makes always-listening control feel laggy.
+    vad_silence_ms: float = 450.0
     vad_max_utterance_seconds: float = 20.0
     # Interrupt Heliox's own TTS playback the instant the user starts
     # talking, instead of waiting for it to finish. A pure responsiveness/

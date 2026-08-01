@@ -102,6 +102,26 @@ class TestAmbientNarration:
         await narrator.on_action_start(_action())
         assert broadcast.calls == []
 
+    @pytest.mark.asyncio
+    async def test_fast_direct_action_speaks_only_through_final_result(self):
+        narrator, _, broadcast = _narrator()
+        action = _action(ActionType.OPEN_APPLICATION, "Calculator")
+
+        await narrator.on_action_start(action)
+        await narrator.on_action_complete(ActionResult(action=action, success=True, output="Launched"))
+
+        assert broadcast.calls == []
+
+    @pytest.mark.asyncio
+    async def test_fast_direct_action_failure_is_still_narrated(self):
+        narrator, _, broadcast = _narrator()
+        action = _action(ActionType.OPEN_APPLICATION, "Missing")
+
+        await narrator.on_action_complete(ActionResult(action=action, success=False, error="not found"))
+
+        assert len(broadcast.calls) == 1
+        assert "Failed" in broadcast.calls[0][1]["text"]
+
 
 class TestPlanRiskInterrupt:
     @pytest.mark.asyncio

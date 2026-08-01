@@ -4,7 +4,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pilot.actions import Action, ActionPlan, ActionType, ScreenVisionParams, SystemInfoParams, VerificationResult
+from pilot.actions import (
+    Action,
+    ActionPlan,
+    ActionType,
+    OpenApplicationParams,
+    ScreenVisionParams,
+    SystemInfoParams,
+    VerificationResult,
+)
 from pilot.agents.execution_companion import CompanionFollowUp
 from pilot.config import PilotConfig
 from pilot.server import PilotServer
@@ -94,3 +102,22 @@ def test_screen_analysis_gets_immediate_local_companion_review():
 
     assert review is not None
     assert review.decision == "CONTINUE"
+
+
+def test_direct_application_launch_gets_immediate_local_companion_review():
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.OPEN_APPLICATION,
+                target="Openscreen",
+                parameters=OpenApplicationParams(name="Openscreen"),
+            )
+        ],
+        explanation="Launch Openscreen",
+    )
+
+    review = PilotServer._deterministic_companion_review(plan)
+
+    assert review is not None
+    assert review.decision == "CONTINUE"
+    assert "bounded" in review.reason

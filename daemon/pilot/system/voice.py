@@ -1155,6 +1155,7 @@ class ContinuousVoiceListener:
         self._workflow_control = workflow_control
         self._running = False
         self._task: asyncio.Task[None] | None = None
+        self._transcriber_warmup_task: asyncio.Task[None] | None = None
         self._command_tasks: set[asyncio.Task[None]] = set()
         self._listening_for_command = False
         self._follow_up_until = 0.0
@@ -1168,6 +1169,8 @@ class ContinuousVoiceListener:
         self.last_detected_language = "en"
         self.last_transcript = ""
         self.transcripts_received = 0
+        self.last_transcription_ms = 0.0
+        self.last_command_pipeline_ms = 0.0
         # On-device wake-word calibration (continual-learning loop) — see
         # voice_calibration.py. Only ever a fallback tried after the fixed
         # exact-match loop below misses; the common case is untouched.
@@ -1235,6 +1238,7 @@ class ContinuousVoiceListener:
             return f"Voice listener could not start: {detail}"
 
         self._task = asyncio.create_task(self._listen_loop())
+        self._transcriber_warmup_task = asyncio.create_task(self._warm_transcriber())
 
         logger.info(
             "Continuous voice listener started (wake words: %s, vad_recorder=%s)",
@@ -1245,6 +1249,23 @@ class ContinuousVoiceListener:
         if self.config.voice.continuous_conversation_enabled:
             return "Continuous voice listener started. Speak naturally; the wake phrase is optional."
         return f"Voice listener started. Say '{self.wake_words[0]}' to activate."
+
+    async def _warm_transcriber(self) -> None:
+        """Load the configured local recognizer before the first utterance."""
+
+        started = time.perf_counter()
+        try:
+            await asyncio.to_thread(_get_whisper_model, self.config.voice.whisper_model)
+            logger.info(
+                "Voice recognizer warmup completed (model=%s, duration_ms=%.0f)",
+                self.config.voice.whisper_model,
+                (time.perf_counter() - started) * 1000,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            # Normal transcription retains its Windows fallback path.
+            logger.warning("Voice recognizer warmup unavailable: %s", error)
 
     async def stop(self) -> str:
         self._running = False
@@ -1257,6 +1278,11 @@ class ContinuousVoiceListener:
                 await self._task
             except asyncio.CancelledError:
                 pass
+
+        if self._transcriber_warmup_task and not self._transcriber_warmup_task.done():
+            self._transcriber_warmup_task.cancel()
+            await asyncio.gather(self._transcriber_warmup_task, return_exceptions=True)
+        self._transcriber_warmup_task = None
 
         current = asyncio.current_task()
         command_tasks = tuple(task for task in self._command_tasks if task is not current)
@@ -1452,12 +1478,20 @@ class ContinuousVoiceListener:
 
     async def _dispatch_command(self, command_text: str) -> None:
         """Run a recognized command without pausing ambient listening."""
+        started = time.perf_counter()
         try:
             await self._on_command(command_text)
         except asyncio.CancelledError:
             raise
         except Exception as error:
             logger.error("Voice command dispatch failed: %s", error)
+        finally:
+            self.last_command_pipeline_ms = (time.perf_counter() - started) * 1000
+            logger.info(
+                "Voice command pipeline completed (duration_ms=%.0f, command=%r)",
+                self.last_command_pipeline_ms,
+                command_text[:80],
+            )
 
     async def _transcribe_path(self, audio_path: str) -> str:
         """Transcribes an already-recorded WAV file with multilingual support."""
@@ -1504,7 +1538,15 @@ class ContinuousVoiceListener:
             else:
                 audio_path = await _record_audio(duration)
 
-            return await self._transcribe_path(audio_path)
+            started = time.perf_counter()
+            transcript = await self._transcribe_path(audio_path)
+            self.last_transcription_ms = (time.perf_counter() - started) * 1000
+            logger.info(
+                "Voice transcription completed (duration_ms=%.0f, characters=%d)",
+                self.last_transcription_ms,
+                len(transcript.strip()),
+            )
+            return transcript
 
         except Exception as e:
             logger.debug(
@@ -1535,6 +1577,8 @@ class ContinuousVoiceListener:
             "utterances_captured": self._recorder.utterances_captured,
             "transcripts_received": self.transcripts_received,
             "last_transcript": self.last_transcript,
+            "last_transcription_ms": round(self.last_transcription_ms),
+            "last_command_pipeline_ms": round(self.last_command_pipeline_ms),
             "follow_up_active": self.follow_up_remaining_seconds > 0,
             "follow_up_remaining_seconds": round(self.follow_up_remaining_seconds, 1),
             "continuous_conversation_enabled": self.config.voice.continuous_conversation_enabled,

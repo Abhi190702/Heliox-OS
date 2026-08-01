@@ -175,6 +175,8 @@ def test_listener_stats_expose_transient_signal_and_transcript_diagnostics():
     listener._recorder.utterances_captured = 2
     listener.transcripts_received = 1
     listener.last_transcript = "hey heliocs open github"
+    listener.last_transcription_ms = 234.4
+    listener.last_command_pipeline_ms = 987.6
 
     stats = listener.get_stats()
 
@@ -185,3 +187,5 @@ def test_listener_stats_expose_transient_signal_and_transcript_diagnostics():
     assert stats["utterances_captured"] == 2
     assert stats["transcripts_received"] == 1
     assert stats["last_transcript"] == "hey heliocs open github"
+    assert stats["last_transcription_ms"] == 234
+    assert stats["last_command_pipeline_ms"] == 988

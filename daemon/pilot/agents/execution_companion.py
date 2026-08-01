@@ -27,6 +27,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("pilot.agents.execution_companion")
 
+_LOCAL_FOLLOW_UP_ACTIONS = {
+    "open_application",
+    "open_url",
+    "notify",
+}
+
 
 _SYSTEM_PROMPT = """\
 You are Heliox's independent Interactive Execution Companion.
@@ -178,6 +184,12 @@ class ExecutionCompanion:
         if not successful_action_types:
             return None
 
+        # These bounded single-step actions already have useful deterministic
+        # suggestions. Avoid occupying the cloud provider for five seconds
+        # after a command that itself completed locally in milliseconds.
+        if set(successful_action_types).issubset(_LOCAL_FOLLOW_UP_ACTIONS):
+            return self._fallback_follow_up(successful_action_types)
+
         action_lines = [
             (
                 f"- {result.action.action_type.value}: "
@@ -244,6 +256,20 @@ class ExecutionCompanion:
                 [
                     "Add edge-case inputs and rerun the same code",
                     "Save the verified code and its expected output as a reusable check",
+                ]
+            )
+        if "open_application" in families:
+            suggestions.extend(
+                [
+                    "Tell me what you want to open or do inside the application",
+                    "Ask me to switch to another application when you are ready",
+                ]
+            )
+        if "open_url" in families:
+            suggestions.extend(
+                [
+                    "Tell me what you want to find or click on the opened page",
+                    "Ask me to summarize the page or extract its useful links",
                 ]
             )
 

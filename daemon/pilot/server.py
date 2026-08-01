@@ -1499,7 +1499,7 @@ class PilotServer:
         from pilot.actions import ActionType
         from pilot.agents.execution_companion import CompanionReview
 
-        telemetry_reads = {
+        immediate_local_actions = {
             ActionType.SYSTEM_INFO,
             ActionType.CPU_USAGE,
             ActionType.MEMORY_USAGE,
@@ -1513,12 +1513,23 @@ class PilotServer:
             ActionType.SCREEN_FIND_TEXT,
             ActionType.SCREEN_ELEMENT_MAP,
             ActionType.SCREENSHOT,
+            # Direct local fast paths should not pay for a remote advisory
+            # round-trip. Deterministic permissions, world-model assessment,
+            # execution, and verification still run exactly as before.
+            ActionType.OPEN_APPLICATION,
+            ActionType.OPEN_URL,
+            ActionType.NOTIFY,
         }
-        if len(plan.actions) != 1 or plan.actions[0].action_type not in telemetry_reads:
+        if len(plan.actions) != 1 or plan.actions[0].action_type not in immediate_local_actions:
             return None
+        action_type = plan.actions[0].action_type
+        if action_type in {ActionType.OPEN_APPLICATION, ActionType.OPEN_URL, ActionType.NOTIFY}:
+            reason = "The direct local action is bounded, reversible, and matches the request."
+        else:
+            reason = "The local telemetry plan is bounded, read-only, and directly answers the request."
         return CompanionReview(
             decision="CONTINUE",
-            reason="The local telemetry plan is bounded, read-only, and directly answers the request.",
+            reason=reason,
         )
 
     def _execution_scope_for_source(self, source_name: str) -> tuple[Any, Any | None]:
@@ -6870,17 +6881,29 @@ def handle_tool(tool_name, params):
         *,
         channel: SpeechChannel,
         dedupe_key: str,
-    ) -> None:
-        """Queue short interaction speech without delaying task execution."""
-        task = asyncio.create_task(
-            self._speak_companion_text(
+        delay_seconds: float = 0.0,
+    ) -> asyncio.Task[None]:
+        """Queue short interaction speech without delaying task execution.
+
+        A voice acknowledgement may be delayed briefly so a fast command can
+        deliver its real result instead of synthesizing two back-to-back
+        utterances. The caller can cancel the returned task while it is still
+        in that delay window.
+        """
+
+        async def _speak_after_delay() -> None:
+            if delay_seconds > 0:
+                await asyncio.sleep(delay_seconds)
+            await self._speak_companion_text(
                 text,
                 channel=channel,
                 dedupe_key=dedupe_key,
             )
-        )
+
+        task = asyncio.create_task(_speak_after_delay())
         self._interaction_speech_tasks.add(task)
         task.add_done_callback(self._interaction_speech_tasks.discard)
+        return task
 
     async def _arm_voice_follow_up(self) -> bool:
         """Open one wake-free conversational turn after Heliox stops talking."""
@@ -7163,10 +7186,11 @@ def handle_tool(tool_name, params):
                 "proactive_decision": proactive_decision,
             },
         )
-        self._spawn_interaction_speech(
+        acknowledgement_task = self._spawn_interaction_speech(
             acknowledgement_for(command_text),
             channel=SpeechChannel.TASK_NARRATION,
             dedupe_key=f"voice-ack:{interaction_id}",
+            delay_seconds=2.5,
         )
 
         try:
@@ -7175,16 +7199,23 @@ def handle_tool(tool_name, params):
                 message="Planning the safest useful action",
                 interaction_id=interaction_id,
             )
-            response = await self._handle_execute(
-                {
-                    "input": command_text,
-                    "session_id": "voice",
-                    "user_id": "local",
-                    "source": "voice",
-                    "_interaction_id": interaction_id,
-                },
-                _BroadcastConnection(self._broadcast_notification),
-            )
+            try:
+                response = await self._handle_execute(
+                    {
+                        "input": command_text,
+                        "session_id": "voice",
+                        "user_id": "local",
+                        "source": "voice",
+                        "_interaction_id": interaction_id,
+                    },
+                    _BroadcastConnection(self._broadcast_notification),
+                )
+            finally:
+                # A quick command should speak only its useful final result.
+                # Longer work still gets the delayed acknowledgement, and the
+                # coordinator lets the higher-priority final answer preempt it.
+                if isinstance(acknowledgement_task, asyncio.Task) and not acknowledgement_task.done():
+                    acknowledgement_task.cancel()
             status = str(response.get("status") or "error")
             result_text = str(
                 response.get("message")

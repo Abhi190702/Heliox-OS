@@ -9,6 +9,7 @@ the new specialist-orchestrator routing with a voice-derived scope_override.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -55,6 +56,18 @@ async def test_voice_runs_through_unified_interactive_handler():
         channel=SpeechChannel.FINAL_ANSWER,
         dedupe_key="voice-result:read my notes",
     )
+
+
+@pytest.mark.asyncio
+async def test_quick_voice_command_cancels_delayed_acknowledgement():
+    server = _bare_server()
+    server._spawn_interaction_speech = PilotServer._spawn_interaction_speech.__get__(server)
+    server._speak_companion_text = AsyncMock()
+
+    await server._voice_command_dispatch("open Openscreen")
+    await asyncio.sleep(0)
+
+    server._speak_companion_text.assert_not_awaited()
 
 
 @pytest.mark.asyncio

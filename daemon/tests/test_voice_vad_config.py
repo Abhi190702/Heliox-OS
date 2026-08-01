@@ -4,7 +4,7 @@ from pilot.config import PilotConfig, _merge_config
 def test_defaults():
     config = PilotConfig()
     assert config.voice.vad_energy_threshold == 0.02
-    assert config.voice.vad_silence_ms == 700.0
+    assert config.voice.vad_silence_ms == 450.0
     assert config.voice.vad_max_utterance_seconds == 20.0
     assert config.voice.barge_in_enabled is True
     assert config.voice.tts_engine == "kokoro_tts"

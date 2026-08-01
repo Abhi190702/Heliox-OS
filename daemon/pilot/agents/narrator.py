@@ -39,6 +39,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("pilot.agents.narrator")
 
+# Direct commands complete quickly and already produce a concise final answer.
+# Speaking "Starting" and "Done" around that answer creates chatter and burns
+# more time synthesizing narration than performing the action itself.
+_SILENT_SUCCESS_ACTIONS = {
+    "open_application",
+    "open_url",
+    "notify",
+}
+
 
 def _describe_action(action: Action) -> str:
     target = getattr(action, "target", "") or ""
@@ -73,6 +82,8 @@ class ExecutionNarrator:
         cfg = self._cfg()
         if not cfg.enabled or not cfg.narrate_steps or not self._broadcast_fn:
             return
+        if action.action_type.value in _SILENT_SUCCESS_ACTIONS:
+            return
         await self._broadcast_fn(
             "execution_narration",
             {
@@ -87,6 +98,8 @@ class ExecutionNarrator:
     async def on_action_complete(self, result: ActionResult) -> None:
         cfg = self._cfg()
         if not cfg.enabled or not cfg.narrate_steps or not self._broadcast_fn:
+            return
+        if result.success and result.action.action_type.value in _SILENT_SUCCESS_ACTIONS:
             return
         description = _describe_action(result.action)
         text = (

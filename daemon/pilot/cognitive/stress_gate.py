@@ -81,6 +81,11 @@ SAFE_ACTIONS: set[ActionType] = {
     ActionType.GNOME_SETTING_READ,
     ActionType.NOTIFY,
     ActionType.OPEN_URL,
+    # Launching a locally registered application is a direct, reversible
+    # user-interface action.  Pausing it for ten seconds made ordinary voice
+    # control feel broken and added no safety value; the launcher itself now
+    # resolves installed registrations and fails closed.
+    ActionType.OPEN_APPLICATION,
 }
 
 # High-risk actions that are ALWAYS gated under stress (even moderate)
