@@ -557,6 +557,29 @@ class Planner:
                 raw_input=user_input,
             )
 
+        # --- current world situation -> useful live visualization ---
+        # This is a bounded presentation intent, not a claim that Heliox has
+        # independently verified every item on the third-party dashboard.
+        wants_world_monitor = (
+            re.search(r"\b(?:current|latest|live|today|now)\b", text)
+            and re.search(r"\b(?:world|global|international)\b", text)
+            and re.search(r"\b(?:news|events|situation|intelligence|monitor)\b", text)
+            and re.search(r"\b(?:show|open|display|visuali[sz]e|map|monitor)\b", text)
+        )
+        if wants_world_monitor:
+            url = "https://www.worldmonitor.app/"
+            return ActionPlan(
+                actions=[
+                    Action(
+                        action_type=ActionType.OPEN_URL,
+                        target=url,
+                        parameters=OpenUrlParams(url=url),
+                    )
+                ],
+                explanation="Open a live map-first global intelligence dashboard",
+                raw_input=user_input,
+            )
+
         # --- "take a screenshot" / "screenshot" ---
         if re.match(r"^(?:take\s+(?:a\s+)?)?screenshot$", text):
             return ActionPlan(
@@ -1040,7 +1063,7 @@ class Planner:
         2. Auto-insert browser_extract after browser_navigate when missing
         3. Fix Windows backslash paths in code_execute Python code
         3b. Remove useless file_read that disrupts data pipeline
-        4. screen_analyze → screen_ocr conversion
+        4. Preserve screen_analyze; its runtime owns bounded OCR fallback
         5. Linux → Windows path conversion
         6. Shell command splitting
         """

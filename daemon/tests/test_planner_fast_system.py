@@ -35,3 +35,15 @@ def test_postprocessor_preserves_visual_analysis_instead_of_forcing_ocr():
 
     assert processed[0].action_type == ActionType.SCREEN_ANALYZE
     assert processed[0].parameters.prompt == "Identify the photograph"
+
+
+def test_live_world_situation_opens_a_useful_map_visualization():
+    plan = Planner._try_fast_path("Show me a live map of the current world situation")
+
+    assert plan is not None
+    assert [action.action_type for action in plan.actions] == [ActionType.OPEN_URL]
+    assert plan.actions[0].parameters.url == "https://www.worldmonitor.app/"
+
+
+def test_plain_world_news_question_still_requires_grounded_research():
+    assert Planner._try_fast_path("What is the latest world news?") is None
