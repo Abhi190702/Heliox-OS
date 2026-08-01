@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "../api/invoke";
+  import { call } from "../api/daemon";
   import type { GitConflictPayload } from "../stores/session";
   import { session } from "../stores/session";
   import { isTauriRuntime } from "../utils/runtime";
@@ -53,7 +54,6 @@
           });
         } else {
           // Fallback: Apply via WebSocket JSON-RPC bridge command when running in standard browser
-          const { call } = await import("../api/daemon");
           await call("apply_git_resolution", {
             path: conflict.path,
             full_block: conflict.full_block,

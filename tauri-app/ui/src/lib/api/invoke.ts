@@ -1,4 +1,5 @@
 import uiPackage from "../../../package.json";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 
 const HELIOX_VERSION = uiPackage.version;
 
@@ -6,7 +7,6 @@ export async function invoke<T = any>(command: string, args?: any): Promise<T> {
   // First check if native Tauri IPC bridge is present
   if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
     try {
-      const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
       return await tauriInvoke<T>(command, args);
     } catch (e) {
       console.error(`Tauri native invoke error (${command}):`, e);

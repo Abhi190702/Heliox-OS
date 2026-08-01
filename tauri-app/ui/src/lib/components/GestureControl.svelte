@@ -43,6 +43,8 @@
 
   import { session } from "../stores/session";
   import { settings } from "../stores/settings";
+  import { invoke } from "../api/invoke";
+  import { call, offNotification, onNotification } from "../api/daemon";
   import { tick } from "svelte";
   import { Hands, type Results } from "@mediapipe/hands";
   import { FilesetResolver, HandLandmarker, FaceLandmarker } from "@mediapipe/tasks-vision";
@@ -259,10 +261,8 @@
   async function dispatchGestureCursor({ x, y }: { x: number; y: number }): Promise<void> {
     try {
       if (isTauriRuntime()) {
-        const { invoke } = await import("../api/invoke");
         await invoke("move_gesture_cursor", { x, y });
       } else {
-        const { call } = await import("../api/daemon");
         const result = await call<{ status?: string; message?: string }>("cursor_move", { x, y });
         if (result?.status === "error") {
           throw new Error(result.message || "Cursor move was rejected");
@@ -292,12 +292,10 @@
   async function clickGestureCursor(x: number, y: number): Promise<void> {
     try {
       if (isTauriRuntime()) {
-        const { invoke } = await import("../api/invoke");
         await invoke("click_gesture_cursor");
       } else {
         // The daemon fallback has no "click at current position" concept —
         // reuse the same coordinates the last cursor_move call already sent.
-        const { call } = await import("../api/daemon");
         const result = await call<{ status?: string; message?: string }>("cursor_click", { x, y });
         if (result?.status === "error") {
           throw new Error(result.message || "Cursor click was rejected");
@@ -641,7 +639,6 @@
   }
 
   async function loadGestureWorkflowBindings() {
-    const { call } = await import("../api/daemon");
     try {
       const policy = (await call("gesture_workflow_bindings_get")) as {
         enabled: boolean;
@@ -654,7 +651,6 @@
   }
 
   async function subscribeToWorkflowState() {
-    const { onNotification, call } = await import("../api/daemon");
     workflowNotificationHandler = (method, params) => {
       if (method === "gesture_workflow_bindings_updated") {
         void loadGestureWorkflowBindings();
@@ -689,7 +685,6 @@
 
   async function unsubscribeFromWorkflowState() {
     if (workflowNotificationHandler) {
-      const { offNotification } = await import("../api/daemon");
       offNotification(workflowNotificationHandler);
       workflowNotificationHandler = null;
     }
@@ -704,7 +699,6 @@
   }
 
   async function dispatchWorkflowControl(intent: "continue" | "cancel", workflowId: string) {
-    const { call } = await import("../api/daemon");
     try {
       const message = await controlGestureWorkflow((method, params) => call(method, params), intent, workflowId);
       if (pendingWorkflowId === workflowId) pendingWorkflowId = null;
@@ -715,7 +709,6 @@
   }
 
   async function startBoundWorkflow(goalTemplate: string, gestureName: string) {
-    const { call } = await import("../api/daemon");
     try {
       const message = await submitGestureWorkflow((method, params) => call(method, params), gestureName, goalTemplate);
       showWorkflowFeedback(message);
@@ -948,7 +941,6 @@
   async function sendGazeEvent(region: GazeRegion, confidence: number): Promise<void> {
     updateGazeRuntime({ daemonStatus: "sending" });
     try {
-      const { call } = await import("../api/daemon");
       const response = (await call("gaze_event", { region, confidence })) as {
         status?: "ingested" | "ignored" | "error";
         reason?: string;

@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { invoke } from "./invoke";
 
 /**
@@ -68,8 +69,7 @@ export async function connect(): Promise<boolean> {
     // Fallback: VITE_DAEMON_TOKEN env var for browser-only dev mode (no Tauri).
     let authToken = "";
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      authToken = (await invoke<string>("get_auth_token")) ?? "";
+      authToken = (await tauriInvoke<string>("get_auth_token")) ?? "";
     } catch {
       // Running in browser dev mode without Tauri — try fetching from Vite dev server middleware first
       try {

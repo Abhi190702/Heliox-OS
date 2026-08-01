@@ -27,6 +27,38 @@ const MEDIAPIPE_TASKS_VISION_ASSET_DIR = "mediapipe/tasks-vision";
 const MEDIAPIPE_TASKS_VISION_WASM_DIR = join(CONFIG_DIR, "node_modules", "@mediapipe", "tasks-vision", "wasm");
 const MEDIAPIPE_TASKS_VISION_MODEL_DIR = join(CONFIG_DIR, "vendor", "mediapipe");
 
+function productionChunk(id: string): string | undefined {
+  const normalized = id.replace(/\\/g, "/");
+  if (!normalized.includes("/node_modules/")) return undefined;
+  if (normalized.includes("/@mediapipe/")) return "vision-runtime";
+  if (normalized.includes("/@tauri-apps/")) return "tauri-runtime";
+  if (normalized.includes("/chart.js/") || normalized.includes("/svelte-chartjs/")) return "charts";
+  if (normalized.includes("/highlight.js/") || normalized.includes("/marked/") || normalized.includes("/dompurify/")) {
+    return "content-rendering";
+  }
+  if (normalized.includes("/lucide-svelte/")) return "icons";
+  if (normalized.includes("/svelte/") || normalized.includes("/svelte-i18n/")) return "svelte-runtime";
+  return "vendor";
+}
+
+function enforceProductionChunkBudget(maxBytes = 500 * 1024): Plugin {
+  return {
+    name: "production-chunk-budget",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (output.type !== "chunk") continue;
+        const bytes = new TextEncoder().encode(output.code).byteLength;
+        if (bytes > maxBytes) {
+          this.error(
+            `${output.fileName} is ${(bytes / 1024).toFixed(1)} KiB, exceeding the ${(maxBytes / 1024).toFixed(0)} KiB production chunk budget`,
+          );
+        }
+      }
+    },
+  };
+}
+
 function contentType(file: string) {
   if (file.endsWith(".js")) return "text/javascript";
   if (file.endsWith(".wasm")) return "application/wasm";
@@ -507,7 +539,13 @@ function daemonTokenDevPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [svelte(), mediapipeHandsAssets(), mediapipeTasksVisionAssets(), daemonTokenDevPlugin()],
+  plugins: [
+    svelte(),
+    mediapipeHandsAssets(),
+    mediapipeTasksVisionAssets(),
+    daemonTokenDevPlugin(),
+    enforceProductionChunkBudget(),
+  ],
   clearScreen: false,
   server: {
     port: 1420,
@@ -518,6 +556,11 @@ export default defineConfig({
     target: "esnext",
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_DEBUG,
+    rollupOptions: {
+      output: {
+        manualChunks: productionChunk,
+      },
+    },
   },
   test: {
     environment: "jsdom",
