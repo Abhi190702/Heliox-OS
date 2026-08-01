@@ -89,6 +89,31 @@ async def test_cloud_client_rotates_past_an_invalid_key():
 
 
 @pytest.mark.asyncio
+async def test_cloud_client_skips_a_known_bad_key_on_the_next_generation():
+    config = PilotConfig()
+    config.model.cloud_provider = "gemini"
+    client = CloudClient(config, _BackupVault())
+    attempted_keys: list[str] = []
+
+    async def _generate(api_key, *args, **kwargs):
+        attempted_keys.append(api_key)
+        if api_key == "invalid-primary-key":
+            raise _http_error(400, body='{"error":{"status":"API_KEY_INVALID"}}')
+        return "healthy response"
+
+    client._call_gemini_native = _generate
+
+    assert await client.generate("first") == "healthy response"
+    assert await client.generate("second") == "healthy response"
+    assert attempted_keys == [
+        "invalid-primary-key",
+        "healthy-backup-key",
+        "healthy-backup-key",
+    ]
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_cloud_client_rotates_past_a_transient_timeout():
     config = PilotConfig()
     config.model.cloud_provider = "gemini"

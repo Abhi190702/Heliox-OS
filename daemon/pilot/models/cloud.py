@@ -8,6 +8,7 @@ their own native request/response shape.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -45,6 +46,9 @@ DEFAULT_MODELS = {
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 3.0  # seconds
 CLOUD_GENERATION_BUDGET_SECONDS = 18.0
+RATE_LIMIT_KEY_COOLDOWN_SECONDS = 60.0
+INVALID_KEY_COOLDOWN_SECONDS = 3600.0
+TRANSIENT_KEY_COOLDOWN_SECONDS = 15.0
 _SECRET_VALUE = re.compile(r"(?i)(?P<prefix>(?:[?&](?:key|api[_-]?key|token)|authorization)\s*[=:]\s*)[^&\s]+")
 _GOOGLE_API_KEY = re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b")
 
@@ -127,6 +131,30 @@ class CloudClient:
         self._config = config
         self._vault = vault
         self._client = create_httpx_client(config, timeout=120.0)
+        self._key_cooldowns: dict[bytes, float] = {}
+
+    @staticmethod
+    def _key_identity(api_key: str) -> bytes:
+        """Create a non-reversible in-memory identity without retaining another key copy."""
+        return hashlib.sha256(api_key.encode("utf-8")).digest()
+
+    def _prefer_healthy_keys(self, api_keys: list[str]) -> list[str]:
+        """Skip keys that already failed during this daemon session when possible."""
+        now = asyncio.get_running_loop().time()
+        healthy = [key for key in api_keys if self._key_cooldowns.get(self._key_identity(key), 0.0) <= now]
+        if healthy:
+            return healthy
+        # If every key is cooling down, retry the one eligible soonest instead
+        # of declaring the provider permanently unavailable.
+        return [
+            min(
+                api_keys,
+                key=lambda key: self._key_cooldowns.get(self._key_identity(key), 0.0),
+            )
+        ]
+
+    def _cool_down_key(self, api_key: str, seconds: float) -> None:
+        self._key_cooldowns[self._key_identity(api_key)] = asyncio.get_running_loop().time() + seconds
 
     async def generate(
         self,
@@ -155,6 +183,7 @@ class CloudClient:
         if not api_keys:
             raise RuntimeError(f"No API key configured for {provider}")
 
+        api_keys = self._prefer_healthy_keys(api_keys)
         has_backups = len(api_keys) > 1
         last_error = None
         deadline = asyncio.get_running_loop().time() + CLOUD_GENERATION_BUDGET_SECONDS
@@ -165,8 +194,9 @@ class CloudClient:
                     raise TimeoutError
                 async with asyncio.timeout(remaining):
                     if provider == "gemini":
-                        # When we have backup keys, reduce retries per key to rotate faster
-                        max_retries = 1 if (has_backups and key_idx < len(api_keys) - 1) else MAX_RETRIES
+                        # Do not spend a backoff cycle on a key when another
+                        # configured key can be tried immediately.
+                        max_retries = 0 if (has_backups and key_idx < len(api_keys) - 1) else MAX_RETRIES
                         result = await self._call_gemini_native(
                             api_key,
                             model,
@@ -184,12 +214,20 @@ class CloudClient:
                         )
                 if stream_callback:
                     await stream_callback(result)
+                self._key_cooldowns.pop(self._key_identity(api_key), None)
                 return result
             except Exception as e:
                 last_error = e
-                can_try_another_key = (
-                    _is_rate_limit_error(e) or _is_api_key_error(e) or _is_transient_transport_error(e)
-                )
+                is_rate_limit = _is_rate_limit_error(e)
+                is_api_key_error = _is_api_key_error(e)
+                is_transport_error = _is_transient_transport_error(e)
+                if is_api_key_error:
+                    self._cool_down_key(api_key, INVALID_KEY_COOLDOWN_SECONDS)
+                elif is_rate_limit:
+                    self._cool_down_key(api_key, RATE_LIMIT_KEY_COOLDOWN_SECONDS)
+                elif is_transport_error:
+                    self._cool_down_key(api_key, TRANSIENT_KEY_COOLDOWN_SECONDS)
+                can_try_another_key = is_rate_limit or is_api_key_error or is_transport_error
                 if can_try_another_key and key_idx < len(api_keys) - 1:
                     if asyncio.get_running_loop().time() >= deadline:
                         break
