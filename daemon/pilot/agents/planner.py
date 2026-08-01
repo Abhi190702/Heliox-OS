@@ -588,7 +588,15 @@ class Planner:
             )
 
         # --- "show system info" / "system information" ---
-        if re.match(r"^(?:show\s+)?system\s+(?:info|information)$", text):
+        # Keep this harmless, read-only intent resilient to a single noisy
+        # speech-to-text prefix (for example Whisper rendering "show" as
+        # "true"). Without this bounded suffix match, a basic status query
+        # needlessly falls through to the slower model planner.
+        system_info_suffix = re.search(
+            r"\bsystem\s+(?:info|information|details|specs|specifications)[?.!]*$",
+            text,
+        )
+        if system_info_suffix and len(text.split()) <= 6:
             return ActionPlan(
                 actions=[
                     Action(
