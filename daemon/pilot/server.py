@@ -7094,6 +7094,33 @@ def handle_tool(tool_name, params):
             )
             return
 
+        spoken_command = command_text
+        proactive_decision = None
+        if self._proactive and hasattr(self._proactive, "resolve_spoken_response"):
+            proactive_decision = await self._proactive.resolve_spoken_response(command_text)
+        if proactive_decision and proactive_decision["decision"] == "dismissed":
+            message = f"Okay, I won’t act on {proactive_decision['title']}."
+            await self._broadcast_notification(
+                "voice_result",
+                {
+                    "command": spoken_command,
+                    "status": "success",
+                    "result": message,
+                    "proactive_decision": proactive_decision,
+                },
+            )
+            await self._speak_voice_response(
+                message,
+                channel=SpeechChannel.FINAL_ANSWER,
+                dedupe_key=f"proactive-dismissed:{proactive_decision['suggestion_id']}",
+            )
+            return
+        if proactive_decision and proactive_decision["decision"] == "accepted":
+            command_text = (
+                f"The user accepted the proactive suggestion '{proactive_decision['title']}'. "
+                f"Carry out this requested action: {proactive_decision['action_command']}"
+            )
+
         interaction = await self._interaction_runtime.start(command_text, source="voice")
         interaction_id = str(interaction["interaction_id"])
         language = getattr(
@@ -7104,9 +7131,10 @@ def handle_tool(tool_name, params):
         await self._broadcast_notification(
             "voice_command",
             {
-                "command": command_text,
+                "command": spoken_command,
                 "status": "executing",
                 "language": language,
+                "proactive_decision": proactive_decision,
             },
         )
         self._spawn_interaction_speech(
@@ -7141,7 +7169,7 @@ def handle_tool(tool_name, params):
             await self._broadcast_notification(
                 "voice_result",
                 {
-                    "command": command_text,
+                    "command": spoken_command,
                     "status": voice_status,
                     "result": result_text[:500],
                     "language": language,
@@ -7169,7 +7197,7 @@ def handle_tool(tool_name, params):
                     if terminal_phase == InteractionPhase.COMPLETED
                     else SpeechChannel.TASK_FAILURE
                 ),
-                dedupe_key=f"voice-result:{command_text.casefold()}",
+                dedupe_key=f"voice-result:{spoken_command.casefold()}",
             )
             if self._voice_listener and self._voice_listener.is_running:
                 await self._interaction_runtime.transition(
@@ -7183,7 +7211,7 @@ def handle_tool(tool_name, params):
             await self._broadcast_notification(
                 "voice_result",
                 {
-                    "command": command_text,
+                    "command": spoken_command,
                     "status": "error",
                     "message": str(error),
                     "language": language,
@@ -7198,7 +7226,7 @@ def handle_tool(tool_name, params):
                 await self._speak_voice_response(
                     message,
                     channel=SpeechChannel.TASK_FAILURE,
-                    dedupe_key=f"voice-exception:{command_text.casefold()}",
+                    dedupe_key=f"voice-exception:{spoken_command.casefold()}",
                 )
             except Exception:
                 pass

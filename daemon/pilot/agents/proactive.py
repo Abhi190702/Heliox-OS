@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -280,6 +281,53 @@ class ProactiveSuggestionEngine:
                 )
                 return True
         return False
+
+    async def resolve_spoken_response(self, text: str) -> dict[str, str] | None:
+        """Resolve a natural yes/no reply against the one visible suggestion."""
+        if len(self._pending_suggestions) != 1:
+            return None
+        normalized = " ".join(re.sub(r"[^\w\s']", "", text.lower()).split())
+        affirmative = {
+            "yes",
+            "yes do it",
+            "do it",
+            "do that",
+            "go ahead",
+            "please do",
+            "sounds good",
+            "sure",
+        }
+        negative = {
+            "no",
+            "no thanks",
+            "not now",
+            "dismiss it",
+            "skip it",
+            "don't do it",
+            "do not do it",
+        }
+        suggestion = self._pending_suggestions[0]
+        if normalized in affirmative:
+            action_command = await self.accept_suggestion(suggestion.suggestion_id)
+            if not action_command:
+                return None
+            return {
+                "decision": "accepted",
+                "suggestion_id": suggestion.suggestion_id,
+                "title": suggestion.title,
+                "action_command": action_command,
+            }
+        if normalized in negative:
+            dismissed = await self.dismiss_suggestion(suggestion.suggestion_id)
+            if not dismissed:
+                return None
+            return {
+                "decision": "dismissed",
+                "suggestion_id": suggestion.suggestion_id,
+                "title": suggestion.title,
+                "action_command": "",
+            }
+        return None
 
     async def _watch_loop(self) -> None:
         """Main loop — periodically checks screen context for patterns."""

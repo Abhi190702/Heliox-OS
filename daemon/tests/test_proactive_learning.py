@@ -41,6 +41,33 @@ async def test_feedback_persists_across_engine_instances(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_spoken_yes_accepts_the_one_visible_suggestion(tmp_path):
+    engine = ProactiveSuggestionEngine(feedback_path=tmp_path / "feedback.json")
+    suggestion = _suggestion("terminal_error", 1)
+    engine._pending_suggestions.append(suggestion)
+
+    decision = await engine.resolve_spoken_response("Yes, do it!")
+
+    assert decision == {
+        "decision": "accepted",
+        "suggestion_id": suggestion.suggestion_id,
+        "title": suggestion.title,
+        "action_command": suggestion.action_command,
+    }
+    assert suggestion not in engine._pending_suggestions
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_speech_does_not_claim_a_suggestion(tmp_path):
+    engine = ProactiveSuggestionEngine(feedback_path=tmp_path / "feedback.json")
+    suggestion = _suggestion("terminal_error", 1)
+    engine._pending_suggestions.append(suggestion)
+
+    assert await engine.resolve_spoken_response("maybe later this afternoon") is None
+    assert suggestion in engine._pending_suggestions
+
+
+@pytest.mark.asyncio
 async def test_repeated_dismissals_temporarily_suppress_pattern(tmp_path):
     feedback_path = tmp_path / "proactive-feedback.json"
     engine = ProactiveSuggestionEngine(feedback_path=feedback_path)

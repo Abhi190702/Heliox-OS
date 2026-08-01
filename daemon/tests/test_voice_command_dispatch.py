@@ -49,6 +49,46 @@ async def test_voice_runs_through_unified_interactive_handler():
     )
 
 
+@pytest.mark.asyncio
+async def test_spoken_acceptance_runs_proactive_action_through_interactive_safety():
+    server = _bare_server()
+    server._proactive = AsyncMock()
+    server._proactive.resolve_spoken_response.return_value = {
+        "decision": "accepted",
+        "suggestion_id": "suggestion-1",
+        "title": "Open the game trailer?",
+        "action_command": "Open the Crimson Desert trailer in the browser.",
+    }
+
+    await server._voice_command_dispatch("yes do it")
+
+    params = server._handle_execute.await_args.args[0]
+    assert params["source"] == "voice"
+    assert "accepted the proactive suggestion" in params["input"]
+    assert "Crimson Desert trailer" in params["input"]
+    voice_command = next(
+        call.args[1] for call in server._broadcast_notification.await_args_list if call.args[0] == "voice_command"
+    )
+    assert voice_command["command"] == "yes do it"
+
+
+@pytest.mark.asyncio
+async def test_spoken_rejection_dismisses_without_planning_an_action():
+    server = _bare_server()
+    server._proactive = AsyncMock()
+    server._proactive.resolve_spoken_response.return_value = {
+        "decision": "dismissed",
+        "suggestion_id": "suggestion-1",
+        "title": "Open the game trailer?",
+        "action_command": "",
+    }
+
+    await server._voice_command_dispatch("no thanks")
+
+    server._handle_execute.assert_not_awaited()
+    server._speak_voice_response.assert_awaited_once()
+
+
 def test_voice_source_resolves_to_voice_scope_override():
     server = PilotServer(PilotConfig())
 
