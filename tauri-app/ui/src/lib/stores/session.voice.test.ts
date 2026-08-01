@@ -88,4 +88,26 @@ describe("voice command session notifications", () => {
       text: "One action could not be verified.",
     });
   });
+
+  it("adds optional companion ideas after the terminal result", async () => {
+    const { session } = await import("./session");
+
+    notificationHandler!("voice_result", {
+      command: "show system information",
+      status: "success",
+      result: "Windows 11",
+    });
+    notificationHandler!("companion_follow_up", {
+      message: "The system report is ready.",
+      suggestions: ["Compare it with the app requirements", "Save a baseline"],
+    });
+
+    const state = get(session);
+    expect(state.messages.at(-2)).toMatchObject({ type: "result", text: "Windows 11" });
+    expect(state.messages.at(-1)).toMatchObject({
+      type: "assistant",
+      text:
+        "The system report is ready.\n\nPossible next steps:\n- Compare it with the app requirements\n- Save a baseline",
+    });
+  });
 });

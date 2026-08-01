@@ -337,6 +337,28 @@ function createSession() {
         break;
       }
 
+      case "companion_follow_up": {
+        const sessionId = String(p.session_id ?? "");
+        const message = String(p.message ?? "").trim();
+        const suggestions = Array.isArray(p.suggestions)
+          ? p.suggestions
+              .map((item) => String(item).trim())
+              .filter(Boolean)
+              .slice(0, 3)
+          : [];
+        if (!message || suggestions.length === 0) break;
+        update((s) => {
+          if (sessionId && sessionId !== s.activeSessionId) return s;
+          const text = `${message}\n\nPossible next steps:\n${suggestions.map((idea) => `- ${idea}`).join("\n")}`;
+          if (s.messages.at(-1)?.type === "assistant" && s.messages.at(-1)?.text === text) return s;
+          return {
+            ...s,
+            messages: [...s.messages, { type: "assistant" as MessageType, text, timestamp: Date.now() }],
+          };
+        });
+        break;
+      }
+
       case "plan_preview": {
         const plan: Plan = {
           plan_id: String(p.plan_id ?? ""),

@@ -67,6 +67,14 @@ def _resolve_dry_run(configured: bool, requested: object = False) -> bool:
     return bool(configured or requested)
 
 
+def _sanitize_summary(text: object, limit: int = 160) -> str:
+    """Collapse whitespace and bound user-visible/event summaries."""
+    clean = " ".join(str(text).split())
+    if len(clean) <= limit:
+        return clean
+    return clean[: max(0, limit - 3)] + "..."
+
+
 CONFIRM_TIMEOUT_SECONDS = 300
 # These control-plane RPCs must be dispatchable while a normal request is
 # paused. ``execute`` waits for ``confirm`` on the same WebSocket connection,
@@ -439,6 +447,7 @@ class PilotServer:
         # ── Plan History Audit Log ──
         self._plan_history: PlanHistoryStore | None = None
         self._plan_history_tasks: set[asyncio.Task[None]] = set()
+        self._companion_follow_up_tasks: set[asyncio.Task[None]] = set()
         # Cognitive intelligence (lightweight heuristic engine)
         self._cognitive_engine: Any = None
         self._attention_ui: Any = None
@@ -1180,7 +1189,7 @@ class PilotServer:
         # ── Feature 5: Attention-Optimized Notification Timing ──
         # task_complete always bypasses the attention gate — it is the user-facing
         # completion signal and must never be buffered or suppressed.
-        if method == "task_complete":
+        if method in {"task_complete", "companion_follow_up"}:
             pass
         elif getattr(self, "_attention_ui", None) and self._attention_ui.enabled:
             try:
@@ -1428,6 +1437,36 @@ class PilotServer:
         finally:
             if self._active_execution_task is task:
                 self._active_execution_task = None
+
+    @staticmethod
+    def _deterministic_companion_review(plan: ActionPlan) -> Any | None:
+        """Approve one bounded telemetry read without a remote model round-trip.
+
+        These plans are produced by explicit local fast paths, contain no
+        writes, and still pass through the world-model, permission, execution,
+        and verification gates. Returning a real review keeps the companion
+        observable without making a provider timeout part of a status query.
+        """
+
+        from pilot.actions import ActionType
+        from pilot.agents.execution_companion import CompanionReview
+
+        telemetry_reads = {
+            ActionType.SYSTEM_INFO,
+            ActionType.CPU_USAGE,
+            ActionType.MEMORY_USAGE,
+            ActionType.DISK_USAGE,
+            ActionType.NETWORK_INFO,
+            ActionType.BATTERY_INFO,
+            ActionType.PROCESS_LIST,
+            ActionType.PROCESS_INFO,
+        }
+        if len(plan.actions) != 1 or plan.actions[0].action_type not in telemetry_reads:
+            return None
+        return CompanionReview(
+            decision="CONTINUE",
+            reason="The local telemetry plan is bounded, read-only, and directly answers the request.",
+        )
 
     async def _execute_tracked(self, plan: ActionPlan, **kwargs: Any) -> list[Any]:
         """Wraps self._executor.execute() in a real asyncio.Task, tracked in
@@ -1695,12 +1734,6 @@ class PilotServer:
 
         _start_time = time.time()
         last_plan_id = ""
-
-        def _sanitize_summary(text: str, limit: int = 160) -> str:
-            clean = " ".join(str(text).split())
-            if len(clean) <= limit:
-                return clean
-            return clean[: max(0, limit - 3)] + "..."
 
         def _record_memory(plan: Any, results: list[Any]) -> Any:
             return self._memory.record(
@@ -2188,12 +2221,14 @@ class PilotServer:
 
             if self.config.narration.proactive_review_enabled and self._execution_companion and not dry_run:
                 await ws.send(_notification("status", {"phase": "companion reviewing plan"}))
-                try:
-                    companion_review = await self._await_execution_tracked(
-                        self._execution_companion.review(user_input, plan)
-                    )
-                except asyncio.CancelledError:
-                    return await _phase_cancelled("companion review")
+                companion_review = self._deterministic_companion_review(plan)
+                if companion_review is None:
+                    try:
+                        companion_review = await self._await_execution_tracked(
+                            self._execution_companion.review(user_input, plan)
+                        )
+                    except asyncio.CancelledError:
+                        return await _phase_cancelled("companion review")
 
                 review_payload = {
                     "plan_id": plan_id,
@@ -2778,7 +2813,9 @@ class PilotServer:
                     )
                 )
 
-                companion_follow_up = None
+                message = success_message(plan, results, verification, dry_run=dry_run)
+                await _emit_task_complete("success", message)
+
                 if (
                     self.config.narration.follow_up_enabled
                     and self._execution_companion
@@ -2786,31 +2823,14 @@ class PilotServer:
                     and not dry_run
                     and exact_labeled_finding_count(plan) is None
                 ):
-                    await ws.send(_notification("status", {"phase": "preparing useful next ideas"}))
-                    try:
-                        companion_follow_up = await self._await_execution_tracked(
-                            self._execution_companion.follow_up(
-                                user_input,
-                                plan,
-                                results,
-                                verification,
-                            )
-                        )
-                    except asyncio.CancelledError:
-                        return await _phase_cancelled("companion follow-up", results)
-                    if cancel_event.is_set() and self._live_correction:
-                        revised = await _restart_with_live_correction(results)
-                        if revised is not None:
-                            return revised
-
-                message = success_message(plan, results, verification, dry_run=dry_run)
-                if companion_follow_up:
-                    self._recent_companion_context_by_session[chat_session_id] = (
-                        f"Previous request: {_sanitize_summary(user_input, limit=300)}\n"
-                        f"Verified result: {_sanitize_summary(message, limit=300)}\n"
-                        f"Companion next ideas: {' | '.join(companion_follow_up.suggestions)}"
+                    self._spawn_companion_follow_up(
+                        user_input=user_input,
+                        plan=plan,
+                        results=results,
+                        verification=verification,
+                        result_text=message,
+                        chat_session_id=chat_session_id,
                     )
-                await _emit_task_complete("success", message)
                 return {
                     "status": "success",
                     "dry_run": dry_run,
@@ -2825,7 +2845,7 @@ class PilotServer:
                         else plan.explanation
                     ),
                     "agent_routing": self._multi_agent.get_routing_summary(user_input),
-                    "companion_follow_up": (companion_follow_up.to_dict() if companion_follow_up else None),
+                    "companion_follow_up": None,
                 }
 
             if emit:
@@ -2979,6 +2999,70 @@ class PilotServer:
         task: asyncio.Task[None] = asyncio.create_task(coro)
         self._plan_history_tasks.add(task)
         task.add_done_callback(self._plan_history_tasks.discard)
+
+    def _spawn_companion_follow_up(
+        self,
+        *,
+        user_input: str,
+        plan: Any,
+        results: list[Any],
+        verification: Any,
+        result_text: str,
+        chat_session_id: str = "",
+        speak: bool = False,
+    ) -> None:
+        """Generate optional next ideas after the verified result is delivered.
+
+        Companion ideation may call a model and must never hold the terminal
+        task response hostage. The eventual suggestion is delivered as its
+        own notification and remains scoped to the originating chat.
+        """
+
+        async def _generate() -> None:
+            try:
+                follow_up = await self._execution_companion.follow_up(
+                    user_input,
+                    plan,
+                    results,
+                    verification,
+                )
+                if not follow_up:
+                    return
+
+                if chat_session_id:
+                    self._recent_companion_context_by_session[chat_session_id] = (
+                        f"Previous request: {_sanitize_summary(user_input, limit=300)}\n"
+                        f"Verified result: {_sanitize_summary(result_text, limit=300)}\n"
+                        f"Companion next ideas: {' | '.join(follow_up.suggestions)}"
+                    )
+                else:
+                    self._recent_companion_context = (
+                        f"Previous request: {_sanitize_summary(user_input, limit=300)}\n"
+                        f"Verified result: {_sanitize_summary(result_text, limit=300)}\n"
+                        f"Companion next ideas: {' | '.join(follow_up.suggestions)}"
+                    )
+
+                await self._broadcast_notification(
+                    "companion_follow_up",
+                    {
+                        "session_id": chat_session_id,
+                        **follow_up.to_dict(),
+                    },
+                )
+                if speak:
+                    await self._speak_voice_response(
+                        follow_up.spoken_text(),
+                        channel=SpeechChannel.BACKGROUND_INSIGHT,
+                        dedupe_key=f"voice-follow-up:{user_input.casefold()}",
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("Companion follow-up failed in background", exc_info=True)
+
+        task: asyncio.Task[None] = asyncio.create_task(_generate())
+        self._companion_follow_up_tasks.add(task)
+        task.add_done_callback(self._companion_follow_up_tasks.discard)
 
     async def _handle_resume_task(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Authenticate and continue a durable task after reconnect or restart."""
@@ -6361,6 +6445,11 @@ def handle_tool(tool_name, params):
             self._durable_tasks = None
         if self._budget_tracker:
             await self._budget_tracker.close()
+        if self._companion_follow_up_tasks:
+            follow_up_tasks = tuple(self._companion_follow_up_tasks)
+            for task in follow_up_tasks:
+                task.cancel()
+            await asyncio.gather(*follow_up_tasks, return_exceptions=True)
         # ── Drain pending plan-history tasks before closing the store ──
         # Avoids aiosqlite.ProgrammingError when a fire-and-forget log task
         # is still writing as the connection is torn down.
@@ -6798,26 +6887,6 @@ def handle_tool(tool_name, params):
 
             result_text = " ".join(output_parts) if output_parts else plan.explanation
             status = "success" if verification.passed else "partial"
-            companion_follow_up = None
-            if (
-                verification.passed
-                and self.config.narration.follow_up_enabled
-                and self._execution_companion
-                and hasattr(self._execution_companion, "follow_up")
-            ):
-                companion_follow_up = await self._execution_companion.follow_up(
-                    command_text,
-                    plan,
-                    results,
-                    verification,
-                )
-                if companion_follow_up:
-                    self._recent_companion_context = (
-                        f"Previous request: {command_text[:300]}\n"
-                        f"Verified result: {result_text[:300]}\n"
-                        f"Companion next ideas: {' | '.join(companion_follow_up.suggestions)}"
-                    )
-
             await self._broadcast_notification(
                 "voice_result",
                 {
@@ -6825,18 +6894,30 @@ def handle_tool(tool_name, params):
                     "status": status,
                     "result": result_text[:500],
                     "language": language,
-                    "companion_follow_up": (companion_follow_up.to_dict() if companion_follow_up else None),
+                    "companion_follow_up": None,
                 },
             )
 
             spoken = result_text[:300] if len(result_text) < 300 else result_text[:297] + "..."
-            if companion_follow_up:
-                spoken = f"{spoken} {companion_follow_up.spoken_text()}"
             await self._speak_voice_response(
                 spoken,
                 channel=SpeechChannel.FINAL_ANSWER,
                 dedupe_key=f"voice-result:{command_text.casefold()}",
             )
+            if (
+                verification.passed
+                and self.config.narration.follow_up_enabled
+                and self._execution_companion
+                and hasattr(self._execution_companion, "follow_up")
+            ):
+                self._spawn_companion_follow_up(
+                    user_input=command_text,
+                    plan=plan,
+                    results=results,
+                    verification=verification,
+                    result_text=result_text,
+                    speak=True,
+                )
 
         except Exception as e:
             logger.error("Voice command execution failed: %s", e)
