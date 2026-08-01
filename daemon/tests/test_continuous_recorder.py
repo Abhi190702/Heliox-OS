@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -121,3 +122,14 @@ def test_stop_is_safe_when_never_started():
     recorder = _ContinuousRecorder()
     recorder.stop()  # must not raise
     assert recorder.is_active is False
+
+
+def test_publish_drops_late_frame_after_event_loop_closes():
+    recorder = _ContinuousRecorder()
+    recorder._queue = MagicMock()
+    recorder._loop = MagicMock()
+    recorder._loop.is_closed.return_value = True
+
+    recorder._publish_audio_block(_silent_frame())
+
+    recorder._loop.call_soon_threadsafe.assert_not_called()

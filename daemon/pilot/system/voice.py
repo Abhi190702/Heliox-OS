@@ -899,8 +899,14 @@ class _ContinuousRecorder:
             self.last_above_threshold_at = time.time()
         loop = self._loop
         queue = self._queue
-        if loop is not None and queue is not None:
-            loop.call_soon_threadsafe(queue.put_nowait, block)
+        if loop is not None and queue is not None and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, block)
+            except RuntimeError:
+                # The native capture thread can finish its final blocking
+                # read while the asyncio loop is already shutting down.
+                # Dropping that late frame is the only valid outcome.
+                return
 
     def _start_windows_wasapi(self) -> bool:
         """Capture through Windows Audio Session API instead of PortAudio."""
