@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { acquireCurrentMicrophone } from "../utils/audioCapture";
+
   /**
    * AudioVisualizer — Real-time audio waveform / frequency visualization.
    * Shows a circular JARVIS-style audio spectrum while listening.
@@ -12,31 +14,55 @@
   let audioCtx: AudioContext | null = null;
   let dataArray: Uint8Array | null = null;
   let streamRef: MediaStream | null = null;
+  let audioGeneration = 0;
 
   async function startAudio() {
+    const generation = ++audioGeneration;
+    let stream: MediaStream | null = null;
+    let context: AudioContext | null = null;
     try {
-      audioCtx = new AudioContext();
-      streamRef = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const source = audioCtx.createMediaStreamSource(streamRef);
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 128;
-      analyser.smoothingTimeConstant = 0.8;
-      source.connect(analyser);
-      dataArray = new Uint8Array(analyser.frequencyBinCount);
+      stream = await acquireCurrentMicrophone(
+        () => navigator.mediaDevices.getUserMedia({ audio: true }),
+        () => generation === audioGeneration && active,
+      );
+      if (!stream) return;
+
+      context = new AudioContext();
+      const source = context.createMediaStreamSource(stream);
+      const nextAnalyser = context.createAnalyser();
+      nextAnalyser.fftSize = 128;
+      nextAnalyser.smoothingTimeConstant = 0.8;
+      source.connect(nextAnalyser);
+
+      if (generation !== audioGeneration || !active) {
+        stream.getTracks().forEach((track) => track.stop());
+        void context.close();
+        return;
+      }
+
+      streamRef = stream;
+      audioCtx = context;
+      analyser = nextAnalyser;
+      dataArray = new Uint8Array(nextAnalyser.frequencyBinCount);
       draw();
     } catch (e) {
-      console.warn("Audio visualizer failed:", e);
-      drawIdle();
+      stream?.getTracks().forEach((track) => track.stop());
+      if (context && context.state !== "closed") void context.close();
+      if (generation === audioGeneration && active) {
+        console.warn("Audio visualizer failed:", e);
+        drawIdle();
+      }
     }
   }
 
   function stopAudio() {
+    audioGeneration += 1;
     if (streamRef) {
       streamRef.getTracks().forEach((t) => t.stop());
       streamRef = null;
     }
     if (audioCtx) {
-      audioCtx.close();
+      void audioCtx.close();
       audioCtx = null;
     }
     analyser = null;
