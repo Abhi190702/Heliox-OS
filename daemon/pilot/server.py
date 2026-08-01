@@ -46,6 +46,38 @@ from pilot.intelligence.experience import (
     stable_action_idempotency_key,
 )
 from pilot.logger import ColorFormatter
+from pilot.reasoning.events import (
+    CONFIRMATION_APPROVED,
+    CONFIRMATION_DENIED,
+    CONFIRMATION_REQUIRED,
+    CRITIC_REVIEW_APPROVED,
+    CRITIC_REVIEW_BLOCKED,
+    CRITIC_REVIEW_STARTED,
+    CRITIC_REVIEW_WARNED,
+    EXECUTOR_ACTION_COMPLETE,
+    EXECUTOR_ACTION_STARTED,
+    EXECUTOR_ALL_COMPLETE,
+    EXECUTOR_ERROR,
+    EXECUTOR_STARTED,
+    MEMORY_CONTEXT_LOADED,
+    MEMORY_SEARCH_STARTED,
+    MEMORY_STORE_COMPLETE,
+    MEMORY_STORE_STARTED,
+    ORCHESTRATOR_AGENT_DELEGATED,
+    ORCHESTRATOR_ROUTING,
+    PLANNER_ERROR,
+    PLANNER_GENERATED_PLAN,
+    PLANNER_LLM_CALL,
+    PLANNER_REPLANNING,
+    PLANNER_STARTED,
+    REFLECTION_COMPLETE,
+    REFLECTION_STARTED,
+    ROUTING_AGENTS_ASSIGNED,
+    ROUTING_ANALYSIS_STARTED,
+    VERIFICATION_FAILED,
+    VERIFICATION_PASSED,
+    VERIFICATION_STARTED,
+)
 from pilot.system.companion_speech import (
     CompanionSpeechCoordinator,
     SpeechChannel,
@@ -757,10 +789,10 @@ class PilotServer:
         logger.info("Local gesture listener disabled in favor of frontend UI MediaPipe engine")
 
         # Reasoning Event Emitter — thought visualization telemetry
-        from pilot.reasoning.events import ReasoningEmitter
-
-        self._reasoning = ReasoningEmitter()
-        self._reasoning.set_broadcast(self._broadcast_notification)
+        # Product execution now exposes only the compact interaction state.
+        # The former thought graph emitted dozens of synchronous WebSocket
+        # events per command without adding safety or execution authority.
+        self._reasoning = None
 
         # Task Decomposition Engine
         from pilot.agents.decomposer import TaskDecomposer
@@ -1079,8 +1111,6 @@ class PilotServer:
             "cursor_move": self._handle_cursor_move,
             "cursor_click": self._handle_cursor_click,
             "multimodal_stats": self._handle_multimodal_stats,
-            "reasoning_log": self._handle_reasoning_log,
-            "reasoning_stats": self._handle_reasoning_stats,
             "decompose_task": self._handle_decompose_task,
             "simulate_plan": self._handle_simulate_plan,
             "prompt_strategies": self._handle_prompt_strategies,
@@ -1767,39 +1797,6 @@ class PilotServer:
 
         import time
 
-        from pilot.reasoning.events import (
-            CONFIRMATION_APPROVED,
-            CONFIRMATION_DENIED,
-            CONFIRMATION_REQUIRED,
-            CRITIC_REVIEW_APPROVED,
-            CRITIC_REVIEW_BLOCKED,
-            CRITIC_REVIEW_STARTED,
-            CRITIC_REVIEW_WARNED,
-            EXECUTOR_ACTION_COMPLETE,
-            EXECUTOR_ACTION_STARTED,
-            EXECUTOR_ALL_COMPLETE,
-            EXECUTOR_ERROR,
-            EXECUTOR_STARTED,
-            MEMORY_CONTEXT_LOADED,
-            MEMORY_SEARCH_STARTED,
-            MEMORY_STORE_COMPLETE,
-            MEMORY_STORE_STARTED,
-            ORCHESTRATOR_AGENT_DELEGATED,
-            ORCHESTRATOR_ROUTING,
-            PLANNER_ERROR,
-            PLANNER_GENERATED_PLAN,
-            PLANNER_LLM_CALL,
-            PLANNER_REPLANNING,
-            PLANNER_STARTED,
-            REFLECTION_COMPLETE,
-            REFLECTION_STARTED,
-            ROUTING_AGENTS_ASSIGNED,
-            ROUTING_ANALYSIS_STARTED,
-            VERIFICATION_FAILED,
-            VERIFICATION_PASSED,
-            VERIFICATION_STARTED,
-        )
-
         _start_time = time.time()
         last_plan_id = ""
 
@@ -2050,9 +2047,10 @@ class PilotServer:
                 "results": [result.model_dump() for result in (completed_results or [])],
             }
 
-        emit = self._reasoning
-        if emit:
-            emit.reset()
+        # A single interaction state replaces the removed ReAct event graph.
+        # The guarded planning, approval, action, and verification flow below
+        # remains authoritative, but internal thoughts are not serialized.
+        emit = None
 
         context = get_experience_context()
         await self._append_experience(

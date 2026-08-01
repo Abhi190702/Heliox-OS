@@ -74,7 +74,7 @@ export async function invoke<T = any>(command: string, args?: any): Promise<T> {
   if (command === "get_terminal_logs") {
     return [
       "[System] Heliox OS Agent Daemon Connected",
-      "[Core] ReAct Loop active on ws://127.0.0.1:8785",
+      "[Core] Direct interaction loop active on ws://127.0.0.1:8785",
       "[Monitor] System health metrics normal",
       "[Cognitive] Cognitive HUD loaded",
     ] as unknown as T;

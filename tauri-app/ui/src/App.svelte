@@ -19,7 +19,6 @@
   import NeuralBackground from "./lib/components/NeuralBackground.svelte";
   import ParticleBurst from "./lib/components/ParticleBurst.svelte";
   import ExecutionGraph from "./lib/components/ExecutionGraph.svelte";
-  import ReActPipeline from "./lib/components/ReActPipeline.svelte";
   import VirtualList from "./lib/components/VirtualList.svelte";
   import PluginsTab from "./lib/components/PluginsTab.svelte";
   import GitConflictResolver from "./lib/components/GitConflictResolver.svelte";
@@ -143,40 +142,6 @@
   onDestroy(() => {
     if (copiedTimeout) clearTimeout(copiedTimeout);
   });
-  function exportReActTrace() {
-    const traceSteps = $session.messages
-      .filter((m) => m.type === "plan" || m.type === "result" || m.type === "error")
-      .map((m) => ({
-        type: m.type,
-        timestamp: m.timestamp,
-        ...(m.plan && { plan: m.plan }),
-        ...(m.actionResults && { actionResults: m.actionResults }),
-        ...(m.verification && { verification: m.verification }),
-        ...(m.text && { text: m.text }),
-      }));
-
-    if (traceSteps.length === 0) {
-      alert("No ReAct trace steps found. Run a command first!");
-      return;
-    }
-
-    const exportData = {
-      exported_at: new Date().toISOString(),
-      version: "1.0",
-      total_steps: traceSteps.length,
-      steps: traceSteps,
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `react_trace_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
 </script>
 
 {#if showWizard}
@@ -243,9 +208,6 @@
       <div class="chat-panel" class:inactive={activeTab !== "chat"}>
         <NeuralBackground />
 
-        <div class="pipeline-container">
-          <ReActPipeline />
-        </div>
         <InteractiveServices onconfigure={() => (activeTab = "settings")} />
         {#if $session.confirmRequired}
           <ConfirmDialog
@@ -392,9 +354,6 @@
             <button class="tab" type="button" onclick={() => session.exportChat("json")}>{$_("app.export_json")}</button
             >
             <button class="tab" type="button" onclick={() => session.exportChat("csv")}>{$_("app.export_csv")}</button>
-            <button class="tab" type="button" onclick={exportReActTrace} title="Export ReAct reasoning trace to JSON"
-              >Export Trace</button
-            >
           </div>
         </div>
       </div>
