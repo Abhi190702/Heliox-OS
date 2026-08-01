@@ -13,14 +13,35 @@ import importlib.util
 import json
 import shutil
 import sys
+import types
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+DAEMON_ROOT = REPO_ROOT / "daemon"
+PILOT_ROOT = DAEMON_ROOT / "pilot"
+PLUGINS_ROOT = PILOT_ROOT / "plugins"
 MARKETPLACE_MODULE_PATH = REPO_ROOT / "daemon" / "pilot" / "plugins" / "marketplace.py"
 MODULE_NAME = "_heliox_marketplace_validator"
-MODULE_SPEC = importlib.util.spec_from_file_location(MODULE_NAME, MARKETPLACE_MODULE_PATH)
+# The marketplace module imports its dependency-free capabilities module through
+# ``pilot.plugins``.  Bootstrap only those namespace packages so this validator
+# does not execute the plugin runtime's optional third-party imports in
+# ``pilot.plugins.__init__``.  Marketplace CI must run from a clean checkout
+# without installing pilot-daemon first.
+for package_name, package_path in (
+    ("pilot", PILOT_ROOT),
+    ("pilot.plugins", PLUGINS_ROOT),
+):
+    package = types.ModuleType(package_name)
+    package.__path__ = [str(package_path)]
+    package.__package__ = package_name
+    sys.modules[package_name] = package
+MODULE_SPEC = importlib.util.spec_from_file_location(
+    MODULE_NAME, MARKETPLACE_MODULE_PATH
+)
 if MODULE_SPEC is None or MODULE_SPEC.loader is None:
-    raise RuntimeError(f"Could not load marketplace validator: {MARKETPLACE_MODULE_PATH}")
+    raise RuntimeError(
+        f"Could not load marketplace validator: {MARKETPLACE_MODULE_PATH}"
+    )
 MARKETPLACE_MODULE = importlib.util.module_from_spec(MODULE_SPEC)
 sys.modules[MODULE_NAME] = MARKETPLACE_MODULE
 MODULE_SPEC.loader.exec_module(MARKETPLACE_MODULE)
@@ -55,14 +76,22 @@ def _validate_python(plugin_name: str, code_path: Path) -> None:
     has_handler = False
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            modules = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""]
+            modules = (
+                [alias.name for alias in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module or ""]
+            )
             for module in modules:
                 root = module.split(".", 1)[0]
                 if root not in ALLOWED_IMPORT_ROOTS:
-                    raise MarketplaceError(f"{plugin_name}: import {module!r} is not allowed in the MVP marketplace")
+                    raise MarketplaceError(
+                        f"{plugin_name}: import {module!r} is not allowed in the MVP marketplace"
+                    )
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             if node.func.id in BLOCKED_CALLS:
-                raise MarketplaceError(f"{plugin_name}: direct {node.func.id}() calls are not allowed")
+                raise MarketplaceError(
+                    f"{plugin_name}: direct {node.func.id}() calls are not allowed"
+                )
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             has_handler = has_handler or node.name == "handle_tool"
     if not has_handler:
@@ -71,12 +100,16 @@ def _validate_python(plugin_name: str, code_path: Path) -> None:
 
 def _package_files(plugin_dir: Path) -> list[dict[str, str]]:
     files = []
-    for path in sorted(candidate for candidate in plugin_dir.rglob("*") if candidate.is_file()):
+    for path in sorted(
+        candidate for candidate in plugin_dir.rglob("*") if candidate.is_file()
+    ):
         relative = path.relative_to(plugin_dir).as_posix()
         if path.name in SIGNATURE_METADATA_FILES or "__pycache__" in path.parts:
             continue
         if path.suffix not in {".json", ".py"}:
-            raise MarketplaceError(f"{plugin_dir.name}: unsupported package file for MVP: {relative}")
+            raise MarketplaceError(
+                f"{plugin_dir.name}: unsupported package file for MVP: {relative}"
+            )
         files.append(
             {
                 "path": relative,
@@ -88,24 +121,34 @@ def _package_files(plugin_dir: Path) -> list[dict[str, str]]:
 
 def build_registry(current: dict) -> dict:
     plugins_root = REPO_ROOT / "plugins"
-    entries_by_name = {str(entry.get("name")): entry for entry in current.get("plugins", [])}
+    entries_by_name = {
+        str(entry.get("name")): entry for entry in current.get("plugins", [])
+    }
     plugin_dirs = sorted(
-        path for path in plugins_root.iterdir() if path.is_dir() and (path / "manifest.json").is_file()
+        path
+        for path in plugins_root.iterdir()
+        if path.is_dir() and (path / "manifest.json").is_file()
     )
     discovered_names = {validate_plugin_name(path.name) for path in plugin_dirs}
     if discovered_names != set(entries_by_name):
         missing = sorted(discovered_names - set(entries_by_name))
         stale = sorted(set(entries_by_name) - discovered_names)
-        raise MarketplaceError(f"Registry/package mismatch; missing entries={missing}, stale entries={stale}")
+        raise MarketplaceError(
+            f"Registry/package mismatch; missing entries={missing}, stale entries={stale}"
+        )
 
     updated_entries = []
     for plugin_dir in plugin_dirs:
         name = validate_plugin_name(plugin_dir.name)
-        manifest = json.loads((plugin_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(
+            (plugin_dir / "manifest.json").read_text(encoding="utf-8")
+        )
         if manifest.get("name") != name:
             raise MarketplaceError(f"{name}: manifest name must match its directory")
         if manifest.get("runtime_type", "python") != "python":
-            raise MarketplaceError(f"{name}: MVP marketplace only accepts Python plugins")
+            raise MarketplaceError(
+                f"{name}: MVP marketplace only accepts Python plugins"
+            )
         entry_point = manifest.get("entry_point", "plugin.py")
         if entry_point != "plugin.py":
             raise MarketplaceError(f"{name}: entry_point must be plugin.py")
@@ -120,7 +163,9 @@ def build_registry(current: dict) -> dict:
             "capabilities",
         ):
             if entry.get(field_name) != manifest.get(field_name):
-                raise MarketplaceError(f"{name}: registry {field_name} must exactly match manifest.json")
+                raise MarketplaceError(
+                    f"{name}: registry {field_name} must exactly match manifest.json"
+                )
         entry["package"] = {
             "path": f"plugins/{name}",
             "files": _package_files(plugin_dir),

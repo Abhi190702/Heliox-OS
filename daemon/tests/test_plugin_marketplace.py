@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -111,6 +113,19 @@ def test_packaged_offline_snapshot_matches_public_marketplace():
             assert (PACKAGED_CATALOG / name / relative_path).read_text(encoding="utf-8") == (
                 public_catalog / name / relative_path
             ).read_text(encoding="utf-8")
+
+
+def test_marketplace_validator_runs_from_clean_checkout():
+    result = subprocess.run(
+        [sys.executable, "-I", str(REPO_ROOT / "scripts" / "validate_marketplace.py")],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Marketplace valid:" in result.stdout
 
 
 def test_install_accepts_only_approved_verified_package(tmp_path, monkeypatch):
