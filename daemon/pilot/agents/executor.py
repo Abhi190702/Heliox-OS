@@ -1554,7 +1554,9 @@ class Executor:
         from pilot.system.platform_detect import CURRENT_PLATFORM, Platform, run_command
 
         if CURRENT_PLATFORM == Platform.WINDOWS:
-            code, _, err = await run_command(["cmd", "/c", "start", "", app_name, *args])
+            from pilot.system.applications import launch_windows_application
+
+            return await launch_windows_application(app_name, args)
         else:
             binary = shutil.which(app_name)
             if not binary:
@@ -1562,6 +1564,9 @@ class Executor:
             else:
                 code, _, err = await run_command([binary, *args])
 
+        if code != 0:
+            detail = err.strip() or f"launcher exited with code {code}"
+            raise RuntimeError(f"Could not launch {app_name!r}: {detail}")
         return f"Launched {app_name}"
 
     async def _exec_notify(self, action: Action) -> str:
