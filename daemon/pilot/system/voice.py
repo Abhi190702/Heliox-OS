@@ -1199,7 +1199,8 @@ class ContinuousVoiceListener:
                         command_text = transcript_lower.replace(
                             wake,
                             "",
-                        ).strip()
+                            1,
+                        ).strip(" \t,.:;!?-")
                         break
 
                 if wake_detected:

@@ -212,3 +212,29 @@ async def test_close_wake_transcription_with_command_dispatches_immediately():
 
     on_command.assert_awaited_once_with("open github")
     listener._wake_calibrator.record_pending.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_exact_wake_word_strips_spoken_punctuation_before_dispatch():
+    command_received = asyncio.Event()
+    on_command = AsyncMock()
+
+    async def dispatch(command):
+        await on_command(command)
+        listener._running = False
+        command_received.set()
+
+    listener = ContinuousVoiceListener(
+        wake_words=["hey heliox"],
+        on_command=dispatch,
+        config=PilotConfig(),
+    )
+    listener._wake_calibrator = MagicMock()
+    listener._record_and_transcribe = AsyncMock(return_value="Hey Heliox, show system information.")
+    listener._running = True
+
+    task = asyncio.create_task(listener._listen_loop())
+    await asyncio.wait_for(command_received.wait(), timeout=1)
+    await task
+
+    on_command.assert_awaited_once_with("show system information")

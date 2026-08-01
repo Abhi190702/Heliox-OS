@@ -313,6 +313,30 @@ function createSession() {
         update((s) => ({ ...s, phase: String(p.phase ?? "") }));
         break;
 
+      case "voice_command": {
+        const command = String(p.command ?? "").trim();
+        update((s) => ({
+          ...s,
+          loading: true,
+          phase: "planning voice command",
+          messages:
+            command && !(s.messages.at(-1)?.type === "user" && s.messages.at(-1)?.text === command)
+              ? [...s.messages, { type: "user" as MessageType, text: command, timestamp: Date.now() }]
+              : s.messages,
+        }));
+        break;
+      }
+
+      case "voice_result": {
+        const status = String(p.status ?? "error");
+        applyTaskResult({
+          status: status === "partial" ? "partial_failure" : status,
+          message: String(p.result ?? p.message ?? "The voice command finished without a visible result."),
+          companion_follow_up: p.companion_follow_up,
+        });
+        break;
+      }
+
       case "plan_preview": {
         const plan: Plan = {
           plan_id: String(p.plan_id ?? ""),
