@@ -6720,9 +6720,12 @@ def handle_tool(tool_name, params):
         dedupe_key: str = "",
     ) -> SpeechOutcome:
         """Route daemon speech through the single companion audio authority."""
-        recorder = getattr(self._voice_listener, "_recorder", None)
-        if not self.config.voice.barge_in_enabled:
-            recorder = None
+        # The continuous listener is the sole microphone consumer. It keeps
+        # capturing wake-word commands while work and speech continue, then
+        # _voice_command_dispatch stops current playback before applying the
+        # utterance. Sharing its recorder with the TTS watcher would make two
+        # coroutines race for the same audio frames and lose corrections.
+        recorder = None
         outcome = await self._speech_coordinator.speak(
             text,
             channel=channel,
@@ -6763,6 +6766,13 @@ def handle_tool(tool_name, params):
             command_text: The recognized voice command text.
         """
         logger.info("Voice command received: '%s'", command_text)
+
+        if self.config.voice.barge_in_enabled and self._speech_coordinator.status()["active"]:
+            await self._speech_coordinator.stop_all()
+            await self._broadcast_notification(
+                "voice_status",
+                {"status": "interrupted", "reason": "new voice command"},
+            )
 
         if self._interactive_request_active:
             result = await self._handle_interject({"input": command_text}, None)

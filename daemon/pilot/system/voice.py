@@ -1120,6 +1120,7 @@ class ContinuousVoiceListener:
         self._workflow_control = workflow_control
         self._running = False
         self._task: asyncio.Task[None] | None = None
+        self._command_tasks: set[asyncio.Task[None]] = set()
         self._listening_for_command = False
         self._sample_rate = 16000
 
@@ -1184,6 +1185,13 @@ class ContinuousVoiceListener:
                 await self._task
             except asyncio.CancelledError:
                 pass
+
+        current = asyncio.current_task()
+        command_tasks = tuple(task for task in self._command_tasks if task is not current)
+        for task in command_tasks:
+            task.cancel()
+        if command_tasks:
+            await asyncio.gather(*command_tasks, return_exceptions=True)
 
         logger.info("Continuous voice listener stopped")
 
@@ -1312,13 +1320,15 @@ class ContinuousVoiceListener:
                 )
 
                 if self._on_command:
-                    try:
-                        await self._on_command(command_text)
-                    except Exception as e:
-                        logger.error(
-                            "Voice command dispatch failed: %s",
-                            e,
-                        )
+                    task = asyncio.create_task(self._dispatch_command(command_text))
+                    self._command_tasks.add(task)
+                    task.add_done_callback(self._command_tasks.discard)
+                    # Give the newly scheduled command a chance to publish its
+                    # acknowledgement/state before the next capture cycle.
+                    # Real transcription already yields, but this also avoids
+                    # starving dispatch when a local recognizer returns
+                    # immediately.
+                    await asyncio.sleep(0)
 
             except asyncio.CancelledError:
                 break
@@ -1329,6 +1339,15 @@ class ContinuousVoiceListener:
                     exc_info=True,
                 )
                 await asyncio.sleep(1.0)
+
+    async def _dispatch_command(self, command_text: str) -> None:
+        """Run a recognized command without pausing ambient listening."""
+        try:
+            await self._on_command(command_text)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.error("Voice command dispatch failed: %s", error)
 
     async def _transcribe_path(self, audio_path: str) -> str:
         """Transcribes an already-recorded WAV file with multilingual support."""
