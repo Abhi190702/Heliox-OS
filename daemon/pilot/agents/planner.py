@@ -587,6 +587,26 @@ class Planner:
                 raw_input=user_input,
             )
 
+        # --- visual grounding: "what is this on my screen?" ---
+        if re.match(
+            r"^(?:what(?:'s| is)\s+(?:(?:this|that)(?:\s+on\s+(?:my|the)\s+screen)?"
+            r"|on\s+(?:my|the)\s+screen)"
+            r"|what\s+am\s+i\s+looking\s+at"
+            r"|(?:look\s+at|inspect|identify|analy[sz]e)\s+(?:this|my\s+screen|the\s+screen))\??$",
+            text,
+        ):
+            return ActionPlan(
+                actions=[
+                    Action(
+                        action_type=ActionType.SCREEN_ANALYZE,
+                        target="screen",
+                        parameters=ScreenVisionParams(prompt=user_input),
+                    )
+                ],
+                explanation="Analyze the visible screen and identify the subject",
+                raw_input=user_input,
+            )
+
         # --- "show system info" / "system information" ---
         # Keep this harmless, read-only intent resilient to a single noisy
         # speech-to-text prefix (for example Whisper rendering "show" as
@@ -1189,25 +1209,6 @@ class Planner:
                     fixed.pop(i)
                     continue
             i += 1
-
-        # --- Fix 4: Auto-convert screen_analyze → screen_ocr when no vision model ---
-        # screen_analyze requires a vision LLM (like llava). screen_ocr works with
-        # Windows native OCR. If the plan uses screen_analyze, convert it.
-        for i, action in enumerate(fixed):
-            if action.action_type == ActionType.SCREEN_ANALYZE:
-                logger.info("Post-process: converting screen_analyze → screen_ocr at index %d", i)
-                fixed[i] = Action(
-                    action_type=ActionType.SCREEN_OCR,
-                    target=action.target,
-                    parameters=ScreenVisionParams(
-                        region=getattr(action.parameters, "region", None),
-                        language=getattr(action.parameters, "language", "eng"),
-                    ),
-                    requires_root=False,
-                    destructive=False,
-                    reversible=True,
-                    use_previous_output=action.use_previous_output,
-                )
 
         # --- Fix 5: Convert Linux paths to Windows paths on Windows ---
         if sys.platform == "win32":

@@ -1,4 +1,4 @@
-from pilot.actions import ActionType
+from pilot.actions import Action, ActionType, ScreenVisionParams
 from pilot.agents.planner import Planner
 
 
@@ -14,3 +14,24 @@ def test_system_information_fast_path_is_bounded_to_short_status_queries():
         Planner._try_fast_path("research system information formats and write a detailed comparison of every standard")
         is None
     )
+
+
+def test_visual_question_uses_real_screen_analysis_fast_path():
+    plan = Planner._try_fast_path("what is this on my screen?")
+
+    assert plan is not None
+    assert [action.action_type for action in plan.actions] == [ActionType.SCREEN_ANALYZE]
+    assert plan.actions[0].parameters.prompt == "what is this on my screen?"
+
+
+def test_postprocessor_preserves_visual_analysis_instead_of_forcing_ocr():
+    action = Action(
+        action_type=ActionType.SCREEN_ANALYZE,
+        target="screen",
+        parameters=ScreenVisionParams(prompt="Identify the photograph"),
+    )
+
+    processed = Planner.__new__(Planner)._postprocess_actions([action])
+
+    assert processed[0].action_type == ActionType.SCREEN_ANALYZE
+    assert processed[0].parameters.prompt == "Identify the photograph"
