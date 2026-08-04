@@ -251,3 +251,47 @@ async def launch_windows_application(name: str, args: list[str] | None = None) -
 
     await _start_and_check(command, target.display_name)
     return f"Launched {target.display_name} (resolved via {target.source})."
+
+
+async def launch_application(name: str, args: list[str] | None = None) -> str:
+    """Resolve and launch an installed application on the current platform."""
+
+    from pilot.system.platform_detect import CURRENT_PLATFORM, Platform, run_command
+
+    requested = name.strip()
+    if not requested:
+        raise ApplicationResolutionError("Application name is empty.")
+
+    arguments = list(args or [])
+    if CURRENT_PLATFORM == Platform.WINDOWS:
+        return await launch_windows_application(requested, arguments)
+
+    if CURRENT_PLATFORM == Platform.MACOS:
+        command = ["open", "-a", requested]
+        if arguments:
+            command.extend(["--args", *arguments])
+        code, _, stderr = await run_command(command)
+        if code != 0:
+            detail = stderr.strip() or "application is not registered with Launch Services"
+            raise ApplicationResolutionError(f"Application {requested!r} was not found: {detail}")
+        return f"Launched {requested} (resolved via macOS Launch Services)."
+
+    binary = shutil.which(requested)
+    if binary:
+        await _start_and_check([binary, *arguments], requested)
+        return f"Launched {requested} (resolved via PATH)."
+
+    desktop_launcher = shutil.which("gtk-launch")
+    if not desktop_launcher:
+        raise ApplicationResolutionError(
+            f"Application {requested!r} was not found in PATH and gtk-launch is unavailable."
+        )
+    if arguments:
+        raise ApplicationLaunchError(
+            f"Arguments cannot be passed to desktop application {requested!r} through gtk-launch."
+        )
+    code, _, stderr = await run_command([desktop_launcher, requested])
+    if code != 0:
+        detail = stderr.strip() or "desktop application is not registered"
+        raise ApplicationResolutionError(f"Application {requested!r} was not found: {detail}")
+    return f"Launched {requested} (resolved via Linux desktop registry)."

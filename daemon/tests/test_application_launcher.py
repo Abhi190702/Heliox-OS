@@ -14,7 +14,7 @@ from pilot.config import PilotConfig
 from pilot.security.audit import AuditLogger
 from pilot.security.permissions import PermissionChecker
 from pilot.security.validator import ActionValidator
-from pilot.system import applications
+from pilot.system import applications, platform_detect
 
 
 def _shortcut(root: Path, name: str) -> Path:
@@ -143,6 +143,27 @@ async def test_nonzero_startup_is_a_failed_launch(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_macos_application_launch_uses_launch_services(monkeypatch):
+    run_command = AsyncMock(return_value=(0, "", ""))
+    monkeypatch.setattr(platform_detect, "CURRENT_PLATFORM", platform_detect.Platform.MACOS)
+    monkeypatch.setattr(platform_detect, "run_command", run_command)
+
+    result = await applications.launch_application("Hermes", ["--safe"])
+
+    run_command.assert_awaited_once_with(["open", "-a", "Hermes", "--args", "--safe"])
+    assert result == "Launched Hermes (resolved via macOS Launch Services)."
+
+
+@pytest.mark.asyncio
+async def test_linux_missing_application_fails_before_invoking_missing_launcher(monkeypatch):
+    monkeypatch.setattr(platform_detect, "CURRENT_PLATFORM", platform_detect.Platform.LINUX)
+    monkeypatch.setattr(applications.shutil, "which", lambda _name: None)
+
+    with pytest.raises(applications.ApplicationResolutionError, match="gtk-launch is unavailable"):
+        await applications.launch_application("Missing App")
+
+
+@pytest.mark.asyncio
 async def test_executor_and_verifier_expose_resolution_failure(monkeypatch, tmp_path):
     config = PilotConfig()
     executor = Executor(
@@ -159,7 +180,7 @@ async def test_executor_and_verifier_expose_resolution_failure(monkeypatch, tmp_
     plan = ActionPlan(actions=[action], raw_input="open Missing App")
     monkeypatch.setattr(
         applications,
-        "launch_windows_application",
+        "launch_application",
         AsyncMock(side_effect=applications.ApplicationResolutionError("not installed")),
     )
 

@@ -1586,29 +1586,10 @@ class Executor:
         return f"Opened {url} in default browser"
 
     async def _exec_open_application(self, action: Action) -> str:
-        import shutil
-
         params: OpenApplicationParams = action.parameters  # type: ignore[assignment]
-        app_name = params.name
-        args = params.args or []
+        from pilot.system.applications import launch_application
 
-        from pilot.system.platform_detect import CURRENT_PLATFORM, Platform, run_command
-
-        if CURRENT_PLATFORM == Platform.WINDOWS:
-            from pilot.system.applications import launch_windows_application
-
-            return await launch_windows_application(app_name, args)
-        else:
-            binary = shutil.which(app_name)
-            if not binary:
-                code, _, err = await run_command(["gtk-launch", app_name])
-            else:
-                code, _, err = await run_command([binary, *args])
-
-        if code != 0:
-            detail = err.strip() or f"launcher exited with code {code}"
-            raise RuntimeError(f"Could not launch {app_name!r}: {detail}")
-        return f"Launched {app_name}"
+        return await launch_application(params.name, params.args or [])
 
     async def _exec_notify(self, action: Action) -> str:
         params: NotifyParams = action.parameters  # type: ignore[assignment]
