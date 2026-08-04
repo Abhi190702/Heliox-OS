@@ -127,23 +127,36 @@ async def keyboard_type(
     text: str,
     interval: float = 0.03,
 ) -> str:
-    """Type text at the current cursor position."""
+    """Enter exact text at the current cursor position.
+
+    Key-by-key synthesis is affected by Caps Lock and the active keyboard
+    layout. Prefer a clipboard paste for deterministic case and Unicode, then
+    restore the user's prior clipboard value immediately afterward.
+    """
     pag = _ensure_pyautogui()
 
-    def _do():
+    try:
+        import pyperclip
+
+        def _paste_exact() -> None:
+            previous = pyperclip.paste()
+            try:
+                pyperclip.copy(text)
+                pag.hotkey("ctrl", "v")
+                # Give the foreground application time to consume WM_PASTE
+                # before restoring the clipboard that belongs to the user.
+                time.sleep(0.05)
+            finally:
+                pyperclip.copy(previous)
+
+        await asyncio.to_thread(_paste_exact)
+        preview = text[:80] + "..." if len(text) > 80 else text
+        return f"Typed exactly: {preview}"
+    except (ImportError, RuntimeError):
+        logger.debug("Exact clipboard typing unavailable; using key synthesis", exc_info=True)
+
+    def _do() -> None:
         pag.typewrite(text, interval=interval) if text.isascii() else pag.write(text)
-
-    # Use pyperclip + paste for non-ASCII text
-    if not text.isascii():
-        try:
-            import pyperclip
-
-            pyperclip.copy(text)
-            pag = _ensure_pyautogui()
-            await asyncio.to_thread(lambda: pag.hotkey("ctrl", "v"))
-            return f"Typed (via paste): {text[:80]}..."
-        except ImportError:
-            pass
 
     await asyncio.to_thread(_do)
     preview = text[:80] + "..." if len(text) > 80 else text
