@@ -429,6 +429,7 @@ def _resolve_input_device(
     channels: int,
     dtype: str,
     preferred_device: str = "auto",
+    allow_preferred_fallback: bool = False,
 ) -> int:
     """Return a usable PortAudio input device for the requested format.
 
@@ -470,13 +471,14 @@ def _resolve_input_device(
         for index in matching:
             if _usable(index):
                 return index
-        if matching:
+        if not allow_preferred_fallback:
+            if matching:
+                raise RuntimeError(
+                    f"Configured microphone '{preferred}' does not support {sample_rate} Hz, {channels} channel, {dtype}"
+                )
             raise RuntimeError(
-                f"Configured microphone '{preferred}' does not support {sample_rate} Hz, {channels} channel, {dtype}"
+                f"Configured microphone '{preferred}' is no longer available. Choose another input in Settings."
             )
-        raise RuntimeError(
-            f"Configured microphone '{preferred}' is no longer available. Choose another input in Settings."
-        )
 
     try:
         default_device = sd.default.device
@@ -849,6 +851,8 @@ class _ContinuousRecorder:
         self._loop: asyncio.AbstractEventLoop | None = None
         self.input_device: int | None = None
         self.input_device_name = ""
+        self.using_fallback_input = False
+        self.input_device_notice = ""
         self.last_error = ""
         self.frames_received = 0
         self.last_frame_rms = 0.0
@@ -872,6 +876,8 @@ class _ContinuousRecorder:
         if self._stream is not None:
             return True
 
+        self.using_fallback_input = False
+        self.input_device_notice = ""
         self._loop = asyncio.get_event_loop()
         self._queue = asyncio.Queue()
 
@@ -898,15 +904,31 @@ class _ContinuousRecorder:
             self._publish_audio_block(block)
 
         try:
+            self.using_fallback_input = False
+            self.input_device_notice = ""
             self.input_device = _resolve_input_device(
                 sd,
                 sample_rate=self.sample_rate,
                 channels=1,
                 dtype="int16",
                 preferred_device=self.preferred_device,
+                allow_preferred_fallback=True,
             )
             device_info = sd.query_devices(self.input_device)
             self.input_device_name = str(device_info.get("name", self.input_device))
+            configured = self.preferred_device.strip()
+            if configured and configured.casefold() != "auto":
+                try:
+                    hostapi = str(sd.query_hostapis(int(device_info.get("hostapi", -1))).get("name", "Unknown"))
+                except Exception:
+                    hostapi = "Unknown"
+                resolved_id = f"{hostapi}::{self.input_device_name}"
+                self.using_fallback_input = resolved_id.casefold() != configured.casefold()
+                if self.using_fallback_input:
+                    self.input_device_notice = (
+                        f"Configured microphone '{configured}' is unavailable; using '{resolved_id}' until it returns."
+                    )
+                    logger.warning(self.input_device_notice)
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=1,
@@ -957,10 +979,20 @@ class _ContinuousRecorder:
             (mic for mic in microphones if preferred_name and mic.name.strip().casefold() == preferred_name.casefold()),
             None,
         )
-        if microphone is None and not preferred_name:
+        if microphone is None:
             microphone = sc.default_microphone()
         if microphone is None:
             return False
+
+        self.using_fallback_input = bool(
+            preferred_name and microphone.name.strip().casefold() != preferred_name.casefold()
+        )
+        if self.using_fallback_input:
+            self.input_device_notice = (
+                f"Configured microphone '{self.preferred_device.strip()}' is unavailable; "
+                f"using '{microphone.name}' until it returns."
+            )
+            logger.warning(self.input_device_notice)
 
         recorder_context = microphone.recorder(
             samplerate=self.sample_rate,
@@ -1567,6 +1599,9 @@ class ContinuousVoiceListener:
             "vad_recorder_active": self._recorder.is_active,
             "input_device": self._recorder.input_device,
             "input_device_name": self._recorder.input_device_name,
+            "configured_input_device": self._recorder.preferred_device,
+            "using_fallback_input": self._recorder.using_fallback_input,
+            "input_device_notice": self._recorder.input_device_notice,
             "input_error": self._recorder.last_error,
             "capture_backend": self._recorder.capture_backend,
             "energy_threshold": self._recorder.energy_threshold,

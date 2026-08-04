@@ -94,6 +94,46 @@ def test_input_device_honors_stable_hostapi_and_name_selection():
     )
 
 
+def test_input_device_falls_back_when_saved_selection_disappears():
+    sounddevice = _FakeSoundDevice(
+        [
+            {"name": "Current Default Mic", "max_input_channels": 1, "hostapi": 1},
+            {"name": "Stereo Mix", "max_input_channels": 2, "hostapi": 0},
+        ],
+        default_input=0,
+        usable={0, 1},
+    )
+
+    assert (
+        _resolve_input_device(
+            sounddevice,
+            sample_rate=16000,
+            channels=1,
+            dtype="int16",
+            preferred_device="Windows WASAPI::Disconnected Headset",
+            allow_preferred_fallback=True,
+        )
+        == 0
+    )
+
+
+def test_input_device_keeps_missing_saved_selection_fail_closed_by_default():
+    sounddevice = _FakeSoundDevice(
+        [{"name": "Current Default Mic", "max_input_channels": 1, "hostapi": 1}],
+        default_input=0,
+        usable={0},
+    )
+
+    with pytest.raises(RuntimeError, match="no longer available"):
+        _resolve_input_device(
+            sounddevice,
+            sample_rate=16000,
+            channels=1,
+            dtype="int16",
+            preferred_device="Windows WASAPI::Disconnected Headset",
+        )
+
+
 def test_list_audio_input_devices_excludes_incompatible_inputs():
     sounddevice = _FakeSoundDevice(
         [
@@ -173,6 +213,8 @@ def test_listener_stats_expose_transient_signal_and_transcript_diagnostics():
     listener._recorder.peak_frame_rms = 0.08
     listener._recorder.last_above_threshold_at = 123.5
     listener._recorder.utterances_captured = 2
+    listener._recorder.using_fallback_input = True
+    listener._recorder.input_device_notice = "Using the current default microphone."
     listener.transcripts_received = 1
     listener.last_transcript = "hey heliocs open github"
     listener.last_transcription_ms = 234.4
@@ -185,6 +227,8 @@ def test_listener_stats_expose_transient_signal_and_transcript_diagnostics():
     assert stats["peak_frame_rms"] == 0.08
     assert stats["last_above_threshold_at"] == 123.5
     assert stats["utterances_captured"] == 2
+    assert stats["using_fallback_input"] is True
+    assert stats["input_device_notice"] == "Using the current default microphone."
     assert stats["transcripts_received"] == 1
     assert stats["last_transcript"] == "hey heliocs open github"
     assert stats["last_transcription_ms"] == 234
