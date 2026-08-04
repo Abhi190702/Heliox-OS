@@ -104,8 +104,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    permissions:
-      contents: write
     defaults:
       run:
         working-directory: tauri-app/ui
@@ -113,10 +111,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Need write access to commit generated baselines back on first run
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -151,6 +145,7 @@ jobs:
           OS_SUFFIX="linux"
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then OS_SUFFIX="win32"; fi
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then OS_SUFFIX="darwin"; fi
+          echo "os_suffix=$OS_SUFFIX" >> $GITHUB_OUTPUT
           
           SNAPSHOT_DIR="tests/visual/__snapshots__"
           if [ -n "$(find $SNAPSHOT_DIR -name "*${OS_SUFFIX}.png" 2>/dev/null | head -1)" ]; then
@@ -162,27 +157,17 @@ jobs:
       - name: Generate missing baseline snapshots
         if: steps.check_baselines.outputs.exists == 'false'
         run: npx playwright test --update-snapshots --reporter=github
-        continue-on-error: true
         env:
           CI: "true"
 
-      - name: Commit generated baselines (first run only)
-        if: steps.check_baselines.outputs.exists == 'false' && github.event_name == 'push'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add tests/visual/__snapshots__/
-          git diff --cached --quiet || git commit -m "ci: generate visual regression baselines for ${{ matrix.os }} [skip ci]"
-          
-          # Handle concurrent pushes from multiple OS jobs
-          for i in {1..5}; do
-            git pull --rebase origin main || true
-            if git push origin HEAD:main; then
-              break
-            fi
-            sleep $((RANDOM % 5 + 1))
-          done
-        working-directory: tauri-app/ui
+      - name: Upload generated baselines for review
+        if: steps.check_baselines.outputs.exists == 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-baselines-${{ matrix.os }}
+          path: tauri-app/ui/tests/visual/__snapshots__/**/*-chromium-${{ steps.check_baselines.outputs.os_suffix }}.png
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Run visual regression tests (comparison)
         run: npx playwright test --reporter=github
