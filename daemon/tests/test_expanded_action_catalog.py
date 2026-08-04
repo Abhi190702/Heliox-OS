@@ -17,6 +17,7 @@ from pilot.actions import (
     FileParams,
     GitParams,
     GitResolveParams,
+    MouseParams,
     WasmCallParams,
 )
 from pilot.agents.executor import Executor
@@ -172,8 +173,64 @@ async def test_screen_detection_uses_concrete_vision_handler(default_config, tmp
         output = await executor._exec_screen_detect_elements(action)
 
     assert output == response
-    assert executor._last_output == "25,40"
+    assert executor._detected_click_target == (25, 40, "Save")
     detector.assert_awaited_once()
+
+
+async def test_detected_click_target_is_used_once_and_desktop_steps_are_serial(default_config, tmp_path: Path):
+    executor = _executor(default_config, tmp_path)
+    detect = Action(
+        action_type=ActionType.SCREEN_DETECT_ELEMENTS,
+        parameters=ElementDetectionParams(description="launch button", region="100,200,800,600"),
+    )
+    click = Action(
+        action_type=ActionType.MOUSE_CLICK,
+        parameters=MouseParams(),
+    )
+    response = json.dumps(
+        {
+            "elements": [
+                {
+                    "label": "Launch",
+                    "action": "click",
+                    "bbox": [10, 20, 30, 40],
+                }
+            ]
+        }
+    )
+
+    batches = executor._analyze_dependencies([detect, click])
+    assert batches == [[detect], [click]]
+
+    with (
+        patch(
+            "pilot.system.vision.screen_detect_elements",
+            new=AsyncMock(return_value=response),
+        ),
+        patch(
+            "pilot.system.input_control.mouse_click",
+            new=AsyncMock(return_value="clicked"),
+        ) as mouse_click,
+    ):
+        await executor._exec_screen_detect_elements(detect)
+        result = await executor._exec_mouse_click(click)
+
+    mouse_click.assert_awaited_once_with(125, 240, "left", 1)
+    assert result == "clicked (detected target: Launch)"
+    assert executor._detected_click_target is None
+
+
+async def test_zero_coordinate_click_fails_closed_without_detected_target(default_config, tmp_path: Path):
+    executor = _executor(default_config, tmp_path)
+    action = Action(action_type=ActionType.MOUSE_CLICK, parameters=MouseParams())
+
+    with (
+        patch("pilot.system.input_control.mouse_click", new_callable=AsyncMock) as mouse_click,
+        pytest.raises(ValueError, match="no grounded coordinates"),
+    ):
+        await executor._exec_mouse_click(action)
+
+    mouse_click.assert_not_awaited()
 
 
 async def test_plugin_and_wasm_actions_use_distinct_brokers(default_config, tmp_path: Path):

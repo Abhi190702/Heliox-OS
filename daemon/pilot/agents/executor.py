@@ -106,6 +106,34 @@ def _code_execution_error(output: str) -> str | None:
 class Executor:
     """Executes validated action plans against the system."""
 
+    _DESKTOP_ACTION_TYPES = frozenset(
+        {
+            ActionType.OPEN_APPLICATION,
+            ActionType.WINDOW_LIST,
+            ActionType.WINDOW_FOCUS,
+            ActionType.WINDOW_MINIMIZE,
+            ActionType.WINDOW_MAXIMIZE,
+            ActionType.WINDOW_CLOSE,
+            ActionType.MOUSE_CLICK,
+            ActionType.MOUSE_DOUBLE_CLICK,
+            ActionType.MOUSE_RIGHT_CLICK,
+            ActionType.MOUSE_MOVE,
+            ActionType.MOUSE_DRAG,
+            ActionType.MOUSE_SCROLL,
+            ActionType.MOUSE_POSITION,
+            ActionType.KEYBOARD_TYPE,
+            ActionType.KEYBOARD_PRESS,
+            ActionType.KEYBOARD_HOTKEY,
+            ActionType.KEYBOARD_HOLD,
+            ActionType.SCREENSHOT,
+            ActionType.SCREEN_OCR,
+            ActionType.SCREEN_FIND_TEXT,
+            ActionType.SCREEN_ANALYZE,
+            ActionType.SCREEN_ELEMENT_MAP,
+            ActionType.SCREEN_DETECT_ELEMENTS,
+        }
+    )
+
     def __init__(
         self,
         config: PilotConfig,
@@ -132,6 +160,11 @@ class Executor:
         self._durable_task_store: DurableTaskStore | None = None
         self._last_output = ""  # For output chaining between steps
         self._largest_output = ""  # Largest output from any step in the pipeline
+        self._detected_click_target: tuple[int, int, str] | None = None
+        # A physical desktop is one shared resource. Serialise plans that use
+        # it so two requests cannot type/click into each other's foreground
+        # window or consume each other's vision result.
+        self._desktop_execution_lock = asyncio.Lock()
 
         self._dispatch_table: dict[ActionType, callable] = {
             # -- File operations --
@@ -426,6 +459,8 @@ class Executor:
             # later command inspect the previous page or race a navigation.
             if action_type_value.startswith("browser_"):
                 resources.add("browser-session")
+            if action.action_type in self._DESKTOP_ACTION_TYPES:
+                resources.add("desktop-session")
             target = action.target or ""
             if target:
                 resources.add(target)
@@ -669,21 +704,26 @@ class Executor:
             if on_action_complete:
                 await on_action_complete(result)
 
-        results = await self._execute_inner(
-            plan,
-            on_action_start=_on_recorded_action_start,
-            on_action_complete=_on_recorded_action_complete,
-            cancel_event=cancel_event,
-            plan_id=resolved_plan_id,
-            initial_last_output=initial_last_output,
-            initial_largest_output=initial_largest_output,
-            orchestrator=orchestrator,
-            invocation_source=invocation_source,
-            scope_override=scope_override,
-            critic_already_reviewed=critic_already_reviewed,
-            user_confirmed=user_confirmed,
-            action_index_offset=action_index_offset,
-        )
+        execute_kwargs = {
+            "on_action_start": _on_recorded_action_start,
+            "on_action_complete": _on_recorded_action_complete,
+            "cancel_event": cancel_event,
+            "plan_id": resolved_plan_id,
+            "initial_last_output": initial_last_output,
+            "initial_largest_output": initial_largest_output,
+            "orchestrator": orchestrator,
+            "invocation_source": invocation_source,
+            "scope_override": scope_override,
+            "critic_already_reviewed": critic_already_reviewed,
+            "user_confirmed": user_confirmed,
+            "action_index_offset": action_index_offset,
+        }
+        uses_desktop = any(action.action_type in self._DESKTOP_ACTION_TYPES for action in plan.actions)
+        if uses_desktop:
+            async with self._desktop_execution_lock:
+                results = await self._execute_inner(plan, **execute_kwargs)
+        else:
+            results = await self._execute_inner(plan, **execute_kwargs)
         for result in results:
             if id(result) not in completed_result_ids:
                 await _record_completion(result, callback_observed=False)
@@ -710,6 +750,7 @@ class Executor:
         results: list[ActionResult] = []
         self._last_output = initial_last_output
         self._largest_output = initial_last_output if initial_largest_output is None else initial_largest_output
+        self._detected_click_target = None
 
         if self._gateway is not None:
             gateway_decision = await self._gateway.authorize(
@@ -2029,7 +2070,20 @@ class Executor:
         from pilot.system.input_control import mouse_click
 
         p: MouseParams = action.parameters  # type: ignore[assignment]
-        return await mouse_click(p.x, p.y, p.button, p.clicks)
+        x, y = p.x, p.y
+        target_label = ""
+        if x == 0 and y == 0:
+            if self._detected_click_target is None:
+                raise ValueError(
+                    "mouse_click has no grounded coordinates; detect a single UI target "
+                    "or provide measured x/y coordinates"
+                )
+            x, y, target_label = self._detected_click_target
+            self._detected_click_target = None
+        output = await mouse_click(x, y, p.button, p.clicks)
+        if target_label:
+            return f"{output} (detected target: {target_label})"
+        return output
 
     async def _exec_mouse_double_click(self, action: Action) -> str:
         from pilot.system.input_control import mouse_double_click
@@ -2138,8 +2192,8 @@ class Executor:
     async def _exec_screen_detect_elements(self, action: Action) -> str:
         """Zero-shot VLM element detection — returns bounding-box coordinates.
 
-        If the result contains exactly one ``click`` element, automatically
-        emits a MOUSE_CLICK action so the agent can act on it immediately.
+        If the result contains exactly one ``click`` element, retain its
+        measured centre for a subsequent zero-coordinate ``MOUSE_CLICK``.
         """
         import json as _json
 
@@ -2165,25 +2219,33 @@ class Executor:
             action_filter=p.action_filter,
         )
 
-        # Auto-chain: if exactly one click element found, inject its centre
-        # coordinates into _last_output so a subsequent MOUSE_CLICK can use them
+        self._detected_click_target = None
+
+        # Auto-chain: retain a single, measured click target separately from
+        # textual step output. ``_last_output`` is replaced with the returned
+        # JSON by the normal executor pipeline and cannot safely carry state.
         try:
             data = _json.loads(result)
             elements = data.get("elements", [])
             click_els = [e for e in elements if e.get("action") == "click"]
             if len(click_els) == 1:
                 bbox = click_els[0].get("bbox", [0, 0, 0, 0])
-                cx = bbox[0] + bbox[2] // 2
-                cy = bbox[1] + bbox[3] // 2
-                self._last_output = f"{cx},{cy}"
+                if not isinstance(bbox, list) or len(bbox) != 4:
+                    raise ValueError("invalid click target bounding box")
+                offset_x = region[0] if region else 0
+                offset_y = region[1] if region else 0
+                cx = int(bbox[0]) + int(bbox[2]) // 2 + offset_x
+                cy = int(bbox[1]) + int(bbox[3]) // 2 + offset_y
+                label = str(click_els[0].get("label", "")).strip() or "unnamed element"
+                self._detected_click_target = (cx, cy, label)
                 logger.info(
                     "screen_detect_elements: single click target '%s' at (%d, %d)",
-                    click_els[0].get("label", ""),
+                    label,
                     cx,
                     cy,
                 )
-        except Exception:
-            pass
+        except (TypeError, ValueError, KeyError, _json.JSONDecodeError):
+            logger.warning("screen_detect_elements returned no usable single click target")
 
         return result
 
