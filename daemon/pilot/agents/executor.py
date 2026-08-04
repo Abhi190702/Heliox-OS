@@ -2128,7 +2128,7 @@ class Executor:
         from pilot.system.input_control import keyboard_type
 
         p: KeyboardParams = action.parameters  # type: ignore[assignment]
-        return await keyboard_type(p.text, p.interval)
+        return await keyboard_type(p.text, p.interval, target_window=p.window_title)
 
     async def _exec_keyboard_press(self, action: Action) -> str:
         from pilot.system.input_control import keyboard_press

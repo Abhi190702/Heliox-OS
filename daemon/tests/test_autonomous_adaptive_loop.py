@@ -22,13 +22,16 @@ def _autonomous(*, plans, results, verifications, screen_vision=None) -> Autonom
     planner = SimpleNamespace(plan=AsyncMock(side_effect=plans))
     executor = SimpleNamespace(execute=AsyncMock(side_effect=results))
     verifier = SimpleNamespace(verify=AsyncMock(side_effect=verifications))
-    return AutonomousExecutor(
+    autonomous = AutonomousExecutor(
         planner=planner,
         executor=executor,
         verifier=verifier,
         decomposer=MagicMock(),
         screen_vision=screen_vision,
     )
+    autonomous._focus_target_window = AsyncMock(return_value=True)
+    autonomous._read_target_window_text = AsyncMock(return_value="")
+    return autonomous
 
 
 def _open_app_plan() -> ActionPlan:
@@ -78,6 +81,7 @@ async def test_desktop_goal_reobserves_after_open_and_requires_completion_eviden
     assert autonomous._executor.execute.await_count == 1
     assert autonomous._verifier.verify.await_count == 1
     assert screen.observe_now.await_count == 2
+    autonomous._focus_target_window.assert_awaited_once_with("Hermes")
     for call in autonomous._planner.plan.await_args_list:
         assert call.kwargs["force_model"] is True
 
@@ -145,6 +149,20 @@ async def test_exact_text_completion_rejects_case_mismatch_and_replans():
     assert autonomous._executor.execute.await_count == 1
     second_context = autonomous._planner.plan.await_args_list[1].kwargs["screen_context"]
     assert "completion claim rejected" in second_context
+
+
+def test_keyboard_text_is_bound_to_opened_native_window():
+    open_action = _open_app_plan().actions[0]
+    type_action = Action(
+        action_type=ActionType.KEYBOARD_TYPE,
+        parameters=KeyboardParams(text="EXACT"),
+    )
+    plan = ActionPlan(actions=[open_action, type_action])
+
+    target = AutonomousExecutor._bind_plan_to_target(plan, None)
+
+    assert target == "Hermes"
+    assert type_action.parameters.window_title == "Hermes"
 
 
 @pytest.mark.asyncio

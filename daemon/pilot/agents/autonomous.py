@@ -22,6 +22,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from pilot.actions import ActionPlan, ActionType
@@ -64,6 +65,20 @@ _DESKTOP_LOOP_ACTIONS = frozenset(
         ActionType.SCREEN_ANALYZE,
         ActionType.SCREEN_ELEMENT_MAP,
         ActionType.SCREEN_DETECT_ELEMENTS,
+    }
+)
+
+_FOREGROUND_INPUT_ACTIONS = frozenset(
+    {
+        ActionType.MOUSE_CLICK,
+        ActionType.MOUSE_DOUBLE_CLICK,
+        ActionType.MOUSE_RIGHT_CLICK,
+        ActionType.MOUSE_MOVE,
+        ActionType.MOUSE_DRAG,
+        ActionType.MOUSE_SCROLL,
+        ActionType.KEYBOARD_PRESS,
+        ActionType.KEYBOARD_HOTKEY,
+        ActionType.KEYBOARD_HOLD,
     }
 )
 
@@ -428,7 +443,7 @@ class AutonomousExecutor:
                 await self._notify("autonomous_step_complete", job)
                 step_idx += 1
 
-    async def _observe_screen_context(self) -> str:
+    async def _observe_screen_context(self, target_window: str | None = None) -> str:
         """Return a fresh foreground observation when screen vision is available."""
         if self._screen_vision is None:
             return "No screen context available."
@@ -445,7 +460,20 @@ class AutonomousExecutor:
             context = "No screen context available."
         if observation is not None and getattr(observation, "screen_hash", ""):
             context += f"\nObservation fingerprint: {observation.screen_hash[:12]}"
+        if target_window:
+            try:
+                target_text = await self._read_target_window_text(target_window)
+                context += (
+                    f"\nTarget window: {target_window}\nTarget editable text (case-sensitive): {target_text[:4000]}"
+                )
+            except Exception as error:
+                context += f"\nTarget window {target_window!r} could not be read in the background: {error}"
         return context
+
+    async def _read_target_window_text(self, target: str) -> str:
+        from pilot.system.window_mgr import window_read_text
+
+        return await window_read_text(title=target)
 
     @staticmethod
     def _plan_fingerprint(plan: ActionPlan) -> str:
@@ -458,6 +486,48 @@ class AutonomousExecutor:
             action.action_type in _DESKTOP_LOOP_ACTIONS or action.action_type.value.startswith("browser_")
             for action in plan.actions
         )
+
+    @staticmethod
+    def _target_window_from_plan(plan: ActionPlan) -> str | None:
+        """Remember the native app a desktop plan opened or explicitly focused."""
+        for action in reversed(plan.actions):
+            params = action.parameters
+            if action.action_type == ActionType.WINDOW_FOCUS:
+                title = str(getattr(params, "title", "") or "").strip()
+                process = str(getattr(params, "process_name", "") or "").strip()
+                return title or process or None
+            if action.action_type == ActionType.OPEN_APPLICATION:
+                name = str(getattr(params, "name", "") or action.target or "").strip()
+                if name:
+                    return Path(name).stem
+        return None
+
+    @classmethod
+    def _bind_plan_to_target(cls, plan: ActionPlan, current_target: str | None) -> str | None:
+        """Attach desktop text actions to the native window owned by this task."""
+        target = cls._target_window_from_plan(plan) or current_target
+        if not target:
+            return None
+        for action in plan.actions:
+            if action.action_type == ActionType.KEYBOARD_TYPE and not getattr(action.parameters, "window_title", None):
+                action.parameters.window_title = target
+        return target
+
+    @staticmethod
+    def _requires_foreground_target(plan: ActionPlan) -> bool:
+        return any(action.action_type in _FOREGROUND_INPUT_ACTIONS for action in plan.actions)
+
+    async def _focus_target_window(self, target: str) -> bool:
+        """Re-acquire a task's app before its next grounded observation."""
+        try:
+            from pilot.system.window_mgr import window_focus
+
+            await window_focus(title=target)
+            await asyncio.sleep(DESKTOP_SETTLE_SECONDS)
+            return True
+        except Exception as error:
+            logger.info("Could not re-focus autonomous target %r: %s", target, error)
+            return False
 
     @staticmethod
     def _round_directive(goal: str, round_index: int, progress: list[str]) -> str:
@@ -519,11 +589,14 @@ class AutonomousExecutor:
         fingerprints: dict[str, int] = {}
         successful_rounds = 0
         interactive_task = False
+        target_window: str | None = None
 
         try:
             for round_index in range(MAX_AUTONOMOUS_ROUNDS_PER_STEP):
                 step.rounds = round_index + 1
-                screen_ctx = await self._observe_screen_context()
+                if target_window and not await self._focus_target_window(target_window):
+                    progress.append(f"Could not re-focus target window {target_window!r}; re-observing the desktop.")
+                screen_ctx = await self._observe_screen_context(target_window)
                 directive = self._round_directive(goal, round_index, progress)
                 plan = await self._planner.plan(
                     goal,
@@ -558,6 +631,16 @@ class AutonomousExecutor:
 
                 is_interactive_round = self._is_interactive_plan(plan)
                 interactive_task = interactive_task or is_interactive_round
+                planned_target = self._bind_plan_to_target(plan, target_window)
+                if (
+                    planned_target
+                    and self._requires_foreground_target(plan)
+                    and not await self._focus_target_window(planned_target)
+                ):
+                    failure = f"Target window {planned_target!r} could not be safely focused for desktop input."
+                    progress.append(f"Round {round_index + 1} blocked: {failure}")
+                    step.error = failure
+                    break
                 plan_id = (
                     plan_id_prefix
                     if plan_id_prefix and round_index == 0
@@ -571,6 +654,7 @@ class AutonomousExecutor:
                     invocation_source=invocation_source,
                     scope_override=job.scope_override,
                 )
+                target_window = planned_target
                 verification = await self._verifier.verify(plan, results)
                 if on_round_complete is not None:
                     await on_round_complete(plan_id or "", plan, results, verification)

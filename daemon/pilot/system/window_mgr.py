@@ -6,6 +6,7 @@ macOS (osascript/AppleScript).
 
 from __future__ import annotations
 
+import base64
 import logging
 
 from pilot.system.platform_detect import CURRENT_PLATFORM, Platform, run_command, run_powershell
@@ -16,6 +17,129 @@ logger = logging.getLogger("pilot.system.windows")
 def _powershell_literal(value: str) -> str:
     """Quote untrusted text as one PowerShell single-quoted literal."""
     return "'" + value.replace("'", "''") + "'"
+
+
+def _windows_process_selector(*, title: str | None, process_name: str | None) -> str:
+    if process_name:
+        target = _powershell_literal(process_name)
+        return (
+            f"$target = {target}; $p = Get-Process -Name $target -ErrorAction SilentlyContinue | "
+            "Where-Object {$_.MainWindowHandle -ne 0} | Select-Object -First 1; "
+        )
+    if title:
+        target = _powershell_literal(title)
+        return (
+            f"$target = {target}; $pattern = '*' + [WildcardPattern]::Escape($target) + '*'; "
+            "$p = Get-Process | Where-Object {$_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like $pattern} | "
+            "Select-Object -First 1; "
+        )
+    raise ValueError("Provide process_name or title")
+
+
+def _windows_text_element_script() -> str:
+    """PowerShell that binds ``$element`` to the target window's active editor."""
+    return (
+        "Add-Type -AssemblyName UIAutomationClient; Add-Type -AssemblyName UIAutomationTypes; "
+        "Add-Type -TypeDefinition 'using System; using System.Text; using System.Runtime.InteropServices; "
+        "public class NativeText { "
+        '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l); '
+        '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, StringBuilder l); '
+        '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, string l); }\'; '
+        "$root = [System.Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle); "
+        "$focused = New-Object System.Windows.Automation.PropertyCondition("
+        "[System.Windows.Automation.AutomationElement]::HasKeyboardFocusProperty, $true); "
+        "$element = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $focused); "
+        "if (-not $element) { "
+        "$document = New-Object System.Windows.Automation.PropertyCondition("
+        "[System.Windows.Automation.AutomationElement]::ControlTypeProperty, "
+        "[System.Windows.Automation.ControlType]::Document); "
+        "$element = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $document); "
+        "if (-not $element) { "
+        "$edit = New-Object System.Windows.Automation.PropertyCondition("
+        "[System.Windows.Automation.AutomationElement]::ControlTypeProperty, "
+        "[System.Windows.Automation.ControlType]::Edit); "
+        "$element = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $edit); "
+        "if (-not $element) { "
+        "$pane = New-Object System.Windows.Automation.PropertyCondition("
+        "[System.Windows.Automation.AutomationElement]::ControlTypeProperty, "
+        "[System.Windows.Automation.ControlType]::Pane); "
+        "$element = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $pane); "
+        "} "
+        "} } "
+    )
+
+
+async def window_read_text(*, title: str | None = None, process_name: str | None = None) -> str:
+    """Read exact text from a target window without requiring foreground focus."""
+    if CURRENT_PLATFORM != Platform.WINDOWS:
+        raise RuntimeError("Background window text reading is currently available on Windows only")
+    selector = _windows_process_selector(title=title, process_name=process_name)
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        + selector
+        + "if (-not $p) { Write-Error 'Window not found'; exit 1 }; "
+        + _windows_text_element_script()
+        + "$textPattern = $null; $valuePattern = $null; $text = $null; "
+        + "if ($element -and $element.TryGetCurrentPattern("
+        + "[System.Windows.Automation.TextPattern]::Pattern, [ref]$textPattern)) { "
+        + "$text = $textPattern.DocumentRange.GetText(-1) } "
+        + "elseif ($element -and $element.TryGetCurrentPattern("
+        + "[System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern)) { "
+        + "$text = $valuePattern.Current.Value } "
+        + "elseif ($element -and $element.Current.NativeWindowHandle -ne 0) { "
+        + "$handle = [IntPtr]$element.Current.NativeWindowHandle; "
+        + "$length = [int][NativeText]::SendMessage($handle, 14, [IntPtr]::Zero, [IntPtr]::Zero); "
+        + "$buffer = New-Object System.Text.StringBuilder ($length + 1); "
+        + "[void][NativeText]::SendMessage($handle, 13, [IntPtr]($length + 1), $buffer); $text = $buffer.ToString() } "
+        + "else { Write-Error 'No readable text control found'; exit 1 }; "
+        + "$bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$text); "
+        + "[Convert]::ToBase64String($bytes)"
+    )
+    code, out, err = await run_powershell(script)
+    if code != 0:
+        raise RuntimeError(f"Window text read failed: {err.strip()}")
+    try:
+        return base64.b64decode(out.strip()).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as error:
+        raise RuntimeError("Window text read returned invalid data") from error
+
+
+async def window_set_text(
+    text: str,
+    *,
+    title: str | None = None,
+    process_name: str | None = None,
+) -> str:
+    """Set and verify a target window's active editor through Windows UIA."""
+    if CURRENT_PLATFORM != Platform.WINDOWS:
+        raise RuntimeError("Background window text entry is currently available on Windows only")
+    selector = _windows_process_selector(title=title, process_name=process_name)
+    encoded = _powershell_literal(base64.b64encode(text.encode("utf-8")).decode("ascii"))
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        + selector
+        + "if (-not $p) { Write-Error 'Window not found'; exit 1 }; "
+        + _windows_text_element_script()
+        + "$valuePattern = $null; "
+        + "$hasValue = $element -and $element.TryGetCurrentPattern("
+        + "[System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern); "
+        + "$nativeHandle = if ($element) { [IntPtr]$element.Current.NativeWindowHandle } else { [IntPtr]::Zero }; "
+        + "if (-not $hasValue -and $nativeHandle -eq [IntPtr]::Zero) { "
+        + "Write-Error 'No writable text control found'; exit 1 }; "
+        + f"$expected = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String({encoded})); "
+        + "if ($hasValue) { $valuePattern.SetValue($expected); $actual = $valuePattern.Current.Value } "
+        + "else { [void][NativeText]::SendMessage($nativeHandle, 12, [IntPtr]::Zero, $expected); "
+        + "$length = [int][NativeText]::SendMessage($nativeHandle, 14, [IntPtr]::Zero, [IntPtr]::Zero); "
+        + "$buffer = New-Object System.Text.StringBuilder ($length + 1); "
+        + "[void][NativeText]::SendMessage($nativeHandle, 13, [IntPtr]($length + 1), $buffer); "
+        + "$actual = $buffer.ToString() }; "
+        + "if ($actual -ne $expected) { "
+        + "Write-Error 'Text verification mismatch'; exit 1 }; 'ok'"
+    )
+    code, out, err = await run_powershell(script)
+    if code != 0:
+        raise RuntimeError(f"Window text entry failed: {err.strip()}")
+    return f"Set exact text in window: {title or process_name}"
 
 
 async def window_list() -> str:

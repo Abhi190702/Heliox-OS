@@ -126,6 +126,8 @@ async def mouse_position() -> str:
 async def keyboard_type(
     text: str,
     interval: float = 0.03,
+    *,
+    target_window: str | None = None,
 ) -> str:
     """Enter exact text at the current cursor position.
 
@@ -134,6 +136,25 @@ async def keyboard_type(
     restore the user's prior clipboard value immediately afterward.
     """
     pag = _ensure_pyautogui()
+
+    if target_window:
+        try:
+            from pilot.system.window_mgr import window_set_text
+
+            await window_set_text(text, title=target_window)
+            preview = text[:80] + "..." if len(text) > 80 else text
+            return f"Typed exactly in {target_window}: {preview}"
+        except Exception as error:
+            logger.info(
+                "Background text entry unavailable for %r; attempting verified foreground entry: %s",
+                target_window,
+                error,
+            )
+            from pilot.system.window_mgr import window_focus
+
+            # Fail closed if Windows refuses to re-acquire the requested app;
+            # never paste into whichever unrelated window happens to be active.
+            await window_focus(title=target_window)
 
     try:
         import pyperclip

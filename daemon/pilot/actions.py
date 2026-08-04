@@ -669,6 +669,7 @@ class KeyboardParams(BaseModel):
     interval: float = 0.03  # Typing speed
     presses: int = 1
     duration: float = 0.5  # For hold
+    window_title: str | None = None  # Bind background-safe text entry to a native app window
 
 
 class ScreenVisionParams(BaseModel):
