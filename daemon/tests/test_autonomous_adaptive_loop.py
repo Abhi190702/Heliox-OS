@@ -10,6 +10,7 @@ from pilot.actions import (
     ActionPlan,
     ActionResult,
     ActionType,
+    KeyboardParams,
     OpenApplicationParams,
     SystemInfoParams,
     VerificationResult,
@@ -96,6 +97,54 @@ async def test_action_success_without_goal_completion_is_not_reported_as_done():
 
     assert job.steps[0].status == "failed"
     assert "without verified GOAL_COMPLETE evidence" in job.steps[0].error
+
+
+@pytest.mark.asyncio
+async def test_exact_text_completion_rejects_case_mismatch_and_replans():
+    correction = Action(
+        action_type=ActionType.KEYBOARD_TYPE,
+        parameters=KeyboardParams(text="HELIOX AUTONOMY LIVE TEST"),
+    )
+    correction_plan = ActionPlan(actions=[correction], explanation="Correct the case")
+    typed = ActionResult(action=correction, success=True, output="Typed exactly: HELIOX AUTONOMY LIVE TEST")
+    screen = SimpleNamespace(
+        observe_now=AsyncMock(
+            side_effect=[
+                SimpleNamespace(screen_hash="wrong-case"),
+                SimpleNamespace(screen_hash="still-wrong"),
+                SimpleNamespace(screen_hash="exact-case"),
+            ]
+        ),
+        get_context_for_planner=MagicMock(
+            side_effect=[
+                "*heliox AUTONOMY LIVE Test - Notepad",
+                "*heliox AUTONOMY LIVE Test - Notepad",
+                "*HELIOX AUTONOMY LIVE TEST - Notepad",
+            ]
+        ),
+    )
+    autonomous = _autonomous(
+        plans=[
+            ActionPlan(actions=[], explanation="GOAL_COMPLETE: exact text is visible"),
+            correction_plan,
+            ActionPlan(actions=[], explanation="GOAL_COMPLETE: exact text is now visible"),
+        ],
+        results=[[typed]],
+        verifications=[VerificationResult(passed=True, details=["typed"])],
+        screen_vision=screen,
+    )
+    job = AutonomousJob(
+        goal=("Open Notepad and type exactly HELIOX AUTONOMY LIVE TEST into the blank document. Do not save it."),
+        steps=[JobStep(index=0, title="Execute", description="")],
+    )
+
+    await autonomous._execute_single_step(job)
+
+    assert job.steps[0].status == "success"
+    assert job.steps[0].rounds == 3
+    assert autonomous._executor.execute.await_count == 1
+    second_context = autonomous._planner.plan.await_args_list[1].kwargs["screen_context"]
+    assert "completion claim rejected" in second_context
 
 
 @pytest.mark.asyncio

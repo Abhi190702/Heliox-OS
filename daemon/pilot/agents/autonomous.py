@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -472,8 +473,35 @@ class AutonomousExecutor:
             "only open or focus it; inspect the newly visible UI in the next round. Never invent click "
             "coordinates. Use screen_detect_elements with a narrow description followed by mouse_click "
             "at x=0,y=0 when coordinates are not already measured. Do not claim completion merely because "
-            "an application opened or an input action returned success."
+            "an application opened or an input action returned success. Requirements containing 'exactly' "
+            "are case-sensitive and must be visibly matched before claiming completion."
         )
+
+    @staticmethod
+    def _required_exact_text(goal: str) -> str | None:
+        """Extract a case-sensitive payload from common ``type exactly`` goals."""
+        quoted = re.search(r"\btype\s+exactly\s+(['\"])(.*?)\1", goal, flags=re.IGNORECASE | re.DOTALL)
+        if quoted:
+            return quoted.group(2)
+        plain = re.search(
+            r"\btype\s+exactly\s+(.+?)(?="
+            r"\s+into\b|\s+and\s+then\b|"
+            r"\s+in\s+(?:the\s+)?(?:app|application|document|field|box|window|notepad|hermes)\b|"
+            r"[.;]|$)",
+            goal,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if not plain:
+            return None
+        required = plain.group(1).strip()
+        return required or None
+
+    @classmethod
+    def _completion_evidence_matches_goal(cls, goal: str, screen_context: str) -> tuple[bool, str]:
+        required = cls._required_exact_text(goal)
+        if required is None or required in screen_context:
+            return True, ""
+        return False, f"case-sensitive text {required!r} is not present in the current screen evidence"
 
     async def _execute_goal_loop(
         self,
@@ -510,11 +538,15 @@ class AutonomousExecutor:
                 if not plan.actions:
                     completion_claim = plan.explanation.strip().lower().startswith("goal_complete:")
                     has_fresh_screen_evidence = "No screen context available." not in screen_ctx
-                    if completion_claim and (successful_rounds > 0 or has_fresh_screen_evidence):
+                    evidence_matches, mismatch = self._completion_evidence_matches_goal(goal, screen_ctx)
+                    if completion_claim and (successful_rounds > 0 or has_fresh_screen_evidence) and evidence_matches:
                         step.status = "success"
                         if plan.explanation:
                             output_chunks.append(plan.explanation)
                         break
+                    if completion_claim and not evidence_matches:
+                        progress.append(f"Round {round_index + 1} completion claim rejected: {mismatch}.")
+                        continue
                     step.error = "Planner returned no executable action without verified GOAL_COMPLETE evidence."
                     break
 
