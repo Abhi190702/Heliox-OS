@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -183,6 +183,22 @@ async def test_listener_does_not_report_running_when_microphone_open_fails():
     assert listener.is_running is False
     assert listener._task is None
     assert "device unavailable" in result
+
+
+@pytest.mark.asyncio
+async def test_listener_rejects_phantom_microphone_that_delivers_no_frames():
+    listener = ContinuousVoiceListener(config=PilotConfig())
+    listener._recorder.start = MagicMock(return_value=True)
+    listener._recorder.wait_until_receiving = AsyncMock(return_value=False)
+    listener._recorder.stop = MagicMock()
+    listener._recorder.input_device_name = "Disconnected WDM input"
+
+    result = await listener.start()
+
+    assert listener.is_running is False
+    assert listener._task is None
+    assert "delivered no audio" in result
+    listener._recorder.stop.assert_called_once_with()
 
 
 @pytest.mark.asyncio

@@ -885,10 +885,10 @@ class _ContinuousRecorder:
             try:
                 if self._start_windows_wasapi():
                     return True
-            except Exception:
-                logger.warning(
-                    "Native Windows microphone capture failed; falling back to PortAudio",
-                    exc_info=True,
+            except Exception as error:
+                logger.info(
+                    "Native Windows microphone capture unavailable; trying PortAudio (%s)",
+                    error,
                 )
 
         try:
@@ -1054,6 +1054,21 @@ class _ContinuousRecorder:
     @property
     def is_active(self) -> bool:
         return self._stream is not None or self._soundcard_recorder is not None
+
+    async def wait_until_receiving(self, timeout: float = 1.0) -> bool:
+        """Confirm an opened backend is actually delivering audio frames.
+
+        Windows can expose disconnected WDM-KS endpoints that accept an input
+        stream but never invoke its callback. Treating those endpoints as live
+        leaves the companion listening forever without hearing anything.
+        """
+        starting_frames = self.frames_received
+        deadline = asyncio.get_running_loop().time() + max(0.0, timeout)
+        while asyncio.get_running_loop().time() < deadline:
+            if self.frames_received > starting_frames:
+                return True
+            await asyncio.sleep(0.05)
+        return self.frames_received > starting_frames
 
     async def _drain_stale_frames(self, queue: asyncio.Queue[Any]) -> None:
         """Discards any frames queued while nobody was waiting, so a fresh
@@ -1267,6 +1282,17 @@ class ContinuousVoiceListener:
             self._running = False
             detail = self._recorder.last_error or "No usable microphone input is available."
             logger.error("Continuous voice listener could not start: %s", detail)
+            return f"Voice listener could not start: {detail}"
+
+        if not await self._recorder.wait_until_receiving():
+            self._running = False
+            self._recorder.last_error = (
+                f"Microphone '{self._recorder.input_device_name or 'selected input'}' opened "
+                "but delivered no audio. Connect or choose an active input in Settings."
+            )
+            detail = self._recorder.last_error
+            self._recorder.stop()
+            logger.warning("Continuous voice listener could not start: %s", detail)
             return f"Voice listener could not start: {detail}"
 
         self._task = asyncio.create_task(self._listen_loop())
