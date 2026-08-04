@@ -20,6 +20,10 @@ export interface SpeakOptions {
 const PREFERRED_VOICE_NAMES = ["Microsoft Mark", "Google UK English Male", "Daniel", "Alex"];
 let speechGeneration = 0;
 
+function prepareSpokenText(text: string): string {
+  return text.replace(/\bheliox\b/gi, "Hee-lee-ox");
+}
+
 function speakWithBrowser(text: string, options: SpeakOptions, generation: number): void {
   if (!window.speechSynthesis) {
     if (generation === speechGeneration) options.onError?.();
@@ -27,7 +31,7 @@ function speakWithBrowser(text: string, options: SpeakOptions, generation: numbe
   }
   window.speechSynthesis.cancel();
 
-  const utterance = new SpeechSynthesisUtterance(text);
+  const utterance = new SpeechSynthesisUtterance(prepareSpokenText(text));
   utterance.rate = options.rate ?? 1.1;
   utterance.pitch = options.pitch ?? 0.9;
   utterance.volume = options.volume ?? 0.9;

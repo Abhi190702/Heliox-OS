@@ -56,6 +56,13 @@ _AUTONOMOUS_SHORT_DECISIONS = frozenset(
     }
 )
 
+_HELIOX_PRONUNCIATION = "Hee-lee-ox"
+
+
+def _prepare_spoken_text(text: str) -> str:
+    """Apply product-name pronunciations consistently across every TTS engine."""
+    return re.sub(r"\bheliox\b", _HELIOX_PRONUNCIATION, text, flags=re.IGNORECASE)
+
 
 def _looks_like_autonomous_voice_intent(text: str) -> bool:
     """Reject ambient fragments while preserving natural hands-free intent."""
@@ -140,6 +147,7 @@ async def _speak_impl(
     speak()'s own cancellation-propagates-to-proc.kill() behavior intact:
     cancelling a task that's awaiting another task cancels that inner task
     too, so nothing about the existing barge-in kill path changes."""
+    spoken_text = _prepare_spoken_text(text)
     try:
         from pilot.cognitive.cognitive_engine import CognitiveEngine
 
@@ -159,9 +167,9 @@ async def _speak_impl(
             from pilot.system.kokoro_tts import synthesize_and_play, synthesize_to_file
 
             if output_file:
-                await synthesize_to_file(text, config.voice.tts_voice, output_file)
+                await synthesize_to_file(spoken_text, config.voice.tts_voice, output_file)
                 return f"Speech saved to {output_file}"
-            await synthesize_and_play(text, config.voice.tts_voice)
+            await synthesize_and_play(spoken_text, config.voice.tts_voice)
             return f"Spoken: {text[:80]}..."
         except asyncio.CancelledError:
             raise
@@ -176,9 +184,9 @@ async def _speak_impl(
             # the cognitive-load rate modulation above onto -- out of scope
             # for this pass, see SECURITY.md.
             if output_file:
-                await synthesize_to_file(text, config.voice.tts_voice, output_file)
+                await synthesize_to_file(spoken_text, config.voice.tts_voice, output_file)
                 return f"Speech saved to {output_file}"
-            await synthesize_and_play(text, config.voice.tts_voice)
+            await synthesize_and_play(spoken_text, config.voice.tts_voice)
             return f"Spoken: {text[:80]}..."
         except asyncio.CancelledError:
             # Barge-in -- propagate exactly like the OS-native paths do,
@@ -189,11 +197,11 @@ async def _speak_impl(
             # falls through to the platform dispatch below
 
     if CURRENT_PLATFORM == Platform.WINDOWS:
-        return await _tts_windows(text, voice, rate, volume, output_file)
+        return await _tts_windows(spoken_text, voice, rate, volume, output_file)
     elif CURRENT_PLATFORM == Platform.MACOS:
-        return await _tts_macos(text, voice, rate, output_file)
+        return await _tts_macos(spoken_text, voice, rate, output_file)
     else:
-        return await _tts_linux(text, voice, rate, output_file)
+        return await _tts_linux(spoken_text, voice, rate, output_file)
 
 
 async def speak_interruptible(

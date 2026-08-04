@@ -37,6 +37,17 @@ async def test_kokoro_engine_uses_selected_natural_voice(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_product_name_uses_explicit_pronunciation_for_kokoro(monkeypatch):
+    monkeypatch.setattr(PilotConfig, "load", lambda: _config_with("kokoro_tts", "af_heart"))
+
+    with patch("pilot.system.kokoro_tts.synthesize_and_play", new=AsyncMock()) as mock_synth:
+        result = await voice._speak_impl("Heliox is ready")
+
+    mock_synth.assert_awaited_once_with("Hee-lee-ox is ready", "af_heart")
+    assert result == "Spoken: Heliox is ready..."
+
+
+@pytest.mark.asyncio
 async def test_kokoro_failure_falls_back_to_os_native(monkeypatch):
     monkeypatch.setattr(PilotConfig, "load", lambda: _config_with("kokoro_tts", "af_heart"))
     monkeypatch.setattr(voice, "CURRENT_PLATFORM", Platform.WINDOWS)

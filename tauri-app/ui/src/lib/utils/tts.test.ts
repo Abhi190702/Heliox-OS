@@ -61,6 +61,16 @@ describe("configured text-to-speech", () => {
     expect(speechSynthesisMock.speak.mock.calls[0][0].text).toBe("fallback");
   });
 
+  it("pronounces the product name consistently in browser fallback speech", async () => {
+    callMock.mockRejectedValue(new Error("offline"));
+    const onEnd = vi.fn();
+
+    speakText("Heliox is ready", { onEnd });
+    await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
+
+    expect(speechSynthesisMock.speak.mock.calls[0][0].text).toBe("Hee-lee-ox is ready");
+  });
+
   it("does not restart speech in the browser after intentional barge-in", async () => {
     callMock.mockResolvedValue({ status: "interrupted" });
     const onEnd = vi.fn();
