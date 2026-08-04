@@ -401,6 +401,19 @@ class ScreenVisionAgent:
         """Return screen context formatted for planner injection."""
         return self._context.summary()
 
+    async def observe_now(self) -> ScreenState:
+        """Capture fresh foreground state for an active reasoning loop.
+
+        The periodic monitor is deliberately low-frequency. Autonomous app
+        control cannot wait for that cadence after opening a window or clicking
+        a control, so task loops request one bounded observation explicitly.
+        """
+        state = await asyncio.wait_for(self._capture_state(), timeout=self._capture_timeout)
+        self._context.add(state)
+        self._consecutive_timeouts = 0
+        self._last_active_timestamp = time.time()
+        return state
+
     def get_stats(self) -> dict[str, Any]:
         """Return vision agent statistics."""
         return {

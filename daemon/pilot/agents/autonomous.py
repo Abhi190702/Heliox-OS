@@ -15,6 +15,7 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -22,6 +23,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
+from pilot.actions import ActionPlan, ActionType
 from pilot.security.gateway import InvocationSource, TaskScopeOverride
 
 if TYPE_CHECKING:
@@ -32,6 +34,36 @@ if TYPE_CHECKING:
     from pilot.agents.verifier import Verifier
 
 logger = logging.getLogger("pilot.agents.autonomous")
+
+MAX_AUTONOMOUS_ROUNDS_PER_STEP = 6
+DESKTOP_SETTLE_SECONDS = 0.15
+
+_DESKTOP_LOOP_ACTIONS = frozenset(
+    {
+        ActionType.OPEN_APPLICATION,
+        ActionType.WINDOW_LIST,
+        ActionType.WINDOW_FOCUS,
+        ActionType.WINDOW_MINIMIZE,
+        ActionType.WINDOW_MAXIMIZE,
+        ActionType.WINDOW_CLOSE,
+        ActionType.MOUSE_CLICK,
+        ActionType.MOUSE_DOUBLE_CLICK,
+        ActionType.MOUSE_RIGHT_CLICK,
+        ActionType.MOUSE_MOVE,
+        ActionType.MOUSE_DRAG,
+        ActionType.MOUSE_SCROLL,
+        ActionType.KEYBOARD_TYPE,
+        ActionType.KEYBOARD_PRESS,
+        ActionType.KEYBOARD_HOTKEY,
+        ActionType.KEYBOARD_HOLD,
+        ActionType.SCREENSHOT,
+        ActionType.SCREEN_OCR,
+        ActionType.SCREEN_FIND_TEXT,
+        ActionType.SCREEN_ANALYZE,
+        ActionType.SCREEN_ELEMENT_MAP,
+        ActionType.SCREEN_DETECT_ELEMENTS,
+    }
+)
 
 
 class JobStatus(StrEnum):
@@ -56,6 +88,7 @@ class JobStep:
     error: str = ""
     started_at: float = 0.0
     completed_at: float = 0.0
+    rounds: int = 0
 
     @property
     def duration_ms(self) -> int:
@@ -72,6 +105,7 @@ class JobStep:
             "output": self.output[:500] if self.output else "",
             "error": self.error,
             "duration_ms": self.duration_ms,
+            "rounds": self.rounds,
         }
 
 
@@ -289,40 +323,7 @@ class AutonomousExecutor:
         step.started_at = time.time()
         await self._notify("autonomous_step_start", job)
 
-        try:
-            # Get screen context
-            screen_ctx = ""
-            if self._screen_vision:
-                try:
-                    screen_ctx = self._screen_vision.get_context_for_planner()
-                except Exception:
-                    pass
-
-            # Plan
-            plan = await self._planner.plan(job.goal, screen_context=screen_ctx)
-            if plan.error:
-                step.status = "failed"
-                step.error = plan.error
-                step.completed_at = time.time()
-                return
-
-            # Execute
-            results = await self._executor.execute(
-                plan,
-                invocation_source=InvocationSource.AUTONOMOUS,
-                scope_override=job.scope_override,
-            )
-
-            # Collect output
-            outputs = [r.output for r in results if r.output]
-            step.output = "\n".join(outputs)
-            step.status = "success" if all(r.success for r in results) else "failed"
-            if not all(r.success for r in results):
-                step.error = "; ".join(r.error for r in results if r.error)
-
-        except Exception as e:
-            step.status = "failed"
-            step.error = str(e)
+        await self._execute_goal_loop(job, step, job.goal)
 
         step.completed_at = time.time()
         await self._notify("autonomous_step_complete", job)
@@ -346,58 +347,144 @@ class AutonomousExecutor:
                 step.started_at = time.time()
                 await self._notify("autonomous_step_start", job)
 
-                try:
-                    # Get screen context
-                    screen_ctx = ""
-                    if self._screen_vision:
-                        try:
-                            screen_ctx = self._screen_vision.get_context_for_planner()
-                        except Exception:
-                            pass
-
-                    # Plan the subtask
-                    plan = await self._planner.plan(
-                        subtask.description,
-                        screen_context=screen_ctx,
-                    )
-                    if plan.error:
-                        step.status = "failed"
-                        step.error = plan.error
-                        subtask.status = SubtaskStatus.FAILED
-                        step.completed_at = time.time()
-                        await self._notify("autonomous_step_complete", job)
-                        step_idx += 1
-                        continue
-
-                    # Execute
-                    results = await self._executor.execute(
-                        plan,
-                        invocation_source=InvocationSource.AUTONOMOUS,
-                        scope_override=job.scope_override,
-                    )
-
-                    # Collect
-                    outputs = [r.output for r in results if r.output]
-                    step.output = "\n".join(outputs)
-
-                    if all(r.success for r in results):
-                        step.status = "success"
-                        subtask.status = SubtaskStatus.SUCCESS
-                        subtask.output = step.output
-                    else:
-                        step.status = "failed"
-                        step.error = "; ".join(r.error for r in results if r.error)
-                        subtask.status = SubtaskStatus.FAILED
-                        subtask.error = step.error
-
-                except Exception as e:
-                    step.status = "failed"
-                    step.error = str(e)
+                await self._execute_goal_loop(job, step, subtask.description)
+                if step.status == "success":
+                    subtask.status = SubtaskStatus.SUCCESS
+                    subtask.output = step.output
+                else:
                     subtask.status = SubtaskStatus.FAILED
+                    subtask.error = step.error
 
                 step.completed_at = time.time()
                 await self._notify("autonomous_step_complete", job)
                 step_idx += 1
+
+    async def _observe_screen_context(self) -> str:
+        """Return a fresh foreground observation when screen vision is available."""
+        if self._screen_vision is None:
+            return "No screen context available."
+        observation = None
+        try:
+            observe_now = getattr(self._screen_vision, "observe_now", None)
+            if observe_now is not None:
+                observation = await observe_now()
+        except Exception:
+            logger.debug("Fresh autonomous screen observation failed", exc_info=True)
+        try:
+            context = self._screen_vision.get_context_for_planner()
+        except Exception:
+            context = "No screen context available."
+        if observation is not None and getattr(observation, "screen_hash", ""):
+            context += f"\nObservation fingerprint: {observation.screen_hash[:12]}"
+        return context
+
+    @staticmethod
+    def _plan_fingerprint(plan: ActionPlan) -> str:
+        payload = [action.model_dump(mode="json") for action in plan.actions]
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+    @staticmethod
+    def _is_interactive_plan(plan: ActionPlan) -> bool:
+        return any(
+            action.action_type in _DESKTOP_LOOP_ACTIONS or action.action_type.value.startswith("browser_")
+            for action in plan.actions
+        )
+
+    @staticmethod
+    def _round_directive(goal: str, round_index: int, progress: list[str]) -> str:
+        recent_progress = "\n".join(progress[-4:]) if progress else "No actions have run yet."
+        return (
+            f"AUTONOMOUS APP TASK — ROUND {round_index + 1}\n"
+            f"Original goal: {goal}\n"
+            f"Observed progress:\n{recent_progress}\n\n"
+            "Decide from the CURRENT screen and verified outputs whether the original goal is complete. "
+            "If it is complete, return an empty actions array and begin the explanation with "
+            '"GOAL_COMPLETE:" followed by concrete evidence. Otherwise plan only the next minimal, '
+            "currently-grounded action or tightly coupled action pair. If the target app is not visible, "
+            "only open or focus it; inspect the newly visible UI in the next round. Never invent click "
+            "coordinates. Use screen_detect_elements with a narrow description followed by mouse_click "
+            "at x=0,y=0 when coordinates are not already measured. Do not claim completion merely because "
+            "an application opened or an input action returned success."
+        )
+
+    async def _execute_goal_loop(self, job: AutonomousJob, step: JobStep, goal: str) -> None:
+        """Observe, act, verify, and re-plan until a step's real goal is complete."""
+        progress: list[str] = []
+        output_chunks: list[str] = []
+        fingerprints: dict[str, int] = {}
+        successful_rounds = 0
+        interactive_task = False
+
+        try:
+            for round_index in range(MAX_AUTONOMOUS_ROUNDS_PER_STEP):
+                step.rounds = round_index + 1
+                screen_ctx = await self._observe_screen_context()
+                directive = self._round_directive(goal, round_index, progress)
+                plan = await self._planner.plan(
+                    goal,
+                    screen_context=f"{screen_ctx}\n\n{directive}",
+                    force_model=True,
+                )
+                if plan.error:
+                    step.error = plan.error
+                    break
+
+                if not plan.actions:
+                    completion_claim = plan.explanation.strip().lower().startswith("goal_complete:")
+                    has_fresh_screen_evidence = "No screen context available." not in screen_ctx
+                    if completion_claim and (successful_rounds > 0 or has_fresh_screen_evidence):
+                        step.status = "success"
+                        if plan.explanation:
+                            output_chunks.append(plan.explanation)
+                        break
+                    step.error = "Planner returned no executable action without verified GOAL_COMPLETE evidence."
+                    break
+
+                fingerprint = f"{self._plan_fingerprint(plan)}|{screen_ctx}"
+                fingerprints[fingerprint] = fingerprints.get(fingerprint, 0) + 1
+                if fingerprints[fingerprint] >= 3:
+                    step.error = "Autonomous loop stopped after repeating the same plan without progress."
+                    break
+
+                is_interactive_round = self._is_interactive_plan(plan)
+                interactive_task = interactive_task or is_interactive_round
+                results = await self._executor.execute(
+                    plan,
+                    invocation_source=InvocationSource.AUTONOMOUS,
+                    scope_override=job.scope_override,
+                )
+                verification = await self._verifier.verify(plan, results)
+
+                outputs = [result.output for result in results if result.output]
+                errors = [result.error for result in results if result.error]
+                if outputs:
+                    output_chunks.extend(outputs)
+                verification_details = "; ".join(verification.details)
+                if verification.passed and all(result.success for result in results):
+                    successful_rounds += 1
+                    progress.append(
+                        f"Round {round_index + 1} verified: "
+                        f"{verification_details or plan.explanation or 'actions succeeded'}"
+                    )
+                    if not interactive_task:
+                        step.status = "success"
+                        break
+                    await asyncio.sleep(DESKTOP_SETTLE_SECONDS)
+                    continue
+
+                failure = "; ".join(errors) or verification_details or "verification failed"
+                progress.append(f"Round {round_index + 1} failed verification: {failure}")
+                step.error = failure
+            else:
+                step.error = f"Goal was not verified complete after {MAX_AUTONOMOUS_ROUNDS_PER_STEP} adaptive rounds."
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            step.error = str(exc)
+
+        step.output = "\n".join(output_chunks)
+        if step.status != "success":
+            step.status = "failed"
 
     async def _notify(self, event: str, job: AutonomousJob) -> None:
         """Send a progress notification."""

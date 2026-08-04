@@ -106,7 +106,10 @@ You are fully capable of managing files, navigating the web, writing and running
 # === TIER 1: GAME CHANGERS ===
 
 MOUSE & KEYBOARD CONTROL (Desktop Automation):
-- mouse_click, mouse_double_click, mouse_right_click — Params: {{"x": null, "y": null}}
+- mouse_click, mouse_double_click, mouse_right_click — Params: {{"x": 100, "y": 100}}
+- To click a semantic target without measured coordinates, first use screen_detect_elements
+  with a narrow description and action_filter="click", then use mouse_click with x=0,y=0.
+  A zero-coordinate click is accepted only when exactly one target was detected.
 - mouse_move, mouse_drag — Params: {{"x": 100, "y": 100}}
 - mouse_scroll — Params: {{"clicks": 10}}
 - mouse_position — Params: {{}}
@@ -119,6 +122,8 @@ SCREEN UNDERSTANDING (Vision & OCR):
 - screen_find_text — Find text coordinates. Params: {{"text": "Save"}}
 - screen_analyze — Ask Vision LLM about screen. Params: {{"prompt": "What app is open?"}}
 - screen_element_map — Map interactive elements. Params: {{}}
+- screen_detect_elements — Locate a described control. Params:
+  {{"description": "Launch button", "action_filter": "click", "max_elements": 5}}
 
 BROWSER AUTOMATION (Headless, for reading/interacting):
 - browser_navigate, browser_close — Params: {{"url": "https://..."}} / {{}} -- MUST use before browser_extract
@@ -798,6 +803,7 @@ class Planner:
         screen_context: str = "",
         stream_callback: callable | None = None,
         session_id: str = "default",
+        force_model: bool = False,
     ) -> ActionPlan:
         """Generate an action plan from a natural language request.
 
@@ -807,7 +813,7 @@ class Planner:
             # Conversation uses the configured model for the actual wording,
             # while this narrow classifier guarantees that a greeting or thanks
             # cannot be converted into an executable system action.
-            if not error_context and self._is_conversation_only(user_input):
+            if not force_model and not error_context and self._is_conversation_only(user_input):
                 response = await self._model.generate(
                     [
                         {
@@ -834,7 +840,7 @@ class Planner:
                 return ActionPlan(actions=[], explanation=response, raw_input=user_input)
 
             # Fast-path: skip LLM for simple, pattern-matchable commands
-            if not error_context:
+            if not force_model and not error_context:
                 fast = self._try_fast_path(user_input)
                 if fast is not None:
                     logger.info("Fast-path matched: %s", user_input[:80])
