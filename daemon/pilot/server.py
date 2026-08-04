@@ -951,6 +951,7 @@ class PilotServer:
                 verifier=self._verifier,
                 decomposer=self._decomposer,
                 screen_vision=self._screen_vision,
+                memory=self._memory,
             )
             self._autonomous.set_broadcast(self._broadcast_notification)
             self._autonomous.set_speech(self._speak_companion_text)
@@ -1061,8 +1062,11 @@ class PilotServer:
                 decomposer=self._decomposer,
                 workflow_store=voice_gesture_workflow_store,
                 checkpoint_store=self._checkpoint_store,
+                adaptive_executor=self._autonomous,
+                memory=self._memory,
             )
             self._voice_gesture_workflows.set_broadcast(self._broadcast_notification)
+            self._voice_gesture_workflows.set_speech(self._speak_companion_text)
             logger.info("VoiceGestureWorkflowEngine initialized")
         except Exception:
             logger.warning("VoiceGestureWorkflowEngine init failed (non-critical)", exc_info=True)
@@ -6836,16 +6840,57 @@ def handle_tool(tool_name, params):
         """
         if not self._voice_gesture_workflows:
             return False
+        if await self._voice_gesture_workflows.handle_running_instruction("voice", command_text):
+            normalized = " ".join(command_text.lower().split()).rstrip(".!?")
+            cancelled = normalized in {"cancel", "stop", "never mind", "nevermind"}
+            message = "I stopped that task." if cancelled else "I updated the active task and I’m replanning now."
+            await self._broadcast_notification(
+                "voice_result",
+                {
+                    "command": command_text,
+                    "status": "cancelled" if cancelled else "revising",
+                    "result": message,
+                    "coordinated_correction": not cancelled,
+                },
+            )
+            if self._voice_listener and self._voice_listener.is_running:
+                self._spawn_interaction_speech(
+                    message,
+                    channel=SpeechChannel.TASK_FAILURE if cancelled else SpeechChannel.TASK_NARRATION,
+                    dedupe_key=f"voice-workflow-update:{normalized}",
+                )
+            return True
         if await self._voice_gesture_workflows.handle_control_phrase("voice", command_text):
             return True
 
-        from pilot.agents.voice_gesture_workflow import extract_voice_workflow_goal
+        from pilot.agents.voice_gesture_workflow import (
+            extract_voice_workflow_goal,
+            should_start_voice_workflow,
+        )
         from pilot.security.gateway import InvocationSource
 
         goal = extract_voice_workflow_goal(command_text)
+        if not goal and should_start_voice_workflow(command_text):
+            goal = command_text.strip()
         if not goal:
             return False
-        await self._voice_gesture_workflows.start(goal, InvocationSource.VOICE)
+        workflow = await self._voice_gesture_workflows.start(goal, InvocationSource.VOICE)
+        message = "I’m on it. Keep speaking if you want to correct or redirect me."
+        await self._broadcast_notification(
+            "voice_result",
+            {
+                "command": command_text,
+                "status": "submitted",
+                "result": message,
+                "workflow": workflow.to_dict(),
+            },
+        )
+        if self._voice_listener and self._voice_listener.is_running:
+            self._spawn_interaction_speech(
+                message,
+                channel=SpeechChannel.TASK_NARRATION,
+                dedupe_key=f"voice-workflow-start:{workflow.workflow_id}",
+            )
         return True
 
     async def _speak_companion_text(
@@ -7568,7 +7613,12 @@ def handle_tool(tool_name, params):
             except ValidationError as e:
                 return {"error": f"Invalid scope_override: {e}"}
 
-        job = await self._autonomous.submit(goal, source=source, scope_override=scope_override)
+        job = await self._autonomous.submit(
+            goal,
+            source=source,
+            scope_override=scope_override,
+            session_id=str(params.get("session_id") or source or "default"),
+        )
         return {"status": "submitted", "job": job.to_dict()}
 
     async def _handle_autonomous_cancel(self, params: dict, ws: ServerConnection) -> dict:
@@ -7625,8 +7675,8 @@ def handle_tool(tool_name, params):
     # Durable, pausable/resumable multi-step goals spanning multiple voice
     # commands or gesture inputs over time — see
     # pilot.agents.voice_gesture_workflow.VoiceGestureWorkflowEngine. A
-    # separate concept from AutonomousExecutor above (fire-and-forget,
-    # in-memory, no pause/resume) — neither RPC surface touches the other.
+    # It persists workflow state and delegates each step to the same adaptive
+    # observe/act/verify core used by AutonomousExecutor.
 
     async def _handle_voice_gesture_workflow_submit(self, params: dict, ws: ServerConnection) -> dict:
         """Submit a durable, pausable/resumable multi-step voice/gesture workflow.

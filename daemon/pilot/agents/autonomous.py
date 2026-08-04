@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from pilot.agents.planner import Planner
     from pilot.agents.screen_vision import ScreenVisionAgent
     from pilot.agents.verifier import Verifier
+    from pilot.memory.store import MemoryStore
 
 logger = logging.getLogger("pilot.agents.autonomous")
 
@@ -123,6 +124,7 @@ class AutonomousJob:
     completed_at: float = 0.0
     result_summary: str = ""
     source: str = "text"  # "text" or "voice" -- input modality, unrelated to gateway InvocationSource
+    session_id: str = "default"
     scope_override: TaskScopeOverride | None = None  # optional caller-supplied restriction (see AgentGateway)
 
     @property
@@ -144,6 +146,7 @@ class AutonomousJob:
             "duration_seconds": self.duration_seconds,
             "result_summary": self.result_summary,
             "source": self.source,
+            "session_id": self.session_id,
         }
 
 
@@ -162,12 +165,14 @@ class AutonomousExecutor:
         verifier: Verifier,
         decomposer: TaskDecomposer,
         screen_vision: ScreenVisionAgent | None = None,
+        memory: MemoryStore | None = None,
     ) -> None:
         self._planner = planner
         self._executor = executor
         self._verifier = verifier
         self._decomposer = decomposer
         self._screen_vision = screen_vision
+        self._memory = memory
         self._broadcast: Callable[[str, Any], Coroutine[Any, Any, None]] | None = None
         self._speech: Callable[[str, str, str], Coroutine[Any, Any, Any]] | None = None
         self._jobs: dict[str, AutonomousJob] = {}
@@ -182,11 +187,33 @@ class AutonomousExecutor:
         self._speech = fn
 
     async def submit(
-        self, goal: str, source: str = "text", scope_override: TaskScopeOverride | None = None
+        self,
+        goal: str,
+        source: str = "text",
+        scope_override: TaskScopeOverride | None = None,
+        session_id: str = "default",
     ) -> AutonomousJob:
         """Submit a new autonomous job. Returns immediately with a job handle."""
-        job = AutonomousJob(goal=goal, source=source, scope_override=scope_override)
+        job = AutonomousJob(
+            goal=goal,
+            source=source,
+            scope_override=scope_override,
+            session_id=session_id,
+        )
         self._jobs[job.job_id] = job
+
+        if self._memory is not None:
+            try:
+                await self._memory.put_working(
+                    session_id=session_id,
+                    task_id=job.job_id,
+                    key="active_goal",
+                    value={"goal": goal, "source": source},
+                    priority=0.95,
+                    ttl_seconds=3600,
+                )
+            except Exception:
+                logger.warning("Could not persist autonomous working memory", exc_info=True)
 
         # Launch in background — non-blocking
         task = asyncio.create_task(self._run_job(job))
@@ -275,6 +302,14 @@ class AutonomousExecutor:
 
         # Cleanup
         self._active_tasks.pop(job.job_id, None)
+        if self._memory is not None:
+            try:
+                await self._memory.clear_task_working(
+                    session_id=job.session_id,
+                    task_id=job.job_id,
+                )
+            except Exception:
+                logger.warning("Could not clear autonomous working memory", exc_info=True)
 
     async def _announce_completion(self, job: AutonomousJob) -> None:
         """Speaks the job's completion status directly on the daemon's own
@@ -327,6 +362,39 @@ class AutonomousExecutor:
 
         step.completed_at = time.time()
         await self._notify("autonomous_step_complete", job)
+
+    async def execute_goal(
+        self,
+        goal: str,
+        *,
+        invocation_source: InvocationSource = InvocationSource.AUTONOMOUS,
+        scope_override: TaskScopeOverride | None = None,
+        session_id: str = "default",
+        plan_id_prefix: str = "",
+        on_round_complete: Callable[[str, ActionPlan, list[Any], Any], Coroutine[Any, Any, None]] | None = None,
+    ) -> JobStep:
+        """Run one adaptive goal for durable workflow engines.
+
+        ``AutonomousExecutor.submit`` remains the background-job API. This
+        method exposes the same observe/act/verify loop to persisted voice and
+        gesture workflows without duplicating its control logic.
+        """
+        job = AutonomousJob(
+            goal=goal,
+            source=invocation_source.value,
+            scope_override=scope_override,
+            session_id=session_id,
+        )
+        step = JobStep(index=0, title="Execute", description=goal, status="running")
+        await self._execute_goal_loop(
+            job,
+            step,
+            goal,
+            invocation_source=invocation_source,
+            plan_id_prefix=plan_id_prefix,
+            on_round_complete=on_round_complete,
+        )
+        return step
 
     async def _execute_multi_step(self, job: AutonomousJob, decomposition: Any) -> None:
         """Execute a decomposed multi-step task sequentially."""
@@ -407,7 +475,16 @@ class AutonomousExecutor:
             "an application opened or an input action returned success."
         )
 
-    async def _execute_goal_loop(self, job: AutonomousJob, step: JobStep, goal: str) -> None:
+    async def _execute_goal_loop(
+        self,
+        job: AutonomousJob,
+        step: JobStep,
+        goal: str,
+        *,
+        invocation_source: InvocationSource = InvocationSource.AUTONOMOUS,
+        plan_id_prefix: str = "",
+        on_round_complete: Callable[[str, ActionPlan, list[Any], Any], Coroutine[Any, Any, None]] | None = None,
+    ) -> None:
         """Observe, act, verify, and re-plan until a step's real goal is complete."""
         progress: list[str] = []
         output_chunks: list[str] = []
@@ -424,6 +501,7 @@ class AutonomousExecutor:
                     goal,
                     screen_context=f"{screen_ctx}\n\n{directive}",
                     force_model=True,
+                    session_id=job.session_id,
                 )
                 if plan.error:
                     step.error = plan.error
@@ -448,12 +526,33 @@ class AutonomousExecutor:
 
                 is_interactive_round = self._is_interactive_plan(plan)
                 interactive_task = interactive_task or is_interactive_round
+                plan_id = (
+                    plan_id_prefix
+                    if plan_id_prefix and round_index == 0
+                    else f"{plan_id_prefix}:{round_index}"
+                    if plan_id_prefix
+                    else None
+                )
                 results = await self._executor.execute(
                     plan,
-                    invocation_source=InvocationSource.AUTONOMOUS,
+                    plan_id=plan_id,
+                    invocation_source=invocation_source,
                     scope_override=job.scope_override,
                 )
                 verification = await self._verifier.verify(plan, results)
+                if on_round_complete is not None:
+                    await on_round_complete(plan_id or "", plan, results, verification)
+                elif self._memory is not None:
+                    try:
+                        await self._memory.record(
+                            goal,
+                            plan,
+                            results,
+                            session_id=job.session_id,
+                            task_id=job.job_id,
+                        )
+                    except Exception:
+                        logger.warning("Could not record autonomous task episode", exc_info=True)
 
                 outputs = [result.output for result in results if result.output]
                 errors = [result.error for result in results if result.error]

@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
-from pilot.actions import Action, ActionPlan, ActionResult, ActionType, EmptyParams
+from pilot.actions import Action, ActionPlan, ActionResult, ActionType, EmptyParams, VerificationResult
+from pilot.agents.autonomous import AutonomousExecutor
 from pilot.agents.decomposer import Subtask, TaskDecomposition
-from pilot.agents.voice_gesture_workflow import VoiceGestureWorkflowEngine, extract_voice_workflow_goal
+from pilot.agents.voice_gesture_workflow import (
+    VoiceGestureWorkflowEngine,
+    extract_voice_workflow_goal,
+    should_start_voice_workflow,
+)
 from pilot.security.gateway import InvocationSource, TaskScopeOverride
 from pilot.workflows.checkpoints import WorkflowCheckpointStore
 from pilot.workflows.voice_gesture_workflows import VoiceGestureWorkflowStore, WorkflowState
@@ -147,6 +154,41 @@ class TestSingleStepAutoChain:
         assert events[0] == ("voice_gesture_workflow_state", WorkflowState.PENDING.value)
         assert events[-1] == ("voice_gesture_workflow_state", WorkflowState.SUCCESS.value)
 
+    @pytest.mark.asyncio
+    async def test_production_adaptive_runner_verifies_and_records_voice_task_memory(self, tmp_path):
+        planner = _StubPlanner()
+        executor = _StubExecutor()
+        decomposer = _StubDecomposer()
+        verifier = SimpleNamespace(verify=AsyncMock(return_value=VerificationResult(passed=True, details=["verified"])))
+        adaptive = AutonomousExecutor(planner, executor, verifier, decomposer)
+        memory = SimpleNamespace(
+            put_working=AsyncMock(),
+            record=AsyncMock(),
+            clear_task_working=AsyncMock(return_value=1),
+        )
+        engine = VoiceGestureWorkflowEngine(
+            planner,
+            executor,
+            decomposer,
+            VoiceGestureWorkflowStore(db_file=tmp_path / "adaptive-workflows.db"),
+            WorkflowCheckpointStore(db_file=tmp_path / "adaptive-checkpoints.db"),
+            adaptive_executor=adaptive,
+            memory=memory,
+        )
+
+        workflow = await engine.start("inspect the requested record", InvocationSource.VOICE)
+        final = await _wait_until_terminal(engine, workflow.workflow_id)
+
+        assert final.state == WorkflowState.SUCCESS.value
+        verifier.verify.assert_awaited_once()
+        assert executor.calls[0]["invocation_source"] == InvocationSource.VOICE
+        memory.put_working.assert_awaited_once()
+        memory.record.assert_awaited_once()
+        memory.clear_task_working.assert_awaited_once_with(
+            session_id="voice",
+            task_id=workflow.workflow_id,
+        )
+
 
 class TestFailureRecovery:
     @pytest.mark.asyncio
@@ -172,6 +214,70 @@ class TestVoiceStartPhrase:
 
     def test_normal_voice_command_is_not_claimed(self):
         assert extract_voice_workflow_goal("open github") is None
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "complete the expense report in Hermes",
+            "find the invoice and then update the record",
+            "do this task for me in the accounting app",
+        ],
+    )
+    def test_natural_multi_step_app_goal_starts_workflow(self, command):
+        assert should_start_voice_workflow(command) is True
+
+    @pytest.mark.parametrize("command", ["open github", "good morning", "stop", "show system info"])
+    def test_short_or_conversational_command_stays_on_fast_voice_path(self, command):
+        assert should_start_voice_workflow(command) is False
+
+
+class TestLiveCorrection:
+    @pytest.mark.asyncio
+    async def test_running_voice_instruction_cancels_round_persists_correction_and_replans(self, tmp_path):
+        first_round_started = asyncio.Event()
+
+        class _CorrectableExecutor(_StubExecutor):
+            first_attempt = True
+
+            async def execute(self, plan, **kwargs):
+                if self.first_attempt:
+                    self.first_attempt = False
+                    first_round_started.set()
+                    await asyncio.sleep(30)
+                return await super().execute(plan, **kwargs)
+
+        executor = _CorrectableExecutor()
+        engine = _engine(tmp_path, executor=executor)
+        workflow = await engine.start("complete the record in Hermes", InvocationSource.VOICE)
+        await asyncio.wait_for(first_round_started.wait(), timeout=2)
+
+        consumed = await engine.handle_running_instruction("voice", "use the July record instead")
+
+        assert consumed is True
+        final = await _wait_until_terminal(engine, workflow.workflow_id)
+        assert final.state == WorkflowState.SUCCESS.value
+        assert "User live correction: use the July record instead" in final.steps[0].description
+        assert executor.calls[0]["target"].endswith("User live correction: use the July record instead")
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_running_voice_workflow(self, tmp_path):
+        first_round_started = asyncio.Event()
+
+        class _BlockingExecutor(_StubExecutor):
+            async def execute(self, plan, **kwargs):
+                first_round_started.set()
+                await asyncio.sleep(30)
+                return await super().execute(plan, **kwargs)
+
+        engine = _engine(tmp_path, executor=_BlockingExecutor())
+        workflow = await engine.start("complete the record", InvocationSource.VOICE)
+        await asyncio.wait_for(first_round_started.wait(), timeout=2)
+
+        consumed = await engine.handle_running_instruction("voice", "stop")
+
+        assert consumed is True
+        final = await engine._workflow_store.get(workflow.workflow_id)
+        assert final.state == WorkflowState.CANCELLED.value
 
 
 class TestMultiStepAutoChain:
@@ -214,6 +320,21 @@ class TestAmbiguousPlanningOutcome:
         assert resumed is not None
         final = await _wait_until_terminal(engine, workflow.workflow_id)
         assert final.state == WorkflowState.SUCCESS.value
+
+    @pytest.mark.asyncio
+    async def test_spoken_clarification_revises_waiting_step_and_resumes(self, tmp_path):
+        planner = _StubPlanner(error_on={"do an ambiguous thing"})
+        engine = _engine(tmp_path, planner=planner)
+        workflow = await engine.start("do an ambiguous thing", InvocationSource.VOICE)
+        waiting = await _wait_until_terminal(engine, workflow.workflow_id)
+        assert waiting.state == WorkflowState.WAITING_FOR_TRIGGER.value
+
+        consumed = await engine.handle_running_instruction("voice", "use the July data")
+
+        assert consumed is True
+        final = await _wait_until_terminal(engine, workflow.workflow_id)
+        assert final.state == WorkflowState.SUCCESS.value
+        assert "User live correction: use the July data" in final.steps[0].description
 
 
 class TestPauseResumeCancel:

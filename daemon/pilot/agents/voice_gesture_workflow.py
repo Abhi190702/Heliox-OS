@@ -1,13 +1,11 @@
 """Durable, pausable, resumable multi-step workflow engine for voice/gesture-
 triggered goals.
 
-Deliberately separate from AutonomousExecutor (autonomous.py), which stays
-untouched — that pipeline remains a fire-and-forget, in-memory-only, single
-uninterrupted coroutine, and both its RPCs (autonomous_submit/_jobs/_cancel)
-and its frontend consumers are unaffected by this module's existence.
+Workflow state is durable and restart-survivable, while each step delegates
+to AutonomousExecutor's shared observe/act/verify loop. This keeps native-app
+and browser grounding identical across typed and spoken autonomous tasks.
 
-This engine reuses the same building blocks (Planner/Executor/TaskDecomposer)
-but drives them from durable, restart-survivable state
+This engine drives the shared building blocks from durable, restart-survivable state
 (VoiceGestureWorkflowStore) and supports genuine pause/resume: a goal can
 span multiple separate voice commands or gesture inputs over time, not just
 one uninterrupted run. Each step's own ActionPlan is checkpointed through
@@ -39,9 +37,11 @@ from pilot.workflows.voice_gesture_workflows import (
 )
 
 if TYPE_CHECKING:
+    from pilot.agents.autonomous import AutonomousExecutor
     from pilot.agents.decomposer import TaskDecomposer
     from pilot.agents.executor import Executor
     from pilot.agents.planner import Planner
+    from pilot.memory.store import MemoryStore
     from pilot.security.gateway import TaskScopeOverride
     from pilot.workflows.checkpoints import WorkflowCheckpointStore
 
@@ -72,6 +72,27 @@ START_WORKFLOW_PREFIXES = (
     "begin a workflow ",
     "begin workflow ",
 )
+NATURAL_WORKFLOW_VERBS = frozenset(
+    {
+        "analyze",
+        "book",
+        "build",
+        "compare",
+        "complete",
+        "create",
+        "edit",
+        "fill",
+        "find",
+        "finish",
+        "inspect",
+        "manage",
+        "organize",
+        "research",
+        "send",
+        "setup",
+        "update",
+    }
+)
 
 
 def extract_voice_workflow_goal(command_text: str) -> str | None:
@@ -83,6 +104,21 @@ def extract_voice_workflow_goal(command_text: str) -> str | None:
             goal = normalized[len(prefix) :].strip()
             return goal or None
     return None
+
+
+def should_start_voice_workflow(command_text: str) -> bool:
+    """Recognize natural multi-step/app goals without requiring a magic prefix."""
+    normalized = " ".join(command_text.lower().strip().split())
+    if not normalized or normalized in CONTINUE_PHRASES | CANCEL_PHRASES:
+        return False
+    words = normalized.replace(",", " ").split()
+    if len(words) < 4:
+        return False
+    has_workflow_verb = any(word.rstrip(".,!?") in NATURAL_WORKFLOW_VERBS for word in words)
+    has_sequence = any(marker in f" {normalized} " for marker in (" and ", " then ", " after ", " before "))
+    has_app_context = any(marker in f" {normalized} " for marker in (" in ", " using ", " inside "))
+    strong_goal = normalized.startswith(("take care of ", "handle ", "do this task", "complete this task"))
+    return strong_goal or (has_workflow_verb and (has_sequence or has_app_context))
 
 
 class VoiceGestureWorkflowEngine:
@@ -99,18 +135,26 @@ class VoiceGestureWorkflowEngine:
         decomposer: TaskDecomposer,
         workflow_store: VoiceGestureWorkflowStore,
         checkpoint_store: WorkflowCheckpointStore,
+        adaptive_executor: AutonomousExecutor | None = None,
+        memory: MemoryStore | None = None,
     ) -> None:
         self._planner = planner
         self._executor = executor
         self._decomposer = decomposer
         self._workflow_store = workflow_store
         self._checkpoint_store = checkpoint_store
+        self._adaptive_executor = adaptive_executor
+        self._memory = memory
         self._broadcast: Callable[[str, Any], Coroutine[Any, Any, None]] | None = None
+        self._speech: Callable[[str, str, str], Coroutine[Any, Any, Any]] | None = None
         self._pause_requested: dict[str, bool] = {}
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
 
     def set_broadcast(self, fn: Callable[[str, Any], Coroutine[Any, Any, None]]) -> None:
         self._broadcast = fn
+
+    def set_speech(self, fn: Callable[[str, str, str], Coroutine[Any, Any, Any]]) -> None:
+        self._speech = fn
 
     async def start(
         self,
@@ -119,6 +163,18 @@ class VoiceGestureWorkflowEngine:
         scope_override: TaskScopeOverride | None = None,
     ) -> VoiceGestureWorkflow:
         workflow = await self._workflow_store.create(goal, invocation_source.value, scope_override)
+        if self._memory is not None:
+            try:
+                await self._memory.put_working(
+                    session_id=invocation_source.value,
+                    task_id=workflow.workflow_id,
+                    key="active_goal",
+                    value={"goal": goal, "state": workflow.state},
+                    priority=0.95,
+                    ttl_seconds=PAUSED_WINDOW_SECONDS,
+                )
+            except Exception:
+                logger.warning("Could not persist workflow working memory", exc_info=True)
         await self._notify(workflow.workflow_id)
         self._active_tasks[workflow.workflow_id] = asyncio.create_task(self._drive(workflow.workflow_id))
         return workflow
@@ -196,7 +252,102 @@ class VoiceGestureWorkflowEngine:
                 pass
         await self._workflow_store.set_state(workflow_id, WorkflowState.CANCELLED)
         await self._notify(workflow_id)
+        await self._clear_working_memory(workflow_id)
         return True
+
+    async def correct(self, workflow_id: str, correction: str) -> VoiceGestureWorkflow | None:
+        """Stop the current round, persist a spoken correction, and re-plan."""
+        correction = " ".join(correction.strip().split())
+        workflow = await self._workflow_store.get(workflow_id)
+        if (
+            not correction
+            or workflow is None
+            or workflow.state
+            not in {
+                WorkflowState.PENDING.value,
+                WorkflowState.DECOMPOSING.value,
+                WorkflowState.RUNNING.value,
+                WorkflowState.PAUSED.value,
+                WorkflowState.WAITING_FOR_TRIGGER.value,
+            }
+        ):
+            return None
+
+        task = self._active_tasks.pop(workflow_id, None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        workflow = await self._workflow_store.get(workflow_id)
+        if workflow is None or workflow.state not in {
+            WorkflowState.PENDING.value,
+            WorkflowState.DECOMPOSING.value,
+            WorkflowState.RUNNING.value,
+            WorkflowState.PAUSED.value,
+            WorkflowState.WAITING_FOR_TRIGGER.value,
+        }:
+            return None
+        correction_line = f"User live correction: {correction}"
+        if workflow.steps:
+            current = next(
+                (step for step in workflow.steps if step.status == "running"),
+                next((step for step in workflow.steps if step.status == "pending"), workflow.steps[-1]),
+            )
+            description = f"{current.description}\n{correction_line}"
+            await self._workflow_store.update_step(
+                workflow_id,
+                current.index,
+                description=description,
+                status="pending",
+                error="",
+            )
+            current_step = current.index
+        else:
+            await self._workflow_store.update_goal(workflow_id, f"{workflow.goal}\n{correction_line}")
+            current_step = workflow.current_step
+
+        await self._workflow_store.set_state(
+            workflow_id,
+            WorkflowState.RUNNING,
+            current_step=current_step,
+        )
+        if self._memory is not None:
+            try:
+                await self._memory.put_working(
+                    session_id=workflow.invocation_source,
+                    task_id=workflow_id,
+                    key="latest_correction",
+                    value=correction,
+                    priority=1.0,
+                    ttl_seconds=PAUSED_WINDOW_SECONDS,
+                )
+            except Exception:
+                logger.warning("Could not persist workflow correction memory", exc_info=True)
+        await self._notify(workflow_id)
+        self._active_tasks[workflow_id] = asyncio.create_task(self._drive(workflow_id))
+        return await self._workflow_store.get(workflow_id)
+
+    async def handle_running_instruction(self, invocation_source: str, command_text: str) -> bool:
+        """Apply any new utterance to the active or awaiting workflow."""
+        workflow = await self._workflow_store.find_active_for_source(invocation_source)
+        if workflow is None:
+            workflow = await self._workflow_store.find_pending_for_source(
+                invocation_source,
+                within_seconds=PAUSED_WINDOW_SECONDS,
+            )
+        if workflow is None:
+            return False
+        phrase = " ".join(command_text.strip().lower().split()).rstrip(".!?")
+        if phrase in CANCEL_PHRASES:
+            return await self.cancel(workflow.workflow_id)
+        if phrase in CONTINUE_PHRASES:
+            if workflow.state in {WorkflowState.PAUSED.value, WorkflowState.WAITING_FOR_TRIGGER.value}:
+                return await self.resume(workflow.workflow_id) is not None
+            return True
+        return await self.correct(workflow.workflow_id, command_text) is not None
 
     async def list_workflows(self, include_terminal: bool = False) -> list[dict[str, Any]]:
         workflows = await self._workflow_store.list(include_terminal=include_terminal)
@@ -286,6 +437,16 @@ class VoiceGestureWorkflowEngine:
                 await self._notify(workflow_id)
         finally:
             self._active_tasks.pop(workflow_id, None)
+            if self._memory is not None:
+                workflow = await self._workflow_store.get(workflow_id)
+                if workflow is not None and workflow.state in {
+                    WorkflowState.SUCCESS.value,
+                    WorkflowState.PARTIAL.value,
+                    WorkflowState.FAILED.value,
+                    WorkflowState.CANCELLED.value,
+                    WorkflowState.EXPIRED.value,
+                }:
+                    await self._clear_working_memory(workflow_id)
 
     async def _decompose(self, workflow_id: str, workflow: VoiceGestureWorkflow) -> VoiceGestureWorkflow | None:
         await self._workflow_store.set_state(workflow_id, WorkflowState.DECOMPOSING)
@@ -308,6 +469,9 @@ class VoiceGestureWorkflowEngine:
         terminal state was reached, or an ambiguous outcome now needs
         external voice/gesture input to resolve)."""
         await self._workflow_store.update_step(workflow.workflow_id, step.index, status="running")
+
+        if self._adaptive_executor is not None:
+            return await self._run_adaptive_step(workflow, step)
 
         plan = await self._planner.plan(step.description)
         if plan.error:
@@ -367,6 +531,110 @@ class VoiceGestureWorkflowEngine:
         await self._workflow_store.set_state(workflow.workflow_id, final_state, current_step=total)
         await self._notify(workflow.workflow_id)
         return True
+
+    async def _run_adaptive_step(self, workflow: VoiceGestureWorkflow, step: WorkflowStepRecord) -> bool:
+        """Run a durable voice step through the shared adaptive app loop."""
+        from pilot.actions import VerificationResult
+
+        sub_plan_id = f"{workflow.workflow_id}:{step.index}"
+
+        async def record_round(plan_id, plan, results, verification: VerificationResult) -> None:
+            await self._checkpoint_store.start_plan(plan_id, step.description, plan)
+            for result in results:
+                await self._checkpoint_store.record_result(plan_id, result)
+            await self._checkpoint_store.mark_status(plan_id, "complete" if verification.passed else "failed")
+            if self._memory is not None:
+                try:
+                    await self._memory.record(
+                        step.description,
+                        plan,
+                        results,
+                        session_id=workflow.invocation_source,
+                        task_id=workflow.workflow_id,
+                    )
+                except Exception:
+                    logger.warning("Could not record adaptive workflow episode", exc_info=True)
+
+        adaptive_step = await self._adaptive_executor.execute_goal(
+            step.description,
+            invocation_source=InvocationSource(workflow.invocation_source),
+            scope_override=workflow.scope_override,
+            session_id=workflow.invocation_source,
+            plan_id_prefix=sub_plan_id,
+            on_round_complete=record_round,
+        )
+        if adaptive_step.status != "success":
+            await self._workflow_store.update_step(
+                workflow.workflow_id,
+                step.index,
+                status="pending",
+                sub_plan_id=sub_plan_id,
+                output=adaptive_step.output,
+                error=adaptive_step.error,
+            )
+            await self._workflow_store.set_state(
+                workflow.workflow_id,
+                WorkflowState.WAITING_FOR_TRIGGER,
+                trigger_deadline=self._deadline_iso(WAITING_FOR_TRIGGER_SECONDS),
+            )
+            await self._notify(workflow.workflow_id)
+            return True
+
+        await self._workflow_store.update_step(
+            workflow.workflow_id,
+            step.index,
+            status="success",
+            sub_plan_id=sub_plan_id,
+            output=adaptive_step.output,
+            error="",
+        )
+        current = await self._workflow_store.get(workflow.workflow_id)
+        if current is None:
+            return True
+        if any(item.status == "pending" for item in current.steps):
+            await self._workflow_store.set_state(
+                workflow.workflow_id,
+                WorkflowState.RUNNING,
+                current_step=step.index + 1,
+            )
+            await self._notify(workflow.workflow_id)
+            return False
+
+        await self._workflow_store.set_state(
+            workflow.workflow_id,
+            WorkflowState.SUCCESS,
+            current_step=len(current.steps),
+        )
+        await self._notify(workflow.workflow_id)
+        await self._announce_completion(workflow.workflow_id)
+        return True
+
+    async def _announce_completion(self, workflow_id: str) -> None:
+        if self._speech is None:
+            return
+        workflow = await self._workflow_store.get(workflow_id)
+        if workflow is None:
+            return
+        last_output = next((step.output for step in reversed(workflow.steps) if step.output), "")
+        evidence = last_output.splitlines()[-1][:180] if last_output else "The requested goal was verified."
+        await self._speech(
+            f"Task complete. {evidence}",
+            "final_answer",
+            f"voice-workflow:{workflow_id}:complete",
+        )
+
+    async def _clear_working_memory(self, workflow_id: str) -> None:
+        if self._memory is None:
+            return
+        workflow = await self._workflow_store.get(workflow_id)
+        if workflow is not None:
+            try:
+                await self._memory.clear_task_working(
+                    session_id=workflow.invocation_source,
+                    task_id=workflow_id,
+                )
+            except Exception:
+                logger.warning("Could not clear workflow working memory", exc_info=True)
 
     @staticmethod
     def _deadline_iso(seconds: float) -> str:

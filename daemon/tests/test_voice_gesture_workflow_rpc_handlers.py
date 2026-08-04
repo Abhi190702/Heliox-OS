@@ -100,6 +100,20 @@ class TestSubmit:
         assert await server._voice_workflow_control_dispatch("open github") is False
 
     @pytest.mark.asyncio
+    async def test_natural_app_goal_creates_workflow_without_magic_prefix(self, tmp_path):
+        server = _server(tmp_path)
+
+        consumed = await server._voice_workflow_control_dispatch("complete the expense report in Hermes")
+
+        assert consumed is True
+        listed = await server._handle_voice_gesture_workflow_list(
+            {"include_terminal": True},
+            ws=None,
+        )
+        assert listed["workflows"][0]["goal"] == "complete the expense report in Hermes"
+        await _wait_settled(server, listed["workflows"][0]["workflow_id"])
+
+    @pytest.mark.asyncio
     async def test_rejects_empty_goal(self, tmp_path):
         server = _server(tmp_path)
         result = await server._handle_voice_gesture_workflow_submit({"goal": "  "}, ws=None)

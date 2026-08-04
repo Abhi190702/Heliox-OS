@@ -215,6 +215,13 @@ class VoiceGestureWorkflowStore:
         await self._upsert(updated)
         return updated
 
+    async def update_goal(self, workflow_id: str, goal: str) -> VoiceGestureWorkflow:
+        """Persist a spoken correction received before decomposition finishes."""
+        workflow = await self._require(workflow_id)
+        updated = self._replace(workflow, goal=goal, updated_at=self._now())
+        await self._upsert(updated)
+        return updated
+
     async def update_step(self, workflow_id: str, step_index: int, **fields: Any) -> VoiceGestureWorkflow:
         workflow = await self._require(workflow_id)
         steps = list(workflow.steps)
@@ -313,6 +320,23 @@ class VoiceGestureWorkflowStore:
         if age_seconds > within_seconds:
             return None
         return workflow
+
+    async def find_active_for_source(self, invocation_source: str) -> VoiceGestureWorkflow | None:
+        """Return the most recently updated non-terminal workflow for a source."""
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT workflow_id, goal, invocation_source, scope_override_json, steps_json,
+                       current_step, state, created_at, updated_at, paused_at, trigger_deadline
+                FROM voice_gesture_workflows
+                WHERE invocation_source = ? AND state IN ('pending', 'decomposing', 'running')
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                (invocation_source,),
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+        return self._from_row(row) if row else None
 
     async def _require(self, workflow_id: str) -> VoiceGestureWorkflow:
         workflow = await self.get(workflow_id)
