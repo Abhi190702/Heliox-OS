@@ -29,6 +29,19 @@
   let wakeWordBusy = $state(false);
   const continuousPreferenceKey = "heliox-continuous-listening-enabled";
   let listenerHealthTimer: ReturnType<typeof setInterval> | null = null;
+  let listenerRetryAfter = 0;
+  let listenerStartFailures = 0;
+
+  function resetListenerRetry() {
+    listenerRetryAfter = 0;
+    listenerStartFailures = 0;
+  }
+
+  function deferListenerRetry() {
+    listenerStartFailures += 1;
+    const delayMs = Math.min(300_000, 15_000 * 2 ** Math.min(listenerStartFailures - 1, 5));
+    listenerRetryAfter = Date.now() + delayMs;
+  }
 
   // ── Speech Recognition ──
   let recognition: any = null;
@@ -187,6 +200,7 @@
         isListening = false;
         localStorage.setItem(continuousPreferenceKey, "false");
       } else {
+        resetListenerRetry();
         const result = await call<{ status: string; message?: string }>("voice_listener_start", {
           wake_words: ["hey heliox", "heliox", "hey pilot"],
         });
@@ -195,6 +209,7 @@
         }
         wakeWordActive = true;
         isListening = true;
+        resetListenerRetry();
         localStorage.setItem(continuousPreferenceKey, "true");
       }
     } catch (err) {
@@ -232,7 +247,7 @@
 
   async function ensureContinuousListener() {
     const preferred = localStorage.getItem(continuousPreferenceKey) !== "false";
-    if (!preferred || wakeWordBusy) return;
+    if (!preferred || wakeWordBusy || Date.now() < listenerRetryAfter) return;
     try {
       const stats = await call<{ running: boolean }>("voice_listener_stats");
       if (!stats.running) {
@@ -246,7 +261,9 @@
       wakeWordActive = true;
       isListening = true;
       error = "";
+      resetListenerRetry();
     } catch (err) {
+      deferListenerRetry();
       error = err instanceof Error ? err.message : "Continuous voice listener unavailable";
     }
   }
