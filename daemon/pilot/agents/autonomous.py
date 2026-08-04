@@ -7,7 +7,7 @@ notifications. Results queue up and are announced via TTS or UI.
 Architecture:
   User: "Set up a React project and push to GitHub"
   → Decompose into subtasks
-  → Execute each subtask via full ReAct pipeline (plan → execute → verify)
+  → Execute each subtask through a bounded observe → plan → act → verify loop
   → Stream progress: "Step 1/6: Creating project... done"
   → Announce completion via TTS
 """

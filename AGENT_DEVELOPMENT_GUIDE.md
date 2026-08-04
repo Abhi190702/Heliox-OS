@@ -189,6 +189,12 @@ surfaces:
 6. experience, audit, cancellation, and result behavior;
 7. unit, negative, replay, and UI status tests.
 
+For browser or desktop UI actions, the provider must consume a fresh grounded
+observation, reject missing or ambiguous targets, and verify the resulting
+environment state. Keyboard or mouse work against a native application must
+carry and re-acquire the intended target window; a successful process spawn or
+input API call alone is not a successful task result.
+
 `agent_mesh_status` must continue to report full coverage. Any uncovered action
 name is a release blocker.
 
@@ -238,6 +244,7 @@ the browser when the agent changes user-visible routing or authority.
 - [ ] Role, gateway, capability, resource, and budget contracts agree.
 - [ ] Every claimed action has a concrete, validated provider.
 - [ ] Execution uses the guarded shared path or a stricter adapter.
+- [ ] UI actions are grounded, target-bound, and verified after execution.
 - [ ] Ledger, audit, cancellation, verification, and terminal responses work.
 - [ ] Routing quality uses observed outcomes rather than self-reporting.
 - [ ] Negative, replay, and cross-platform cases are covered.

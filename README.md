@@ -69,7 +69,9 @@ heliox-os/
 
 ## Why Heliox OS?
 
-Unlike simple command runners, Heliox OS is a **true agentic system** inspired by robust autonomous architectures like OpenClaw, running a continuous ReAct loop with a **modular multi-agent orchestrator**:
+Unlike simple command runners, Heliox OS is a **stateful agentic system** with
+observable interaction phases and a **modular multi-agent orchestrator**. Typed
+and spoken requests share the same guarded plan, act, verify, and recovery path:
 
 1. **Gateway Hub & Memory** — LLM evaluates persistent memory context before reasoning.
 2. **Planner** — Converts natural language into a structured multi-step action plan.
@@ -89,6 +91,10 @@ Heliox OS combines reactive commands with opt-in proactive and background capabi
 - ⚡ **Fire-and-Forget Autonomous Jobs**: Spawn complex multi-step background tasks that decompose, execute, and verify completely independent of the UI or main event loop.
 - 👁️ **Always-On Screen Awareness**: Automatically bootstrapped computer vision that tracks your contextual state cross-platform, natively bridging exactly what you see into the LLM planner. 
 - 🎤 **Continuous Voice Listener**: Real-time push-free 'Hey Heliox' ambient wake-word dispatch for frictionless task execution. Endpoints on natural speech start/silence (VAD) instead of a fixed recording window, and supports barge-in — start talking and Heliox stops mid-sentence to listen, instead of talking over you.
+- 🔁 **Continuous Conversation**: While listening is enabled, complete utterances can enter the same safe execution path without repeating the wake word. After Heliox answers, a bounded 30-second follow-up window stays open for corrections or the next instruction; Heliox suppresses its own TTS from being recognized as user speech.
+- 🧭 **Adaptive App Tasks**: Multi-step browser and desktop goals run as a bounded observe → act → verify loop. Heliox refreshes screen evidence between rounds, plans only the next grounded action, rejects unverified completion claims, and stops after six rounds or repeated no-progress plans.
+- 🪟 **Target-Bound Desktop Control**: Background text entry is tied to the task's intended native window. Heliox re-focuses and verifies the target instead of typing into whichever app happens to be foreground, and installed-app launchers fail clearly when a name is missing or ambiguous.
+- 💬 **Local Chat Sessions**: Start a new chat or reopen a prior one from the history dialog. Each chat keeps its own transcript and active task context locally, while durable user preferences and evidence-backed memory remain available across sessions without copying an unbounded old transcript into every prompt.
 - 🤚 **30+ Hand Gestures & Air Drawing**: Control your PC via webcam with static poses (Palm, Pinch) and motion gestures (Two-Finger Swipe). A lightweight kinematic prediction layer smooths tracking and reduces misfires. An opt-in 3D world-model backend (`vision.mediapipe_backend: "tasks"`) adds real-metric-scale depth via MediaPipe's `HandLandmarker` — see [GESTURES.md](GESTURES.md#3d-world-model-layer-mediapipe-tasks). An opt-in coarse gaze-tracking modality (`vision.gaze_tracking_enabled`) fuses screen-region gaze with voice + gesture on-device — see [GESTURES.md](GESTURES.md#gaze-tracking-third-input-modality).
 - 🖱️ **Gesture Cursor Control** *(off by default)*: Point to move the real OS cursor, pinch to click — opt in via Settings. Open palm always exits instantly.
 - 🎯 **Adaptive Voice & Gesture Calibration** *(on by default)*: A lightweight on-device continual-learning loop personalizes pinch/thumb thresholds and wake-word matching from implicit usage signals — no retraining, no new prompts, bounded and resettable in Settings.
@@ -255,11 +261,11 @@ The release gate is reproducible; it does not rely on an informal task-pass perc
 
 | Surface | Verification |
 |---------|--------------|
-| Python daemon | Ruff lint and format; 1,456 tests passed, 6 skipped |
-| Svelte UI | Prettier and `svelte-check` with zero warnings; 166 unit tests; production build |
+| Python daemon | Ruff lint and format; 1,555 tests passed, 6 skipped |
+| Svelte UI | Prettier and `svelte-check` with zero warnings; 172 unit tests; production build |
 | Dependencies | `npm audit --audit-level=high` with zero vulnerabilities |
 | Native Tauri bridge | Cargo format, Clippy with warnings denied, and 8 Rust tests |
-| Visual UI | 33 Playwright visual scenarios passed on Windows |
+| Visual UI | 24 Playwright scenarios with committed Windows, Ubuntu, and macOS baselines |
 
 GitHub Actions repeats Python tests on Windows, Ubuntu, and macOS with Python 3.11 and 3.12, runs the frontend gate, compares per-OS visual baselines, and checks the Rust bridge on Linux. Camera, microphone, desktop permissions, model downloads, and OS-specific integrations still require real-device validation; CI cannot prove hardware behavior.
 
@@ -384,15 +390,13 @@ graph TD
         VC["Voice Controller"]
         GC["Hand Gesture Controller"]
         GT["On-device Gaze Tracker"]
-        RPV["ReAct Pipeline Visualizer"]
-        TVS["Thought Visualization 🧠"]
+        IS["Observable Interaction State"]
         Gateway --- GUI
         GUI --- HUD
         GUI --- VC
         GUI --- GC
         GUI --- GT
-        GUI --- RPV
-        RPV --- TVS
+        GUI --- IS
     end
 
     Gateway --> Fusion
@@ -405,7 +409,7 @@ graph TD
     FusedIntent --> Daemon
 
     subgraph "Agent Runtime - Python"
-        Daemon["Agent Server / Durable ReAct Loop"] --> Ledger[("Append-only Experience Ledger")]
+        Daemon["Agent Server / Durable Interaction Loop"] --> Ledger[("Append-only Experience Ledger")]
         Daemon --> Journal[("Durable Task Journal")]
         Daemon --> Memory[("Temporal Memory")]
         Memory --> Context["Budgeted Context Assembler"]
@@ -425,6 +429,9 @@ graph TD
         Sandbox --> LearnedRisk["Hybrid World Model"]
         LearnedRisk --> |"can only add caution"| Security["Security Gate + Approval"]
         Security --> Orchestrator["Capability Agent Mesh"]
+        Daemon --> Adaptive["Bounded Observe / Act / Verify App Loop"]
+        Adaptive --> Planner
+        Adaptive --> ScreenVision
     end
 
     subgraph "Multi-Agent System"
@@ -477,10 +484,7 @@ graph TD
     end
 
 
-    subgraph "Reasoning Telemetry"
-        Daemon -.-> |"events"| ReasoningEmitter["Reasoning Emitter"]
-        ReasoningEmitter -.-> |"WebSocket"| TVS
-    end
+    Daemon -.-> |"interaction_state + task_complete"| IS
 ```
 
 ## Runtime Subsystems
@@ -494,10 +498,11 @@ These are implemented runtime paths, not a future roadmap:
 | Experience and durability | Append-only causal ledger, persistent task journal, idempotent action claims, and authenticated resume |
 | Context and adaptation | Temporal memory, bounded context assembly, verified online learning, and drift-aware replay |
 | Evaluation and evolution | Outcome trace replay, shadow strategy optimization, and isolated Docker/worktree engineering candidates |
-| Reasoning telemetry | Live ReAct events rendered in the desktop UI |
+| Interaction telemetry | One observable text/voice state machine for listening, understanding, planning, approval, acting, verification, correction, speech, and terminal outcomes |
 | Screen, hand, and gaze perception | Screen context plus on-device MediaPipe hand and coarse gaze pipelines |
 | Hybrid world model | Structured transition prediction, calibrated learned risk, verified failures, and optional validated UI-JEPA; learned evidence can only increase caution |
-| Durable voice/gesture workflows | SQLite-backed multi-step jobs with pause, resume, cancel, and restart recovery |
+| Durable voice/gesture workflows | SQLite-backed multi-step jobs with pause, resume, cancel, restart recovery, spoken correction, and the shared adaptive app loop |
+| Adaptive app autonomy | Fresh screen observation, grounded UI targeting, target-window re-acquisition, environment verification, bounded replanning, and no-progress termination |
 | Opt-in autonomous controls | Healing, execution narration, preview-before-action, manual supervision, and gesture cursor |
 | Voice output | Coordinated Kokoro default, selectable Pocket TTS, and automatic OS/browser fallback |
 | Extension ecosystem | Signed local plugins, a reviewed hash-verified marketplace, constrained native/WASM brokers, and explicit capability grants |
@@ -634,7 +639,7 @@ and reinstall the daemon extras from a 64-bit Python 3.11 or 3.12 environment:
 ```powershell
 cd daemon
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install -e ".[full,voice]"
+python -m pip install -e ".[all]"
 ```
 
 Only install a CUDA-specific PyTorch build when you have deliberately enabled an
@@ -839,6 +844,14 @@ Ensure all frontend dependencies are installed successfully before starting the 
 
 #### Q8: Do Pocket TTS or the learned world model require CUDA?
 **A:** No. Both supported paths are CPU-capable and no NVIDIA GPU is required. If an optional neural package reports missing Windows runtime DLLs, install the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) and reinstall the relevant daemon extra from 64-bit Python. Only use a CUDA-specific build for an optional model you intentionally configured.
+
+#### Q9: Why did Heliox say an installed application could not be found?
+**A:** Use the application's installed display name, not a guessed executable
+name. Heliox resolves Start-menu shortcuts, App Paths, PATH, and registered
+applications on Windows; Launch Services on macOS; and executables or desktop
+entries on Linux. A missing or ambiguous match fails visibly instead of opening
+an unrelated program. After launch, Heliox still observes the target window and
+verifies the requested task before reporting completion.
 
 ## 📖 Developer Guides & Documentation
 

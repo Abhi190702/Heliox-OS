@@ -161,7 +161,14 @@ Combined, an autonomous or web-agent-sourced plan could drive the browser (navig
 - **Tamper-evident audit trail.** `pilot.security.gateway_audit.AgentGatewayAuditStore` is a separate HMAC-SHA256 hash-chained SQLite log (same chain-of-custody design as the existing `PermissionEscalationAuditStore`, but its own database/key file) recording every gateway decision — source profile, action family, tier, whether an override was applied/whether it actually narrowed anything, allow/deny outcome, and a full policy snapshot. `verify_gateway_audit` walks the chain and detects any row that was deleted, reordered, or modified after the fact. Kept as an independent chain so a compromise of one audit key doesn't help forge the other.
 - **Dry-run/simulation extended.** `SimulationSandbox` previously modeled shell/file impacts only; it now produces meaningful risk assessments for browser (navigation targets, script previews) and system-control (mouse/keyboard, process, registry) actions too, so a dry-run plan touching these surfaces gets real impact analysis instead of a generic fallback description.
 
-**Known scope limit.** Legacy direct callers in `chain_planner.py`, `agents/self_heal.py`, `network/mesh.py`, `network/collab_executor.py`, and `swarm/swarm_router_agent.py`, plus a few server utility paths, still omit an explicit `InvocationSource` and therefore inherit the interactive-equivalent floor. Their Tier 2+ actions remain subject to normal permission, confirmation, critic, and audit controls, but do not receive a narrower origin profile. The specialist mesh, autonomous jobs, voice, gesture, and self-healing paths are explicitly tagged.
+**Known scope limit.** Legacy direct callers in `agents/self_heal.py`,
+`network/mesh.py`, `network/collab_executor.py`, and
+`swarm/swarm_router_agent.py`, plus a few server utility paths, still omit an
+explicit `InvocationSource` and therefore inherit the interactive-equivalent
+floor. Their Tier 2+ actions remain subject to normal permission,
+confirmation, critic, and audit controls, but do not receive a narrower origin
+profile. The specialist mesh, autonomous jobs, voice, gesture, and
+self-healing paths are explicitly tagged.
 
 Settings → Agent Gateway Policy shows the enforced floor per source and lets you tighten it (never loosen it beyond the shipped defaults' intent); Settings → Agent Gateway Audit Log shows every recorded decision with a one-click integrity check.
 
@@ -280,6 +287,48 @@ the deterministic floor.
 
 ---
 
+## 🧭 Adaptive application control and truthful completion
+
+Browser and native-desktop goals can require several observations: open an
+application, inspect what appeared, find the correct control, act, then confirm
+the requested state. `pilot.agents.autonomous.AutonomousExecutor` and durable
+voice/gesture workflows use one bounded observe → act → verify loop for this
+work. It is an execution strategy, not a new permission path: every round still
+passes schema validation, deterministic permission policy, the source-scoped
+Agent Gateway, learned-risk caution, approval, durable claims, audit, and
+post-action verification.
+
+The loop has deliberate failure boundaries:
+
+- it runs at most six rounds per step;
+- it plans only the next grounded action or tightly coupled pair from a fresh
+  observation;
+- it rejects an empty-plan completion claim without current screen evidence
+  or a prior verified round;
+- exact-text requests require a case-sensitive match in the target evidence;
+- a repeated plan plus unchanged screen fingerprint stops after the third
+  occurrence; and
+- unresolved, hidden, or ambiguous UI targets fail instead of generating
+  speculative coordinates.
+
+Desktop input is bound to the task's target window. Before foreground mouse or
+keyboard actions the loop re-focuses that window. `keyboard_type` may carry a
+`window_title`; the platform adapter fails when it cannot focus or verify the
+requested editor instead of typing into the user's current foreground app.
+This reduces, but does not eliminate, desktop races: another application can
+steal focus after the final check, and OS accessibility/UI-automation support
+varies by platform.
+
+Application launching is also fail-closed. Windows resolves installed apps
+from Start-menu shortcuts, App Paths, PATH, and registered app entries and
+rejects missing or ambiguous labels. macOS uses Launch Services through
+`open -a`; Linux requires either a PATH executable or a desktop entry accepted
+by `gtk-launch`. A launched process or dispatch command is not treated as proof
+that the user's end goal completed; the adaptive loop must observe and verify
+the resulting state separately.
+
+---
+
 ## 🗣️ Live Execution Narrator (opt-in)
 
 **What this is.** `pilot.agents.narrator.ExecutionNarrator` narrates plan execution as it happens and can pre-emptively pause a plan or a single browser action that gets flagged as risky *before* it runs — pairing the spoken interjection with a visual confirmation modal, always together, never one without the other. Narration, approvals, risk warnings, failures, final answers, proactive suggestions, and voice replies all enter the shared priority coordinator.
@@ -331,7 +380,15 @@ fallback and is suppressed when daemon speech already owns the utterance.
 
 **What this is.** `pilot.system.kokoro_tts` is the default engine behind `pilot.system.voice.speak()` (`config.voice.tts_engine`, default `"kokoro_tts"`), with `pilot.system.pocket_tts` available as a selectable alternative. Both replace platform-native TTS (Windows SAPI via PowerShell, macOS `say`, Linux `espeak`) when available, while the platform voice remains the automatic fallback. Pocket TTS came out of the same research that flagged Kyutai's Moshi above: Moshi itself has since been superseded for production use by a cascaded stack (Unmute, Kyutai STT/TTS, Pocket TTS), and — critically — every piece of that stack *except* Pocket TTS requires a 16GB+ VRAM GPU on Linux/WSL, a poor fit for a general Windows/Mac/Linux desktop app. Pocket TTS (100M params) is the one piece that's genuinely CPU-only and cross-platform, reported by Kyutai at ~6x real-time generation using 2 CPU cores.
 
-**Not the full-duplex capability.** This is a TTS-quality change only — it does **not** provide Moshi's genuine mid-sentence barge-in (simultaneous listen-while-speaking at the token level). `speak_interruptible()`'s existing cancel-and-restart barge-in mechanism (racing playback against the VAD recorder's `wait_for_speech_start()`, see the Continuous VAD-based recording section of `voice.py`) is completely unchanged by this pass — Pocket TTS's `play()` is just as cancellable via `sounddevice.stop()` as the previous `proc.kill()`-based OS-native paths were.
+**Not a token-level full-duplex model.** This is a TTS-quality change only —
+it does **not** provide Moshi's simultaneous token-level listening and
+generation. Heliox implements product-level duplex coordination around the
+models: VAD detects user speech, the shared speech coordinator stops playback,
+the active task accepts the utterance as a correction, and the continuous
+listener resumes after Heliox finishes speaking. Pocket TTS playback is
+cancellable through `sounddevice.stop()` just like the OS-native subprocess
+paths; this coordination is application logic, not a capability of the TTS
+model itself.
 
 **Free and fully local, by design.** Kyutai's Pocket TTS code is MIT/Apache-2.0 and the model weights are CC-BY-4.0 — no API key, no per-request cost, no cloud inference of any kind. The only network activity is a one-time ~236MB model download from Hugging Face the first time `speak()` is actually called — after that, everything runs offline on the user's own CPU.
 
@@ -373,7 +430,12 @@ fallback and is suppressed when daemon speech already owns the utterance.
 **Composes with, does not replace, the existing cooperative signal.** `_handle_abort` still sets `cancel_event` first (unchanged boundary-only behavior for the Orchestrator/Executor's own internal batch loop) *and then* cancels the tracked task and interrupts PTY sessions — by the time the resulting `CancelledError` reaches `_handle_execute`, `cancel_event` is already set, so it falls through to the pre-existing "Cancel Token" response path (`{"status": "cancelled", ...}`) rather than needing new response-shaping logic.
 
 **Known scope limits, stated plainly.**
-- **Only the main interactive command path is covered** — `PilotServer._handle_execute`'s fresh-plan and resume-from-checkpoint call sites. The other `Executor.execute()` call sites (voice command dispatch, the generic action-command handler, git-conflict-resolution) are single quick actions outside the "Stop button" scope and were left untouched. Workflows/autonomous jobs already have their own working cancel path (`AutonomousExecutor.cancel()`) and were not changed here.
+- **The main typed and voice interaction path is covered** — voice dispatch now
+  enters `PilotServer._handle_execute` rather than maintaining a second
+  planner/executor path. Durable voice/gesture workflows and autonomous jobs
+  keep their own pause/cancel state. Generic utility handlers and dedicated
+  adapters are cancellable only to the extent their underlying operation
+  cooperates.
 - **Not every `ActionType` is a real cancellable subprocess.** `code_execute`, `download_file`, and other long-running actions are only interruptible to the extent their own underlying implementation is a genuine cancellable subprocess/async call — this pass did not individually audit or guarantee that for every action type.
 - **PTY sessions are Unix-only.** Windows has no PTY support in this codebase at all (`PtySessionManager.get_session` raises `RuntimeError` on `win32`); the interrupt mechanism only matters on platforms where `pty_exec` runs in the first place.
 - **A narrow interrupt-consumption race.** If `PtySession.interrupt()` is called while no command is actually running, the flag is consumed (cleared) by whatever `_read_until` call happens next — which could, narrowly, cause an unrelated *later* command to bail early instead. This mirrors the same class of un-awaited-cancellation race already present in `AutonomousExecutor.cancel()`'s original form; callers only invoke `interrupt()`/`interrupt_all()` while a command is genuinely known to be in flight, so this wasn't hardened further.

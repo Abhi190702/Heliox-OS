@@ -25,7 +25,8 @@ payloads are excluded from the experience and learning stores by default.
 
 ```mermaid
 flowchart LR
-    Input["Text, voice, gesture, gaze, screen context"] --> Ledger["Append-only experience ledger"]
+    Input["Text, voice, gesture, gaze, screen context"] --> Interaction["Observable interaction state"]
+    Interaction --> Ledger["Append-only experience ledger"]
     Ledger --> Context["Temporal context assembler"]
     Context --> Planner["Planner and strategy assignment"]
     Planner --> Prediction["Structured world prediction and optional UI-JEPA"]
@@ -35,11 +36,19 @@ flowchart LR
     Mesh --> Executor["Executor or constrained domain adapter"]
     Executor --> Verify["Environment-state verification"]
     Verify --> Ledger
-    Verify --> Result["Result and grounded next suggestions"]
+    Verify --> Adaptive{"Goal complete with evidence?"}
+    Adaptive -->|"No; bounded retry"| Context
+    Adaptive -->|"Yes"| Result["Result and grounded next suggestions"]
     Ledger --> Learning["Verified online adaptation"]
     Ledger --> Replay["Trace replay and evaluation"]
     Replay --> Strategy["Shadow strategy optimization"]
 ```
+
+Typed commands and voice commands enter this same path. Long-running browser
+and desktop goals may repeat the observation, planning, execution, and
+verification segment for at most six rounds per step. The loop stops on
+verified completion, a repeated no-progress plan, a denied safety gate,
+cancellation, or the round limit.
 
 The ordinary action path is sequential. Parallel branches are allowed only
 when a caller explicitly attests that they are independent; fan-out,
@@ -96,6 +105,19 @@ the channel while the person is talking.
 The daemon coordinator covers autonomous completion, cognitive warnings,
 continuous voice, and frontend speech RPCs. Browser speech synthesis is a
 fallback, not a second narrator.
+
+`pilot.system.interaction.InteractionRuntime` exposes one state machine for
+text and voice: idle, listening, understanding, planning, awaiting approval,
+acting, verifying, correcting, speaking, and terminal states. Voice uses the
+same `execute` handler as typed input rather than a second planner/executor
+implementation. Barge-in stops current speech; speech received while a task is
+active becomes an out-of-band correction that cancels the current step and
+replans without repeating already verified actions.
+
+Continuous conversation is explicit and bounded. While the listener is on,
+complete utterances are eligible for routing without a wake phrase, and a
+30-second follow-up window opens after speech completes. The listener is
+suppressed while Heliox itself speaks so TTS cannot become a new command.
 
 ### 6. Hybrid world model
 
@@ -208,6 +230,30 @@ dedicated adapters with hard domain restrictions. A declared
 `AgentCapability` describes routing and resource scope; it is not by itself an
 operating-system sandbox.
 
+### Adaptive browser and desktop execution
+
+`AutonomousExecutor` and durable voice/gesture workflows share a bounded
+observe → act → verify loop for interactive applications. Each round refreshes
+screen context, asks the planner for only the next grounded action or tightly
+coupled pair, executes through the normal security path, and verifies the real
+environment before continuing. An empty plan is successful only when it
+contains an explicit completion claim backed by fresh evidence; exact-text
+goals are checked case-sensitively.
+
+UI coordinates must come from a current element-detection result. A placeholder
+`(0, 0)` click is resolved through `screen_detect_elements`; a missing or
+ambiguous target fails instead of guessing. Three repeats of the same plan and
+screen fingerprint stop the loop as no progress.
+
+Native application control carries a target-window identity across rounds.
+Before foreground mouse or keyboard input, Heliox re-acquires that window;
+background text entry includes `KeyboardParams.window_title` and fails if the
+target cannot be focused or its editable text cannot be verified. Application
+launch is platform-specific and fail-closed: Windows resolves Start-menu,
+App-Paths, PATH, and registered apps; macOS uses Launch Services through
+`open -a`; Linux accepts a PATH executable or a verified `gtk-launch` desktop
+entry. No launcher reports success merely because a shell command was issued.
+
 ## Security decision order
 
 An action is allowed to reach a side-effect adapter only after the applicable
@@ -236,6 +282,7 @@ All state is local unless the user explicitly configures an external service:
 | Task journal | Durable lifecycle, approvals, and action claims |
 | Temporal memory | Evidence-backed working, episodic, semantic, and temporal facts |
 | Agent mesh database | Verified provider outcomes and routing quality |
+| Local chat sessions | Per-chat transcript and active-task metadata in frontend local storage |
 | Online learning state | Replay buffer, drift state, and promoted adaptation |
 | Strategy archive | Inert candidates, evaluations, assignments, and rollback |
 | Evolution archive/worktrees | Isolated engineering candidates and evidence |

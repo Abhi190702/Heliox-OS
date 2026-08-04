@@ -6,6 +6,15 @@ coordination, hybrid world model, verified online learning, strategy/evolution
 harnesses, 21-specialist mesh, Planner/Executor/Verifier, security layers, and
 the 156-action system interface.
 
+Typed and spoken requests enter the same observable interaction state machine.
+Interactive browser and desktop goals use a bounded observe, act, and verify
+loop with fresh screen evidence, target-window re-acquisition, and explicit
+no-progress limits. Native application launch is fail-closed and platform
+specific: Windows resolves installed-app records and shortcuts, macOS uses
+Launch Services, and Linux accepts verified executables or desktop entries.
+Issuing a launch command is never treated as proof that the user's goal is
+complete.
+
 See the [main README](../README.md) and
 [Architecture](../docs/ARCHITECTURE.md) for the full runtime contract.
 

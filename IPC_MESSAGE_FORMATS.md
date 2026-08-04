@@ -12,6 +12,12 @@ The Heliox OS UI and daemon communicate over a local WebSocket using the [JSON-R
 | Request timeout | 5 minutes |
 | Reconnect interval | 3 seconds (auto-reconnect on close) |
 
+The daemon currently registers **146 WebSocket RPC methods**. That is the API
+surface count, not the action catalog: Heliox still exposes **156 action
+types** through the guarded planner/executor system. This document names every
+registered RPC method; grouped tables are used where several methods share one
+contract.
+
 ### Envelope formats
 
 **Request** (UI → Daemon):
@@ -43,16 +49,25 @@ Standard JSON-RPC error codes: `-32700` parse error, `-32600` invalid request, `
 ### Core Pipeline
 
 #### `execute`
-Run the full ReAct pipeline for a user command.
+Run the shared text/voice interaction path for a user command: context,
+planning, companion review, safety and approval, execution, environment
+verification, and a terminal result. The removed thought-graph/ReAct UI is not
+part of this contract; progress is exposed through `status`,
+`interaction_state`, action notifications, and `task_complete`.
 
 **Params:**
 ```json
 {
   "input": "open Firefox and navigate to github.com",
-  "dry_run": false
+  "dry_run": false,
+  "session_id": "chat_123",
+  "source": "text"
 }
 ```
 `dry_run` is optional (defaults to the daemon's configured value).
+`session_id` scopes working memory, recent companion context, and the durable
+task to one chat. `source` is `text` or `voice`; voice dispatch calls this same
+handler.
 
 **Result:**
 ```json
@@ -81,7 +96,62 @@ Run the full ReAct pipeline for a user command.
   }
 }
 ```
-`status` is one of `"success"`, `"partial_failure"`, `"error"`, or `"cancelled"`.
+Common terminal `status` values are `"success"`, `"partial_failure"`,
+`"error"`, `"cancelled"`, `"blocked_by_companion"`, and
+`"blocked_by_critic"`. Clients must preserve the daemon's explanatory
+`message` or `explanation` instead of reducing these outcomes to a generic
+failure.
+
+A conversational request may validly return no actions:
+
+```json
+{
+  "status": "success",
+  "explanation": "Good morning. What would you like to work on?",
+  "results": [],
+  "conversational": true
+}
+```
+
+#### `interject`
+Correct or stop the active interactive task out of band. A correction cancels
+the current step, preserves already observed results, and replans. It remains
+available even when optional step narration is disabled.
+
+**Params:** `{ "input": "Use Hermes, not Notepad", "mode": "correct" }`.
+Use `mode: "stop"` (or an explicit stop/cancel phrase) to abort.
+
+**Result:** `{ "status": "revising", "message": "Live correction accepted." }`,
+`{ "status": "aborted" }`, or a clear disabled/no-active-task response.
+
+#### `resume_task`
+Authenticate and resume a non-terminal durable task after a reconnect or daemon
+restart.
+
+**Params:** `{ "task_id": "task_...", "resume_token": "..." }`
+
+**Result:** the terminal response with `replayed: true`, an
+`awaiting_approval` object, or the resumed execution result with
+`resumed: true`. The raw token is never stored; the task journal stores its
+hash. Durable plans cannot be resumed with `resume_plan` alone.
+
+#### `resume_plan`
+Resume a legacy/non-durable checkpoint from its first incomplete action.
+
+**Params:** `{ "plan_id": "a3b2c1f5" }`
+
+**Result:** an execution result with `resumed`, `skipped_actions`,
+`executed_actions`, and combined results. If the checkpoint belongs to a
+durable task, the daemon rejects this method and requires `resume_task` plus
+the resume token.
+
+#### `export_session_chat`
+Export the messages supplied by the active UI chat to the user's Downloads
+folder (or the daemon export directory if Downloads is unavailable).
+
+**Params:** `{ "messages": [...], "format": "json"|"csv"|"markdown" }`
+
+**Result:** `{ "status": "ok", "path": "...", "count": 12, "format": "json" }`.
 
 #### `abort`
 Stop the current execution — both cooperatively and, where possible, by
@@ -278,6 +348,33 @@ Use `section: ""` with `values: { "first_run_complete": true }` to set top-level
 
 **Result:** `{ "status": "ok" }` or `{ "status": "error", "message": "..." }`
 
+#### `get_security_status`
+Return both the configured Heliox root policy and whether the current daemon
+process actually has elevated OS privileges.
+
+**Params:** `{}`
+
+#### `get_snapshot_status`
+Probe the configured pre-destructive-action snapshot backend and report live
+readiness. This distinguishes an enabled preference from a usable restore
+point/Timeshift/Btrfs backend.
+
+**Params:** `{}`
+
+#### `restart_elevated`
+On Windows, request a UAC handoff to a replacement Administrator daemon. The
+request is blocked unless `security.root_enabled` is already true. Non-Windows
+platforms return `unsupported`; declining UAC returns an error rather than
+pretending elevation succeeded.
+
+**Params:** `{}`
+
+#### `reset_config`
+Reset persisted configuration fields to `PilotConfig` defaults.
+
+**Params:** `{}`
+**Result:** `{ "status": "ok" }`
+
 ---
 
 ### History & Memory
@@ -305,6 +402,30 @@ Both params are optional.
   ]
 }
 ```
+
+Chat transcripts and durable user memory are deliberately different stores.
+The frontend chat-session dialog keeps per-chat UI records locally;
+`get_history` returns daemon interaction history used for memory and audit
+surfaces.
+
+#### `memory_checkpoint`
+Request a SQLite WAL checkpoint for the memory store.
+
+**Params:** `{}`
+**Result:** checkpoint status and WAL statistics, or an initialization error.
+
+#### `temporal_memory_status`
+Return up to 200 provenance-labelled active/candidate facts, episodes, and
+working-memory items for user review.
+
+**Params:** `{ "limit": 50 }`
+
+#### `temporal_memory_retract`
+Retract one active or candidate fact without rewriting the append-only
+experience ledger.
+
+**Params:** `{ "fact_id": "fact_...", "reason": "Incorrect preference" }`
+**Result:** `{ "status": "ok", "fact_id": "fact_...", "fact_status": "retracted" }`
 
 ---
 
@@ -341,10 +462,21 @@ Check connectivity.
 **Result:** `{ "pong": true, "version": "0.10.1" }`
 
 #### `health`
-Check all model backend health.
+Return daemon-process health: uptime, RSS memory, active WebSocket connections,
+and loaded agent roles.
 
 **Params:** `{}`
-**Result:** `{ "backends": { "ollama": true, "cloud": false } }`
+**Result:** `{ "uptime": 42.1, "memory_usage_mb": 180.4, "active_connections": 1, "loaded_agents": [...] }`
+
+#### `ready`
+Return `{ "ready": true }` only when the orchestrator has registered agents
+and every registered agent is running without an error state.
+
+#### `system_info`
+Return exact HUD metrics for CPU, memory, disk, hostname, and uptime.
+
+#### `get_uptime`
+Return formatted host uptime such as `"3h 12m"` or `"2d 4h 8m"`.
 
 #### `system_status`
 Return platform information.
@@ -363,6 +495,12 @@ Discover locally available Ollama models.
 
 **Params:** `{}`
 **Result:** `{ "models": ["llama3.1:8b", "mistral:7b"], "available": true }`
+
+#### `extract_file_text`
+Extract text from a user-selected file for UI context injection.
+
+**Params:** `{ "path": "C:/path/to/document.pdf" }`
+**Result:** `{ "status": "ok", "text": "...", ... }` or a clear unsupported/read error.
 
 ---
 
@@ -572,21 +710,29 @@ Click at a screen position via `pilot.system.input_control.mouse_click(x, y, but
 
 ---
 
-### Reasoning Visualization
+### Interaction state and daemon speech
 
-#### `reasoning_log`
-Return the full reasoning event log for the current session.
+#### `interaction_status`
+Return the one current text/voice interaction snapshot: `interaction_id`,
+`source`, `phase`, redacted/bounded `user_input`, display `message`, `active`,
+`sequence`, elapsed time, and update time.
+
+#### `list_audio_input_devices`
+List microphone inputs compatible with Heliox's recording format. Stable
+identifiers are suitable for `voice.input_device`; unavailable devices return
+a clear error instead of silently selecting another microphone.
+
+#### `speak_text`
+Send UI text through the daemon's single speech coordinator and configured
+Kokoro/Pocket/OS-native engine.
+
+**Params:** `{ "text": "Done", "channel": "final_answer", "dedupe_key": "task:123" }`
+**Result:** a `SpeechOutcome` with accepted/completed/interrupted/suppressed status.
+
+#### `stop_speech`
+Immediately stop daemon-side speech playback and release the speech channel.
 
 **Params:** `{}`
-**Result:** `{ "events": [ <ReasoningEvent>, ... ] }`
-
-See the `reasoning_event` notification for the `ReasoningEvent` object shape.
-
-#### `reasoning_stats`
-Return reasoning emitter statistics.
-
-**Params:** `{}`
-**Result:** stats dict.
 
 ---
 
@@ -641,6 +787,52 @@ Enable or disable a plugin by name.
 
 **Params:** `{ "name": "my_plugin", "enabled": true }`
 **Result:** `{ "success": true, "plugin": "my_plugin", "enabled": true }`
+
+#### `plugin_market_list`
+Load the approved GitHub catalog and merge it with installed local-only
+plugins. Each item reports `installed`, `local_only`, catalog `source`, and the
+submission URL. A catalog/network failure returns an empty list plus `error`;
+it never turns an unapproved package into a marketplace item.
+
+#### `plugin_install`
+Install one exact catalog-approved, hash-verified package.
+
+**Params:** `{ "plugin_name": "weather" }`
+**Result:** the verified installation record, or `{ "error": "..." }`.
+
+#### `plugin_uninstall`
+Remove one validated local plugin directory and refresh planner/mesh inventory.
+
+**Params:** `{ "plugin_name": "weather" }`
+
+#### `plugin_create`
+Create and locally sign a development plugin. It remains `local_only` until a
+reviewed marketplace pull request is merged.
+
+**Params:** `{ "name": "my-plugin", "version": "1.0.0", "description": "...", "author": "...", "tools": [...], "code": "..." }`
+
+#### `plugin_run_tool`
+Run an installed tool through the plugin registry's capability broker.
+
+**Params:** `{ "tool_name": "get_weather", "args": { "city": "Delhi" } }`
+**Result:** `{ "result": ... }` or a clear registry/tool error.
+
+See [Plugin Marketplace](docs/PLUGIN_MARKETPLACE.md) for moderation,
+capabilities, package hashes, and runtime isolation.
+
+---
+
+### Skill Registry
+
+#### `skills_list`
+Return all currently loaded declarative skills.
+
+#### `skills_reload`
+Reload configured skill search directories, refresh planner context, and return
+one success/error record per source file.
+
+#### `skills_load_report`
+Return the last skill-load records and the exact search directories used.
 
 ---
 
@@ -754,7 +946,11 @@ Load, unload, or query the cognitive engine.
 ### Voice Listener (JARVIS Mode)
 
 #### `voice_listener_start`
-Start the continuous wake-word voice listener.
+Start the continuous voice listener. Wake words remain supported, but
+`voice.continuous_conversation_enabled` defaults to true, so complete
+utterances can be routed without repeating the wake phrase while listening is
+on. The listener suppresses Heliox's own TTS and uses a bounded follow-up
+window after answers.
 
 **Params:** `{ "wake_words": ["hey heliox", "heliox", "hey pilot"] }`
 **Result:** `{ "status": "started", "message": "...", "wake_words": ["hey heliox", ...] }`
@@ -770,6 +966,11 @@ Return voice listener statistics.
 
 **Params:** `{}`
 **Result:** stats dict.
+
+Recognized commands enter the same `execute` handler and observable
+`interaction_state` phases as typed commands. Speech received during active
+work is sent through `interject` as a live correction rather than starting a
+second competing task.
 
 ---
 
@@ -819,7 +1020,7 @@ List learned wake-word variants for the Settings transparency view.
 #### `autonomous_submit`
 Submit a goal for fire-and-forget autonomous background execution.
 
-**Params:** `{ "goal": "organize my Downloads folder", "source": "text" }`
+**Params:** `{ "goal": "organize my Downloads folder", "source": "text", "session_id": "chat_123", "scope_override": null }`
 **Result:**
 ```json
 {
@@ -852,6 +1053,55 @@ Get a single autonomous job by ID.
 **Params:** `{ "job_id": "abc123" }`
 **Result:** job object dict (same shape as the `job` field in `autonomous_submit`).
 
+Each interactive browser/desktop step uses the bounded adaptive app loop: a
+fresh observation, one grounded action or pair, real verification, then
+replanning when the goal is not complete. Jobs stop on verified completion,
+cancellation, repeated no progress, or six rounds per step.
+
+---
+
+### Durable Voice/Gesture Workflows
+
+These workflows persist multi-step state, expose pause/resume/cancel controls,
+and delegate application steps to the same adaptive loop as autonomous jobs.
+Spoken instructions while one is running can revise or stop it.
+
+#### `voice_gesture_workflow_submit`
+**Params:** `{ "goal": "open Hermes and draft a note", "invocation_source": "voice"|"gesture", "scope_override": null }`
+**Result:** `{ "status": "submitted", "workflow": { ... } }`
+
+#### `voice_gesture_workflow_list`
+**Params:** `{ "include_terminal": false }`
+**Result:** `{ "workflows": [...] }`
+
+#### `voice_gesture_workflow_get`
+**Params:** `{ "workflow_id": "vgw_..." }`
+
+#### `voice_gesture_workflow_pause`
+Pause at the next step boundary.
+
+**Params:** `{ "workflow_id": "vgw_..." }`
+
+#### `voice_gesture_workflow_resume`
+Resume a paused or trigger-waiting workflow.
+
+**Params:** `{ "workflow_id": "vgw_..." }`
+
+#### `voice_gesture_workflow_cancel`
+Cancel the workflow and clear its task-scoped working memory.
+
+**Params:** `{ "workflow_id": "vgw_..." }`
+
+#### `gesture_workflow_bindings_get`
+Return the Settings policy: global enabled state, supported gestures, and the
+current gesture-to-goal templates.
+
+#### `gesture_workflow_bindings_update`
+Validate and persist the global enabled state and binding list. Unsupported or
+duplicate gesture names, empty goals, and malformed bindings fail closed.
+
+**Params:** `{ "enabled": true, "bindings": [{ "gesture_name": "peace", "goal_template": "Open my calendar", "enabled": true }] }`
+
 ---
 
 ### Proactive Suggestions
@@ -883,6 +1133,14 @@ Dismiss a proactive suggestion without acting on it.
 **Params:** `{ "suggestion_id": "sug_xyz" }`
 **Result:** `{ "dismissed": true, "suggestion_id": "sug_xyz" }`
 
+#### `proactive_learning_status`
+Return per-pattern accept/dismiss evidence, learned priority/timing, and
+temporary suppression state stored on-device.
+
+#### `proactive_learning_reset`
+Forget learned proactive-suggestion preferences and return the reset status.
+This does not delete the immutable experience ledger.
+
 ---
 
 ### Background Tasks
@@ -904,6 +1162,22 @@ Return self-improvement reflection statistics.
 
 **Params:** `{}`
 **Result:** stats dict.
+
+---
+
+### Hybrid Risk World Model
+
+#### `risk_gate_status`
+Return whether evaluation is enabled, whether validated learned weights and
+optional UI-JEPA artifacts loaded, training sample/action coverage, model
+version, deterministic fallback state, and the latest plan evaluation.
+
+#### `risk_gate_config_update`
+Enable or disable learned/structured risk evaluation and persist the choice.
+The deterministic permission and safety floor remains active either way.
+
+**Params:** `{ "enabled": true }`
+**Result:** the updated `risk_gate_status` object.
 
 ---
 
@@ -1015,6 +1289,40 @@ Update supervision config. Unlike `narration_config_update`/`self_healing_config
 
 ---
 
+### Operations and audit status
+
+#### `budget_stats`
+Return the current month's recorded model token and cost summary.
+
+#### `budget_reset`
+Delete current-month token-usage records. This is a destructive settings
+operation in the UI even though it does not affect task memory.
+
+#### `mesh_peers`
+Return connected LAN peers with hostname, execution capability, CPU load, and
+plugin count. When mesh networking is unavailable, returns
+`{ "enabled": false, "peers": [] }`.
+
+#### `mesh_status`
+Return LAN mesh configuration, node identity, connection count, and readiness.
+
+#### `get_plan_history`
+Return paginated plan-audit summaries, distinct from chat history.
+
+**Params:** `{ "limit": 50, "offset": 0, "status": "success" }`
+
+#### `get_plan_detail`
+Return the complete stored plan, critic, result, and verification record for
+one `plan_id`.
+
+**Params:** `{ "plan_id": "a3b2c1f5" }`
+
+#### `threat_containment_stats`
+Return whether the `ThreatContainmentBridge` is wired and the count of pending
+confirmation gates.
+
+---
+
 ### Interactive Git Conflict Resolver
 
 #### `resolve_git_conflict`
@@ -1078,7 +1386,13 @@ Current pipeline stage during `execute`.
 { "phase": "planning" }
 ```
 
-`phase` values (in order): `"receiving input"`, `"recalling memory"`, `"routing agents"`, `"planning"`, `"re-planning (attempt 2)"`, `"executing"`, `"verifying"`, `"retrying — previous attempt failed"`.
+Common `phase` values are `"receiving input"`, `"recalling memory"`,
+`"routing agents"`, `"planning"`, `"companion reviewing plan"`,
+`"companion revising plan (...)"`, `"critic review"`, `"executing"`,
+`"verifying"`, `"re-planning (attempt ...)"`,
+`"retrying — previous attempt failed"`, `"revising after your correction"`,
+`"resuming"`, and `"aborted"`. Clients must tolerate new human-readable
+phase strings and use `interaction_state.phase` for stable state-machine logic.
 
 ---
 
@@ -1239,56 +1553,56 @@ Multi-agent orchestrator assignment — which specialist agents will handle whic
 
 ---
 
-### `reasoning_event`
-Granular thought-visualization telemetry. Every `execute` call emits a stream of these events so the UI can render a live execution graph.
+### `interaction_state`
+The current observable state shared by typed and spoken interaction. This
+replaces the removed thought-graph/ReAct visualizer and never exposes hidden
+model chain-of-thought.
 
 ```json
 {
-  "event_id": "3f7a2b9e1c4d",
-  "event_type": "phase_start",
-  "event_name": "planner_started",
-  "stage": "planning",
-  "timestamp": 1705316400.123,
-  "duration_ms": 0,
-  "data": { "attempt": 1 },
-  "parent_id": "",
-  "sequence": 5
+  "interaction_id": "5e8a...",
+  "source": "voice",
+  "phase": "acting",
+  "user_input": "open Hermes and draft a note",
+  "message": "Executing verified actions",
+  "active": true,
+  "sequence": 5,
+  "elapsed_ms": 1240,
+  "updated_at": 1785820000.2
 }
 ```
 
-**`event_type` values:**
+`phase` is one of `idle`, `listening`, `understanding`, `planning`,
+`awaiting_approval`, `acting`, `verifying`, `correcting`, `speaking`,
+`completed`, `interrupted`, or `failed`.
 
-| Value | Meaning |
-|-------|---------|
-| `phase_start` | A pipeline stage began |
-| `phase_complete` | A pipeline stage finished successfully |
-| `phase_error` | A pipeline stage failed |
-| `thought` | An LLM inner-reasoning text snippet |
-| `decision` | A decision point with options and the chosen path |
-| `data` | A data payload (plan, results, routing info) |
-| `progress` | Progress update within a stage |
-| `metric` | A performance metric (e.g. duration) |
+### `task_complete`
+Terminal, sanitized summary for an interactive task.
 
-**`stage` values:** `user_input`, `memory_recall`, `agent_routing`, `planning`, `confirmation`, `orchestration`, `execution`, `verification`, `reflection`, `memory_update`.
-
-**`data` field contents by event type:**
-
-```jsonc
-// thought
-{ "text": "Analyzing the user's request to find the right approach..." }
-
-// decision
-{ "description": "Which specialist agent to route to", "chosen": "code_agent" }
-
-// progress
-{ "percent": 50, "label": "file_write" }
-
-// metric
-{ "name": "total_duration_ms", "value": 4523, "unit": "ms" }
-
-// phase_complete / phase_error carry stage-specific data, e.g.:
-{ "plan_id": "a3b2c1f5", "action_count": 3, "explanation": "Install vim..." }
+```json
+{
+  "status": "success",
+  "summary": "Opened Hermes and verified the requested text.",
+  "duration_ms": 4310,
+  "dry_run": false,
+  "plan_id": "a3b2c1f5"
+}
 ```
+
+### Companion notifications
+
+- `companion_plan_review` — independent `APPROVE`, `WARN`, `REVISE`, or
+  `STOP` assessment before execution.
+- `companion_plan_intervention` — a warning, automatic bounded revision, or
+  terminal stop caused by that review.
+- `companion_interjection` — confirms that a typed/spoken live correction or
+  stop request was accepted.
+- `companion_revision_started` / `companion_revision_rejected` — reports
+  bounded replanning or exhaustion of the correction limit.
+- `companion_follow_up` — session-scoped grounded next ideas generated after
+  the verified result; it is delivered asynchronously and never delays the
+  task's terminal response.
+- `conversation_response` — a valid zero-action conversational answer.
 
 ---
 
@@ -1324,6 +1638,21 @@ Result of a voice-triggered command execution.
 ```
 
 On error: `{ "command": "...", "status": "error", "message": "..." }`
+
+For durable voice workflows, `status` may be `submitted`, `revising`, or
+`cancelled` and the payload may include `workflow` or
+`coordinated_correction: true`.
+
+### Autonomous and workflow progress
+
+- `autonomous_started`, `autonomous_decomposed`, `autonomous_step_start`,
+  `autonomous_step_complete`, `autonomous_complete`, and
+  `autonomous_cancelled` carry the current autonomous job object.
+- `voice_gesture_workflow_state` carries the complete persisted workflow state
+  whenever it changes.
+- `gesture_workflow_bindings_updated` carries the validated binding policy.
+- `proactive_suggestion` carries a visible optional suggestion; it does not
+  execute until accepted through the guarded path.
 
 ---
 
@@ -1544,6 +1873,7 @@ UI                                          Daemon
 │── execute {input, dry_run} ──────────────────►│
 │                                               │
 │◄── notification: status {phase: "receiving input"}
+│◄── notification: interaction_state {phase: "understanding"}
 │◄── notification: status {phase: "recalling memory"}
 │◄── notification: status {phase: "routing agents"}
 │◄── notification: agent_routing {assigned_agents, is_multi_agent}
@@ -1562,6 +1892,7 @@ UI                                          Daemon
 │── confirm {plan_id, confirmed: true, approved_indices: [...]} ►│
 │                                               │
 │◄── notification: status {phase: "executing"}
+│◄── notification: interaction_state {phase: "acting"}
 │◄── notification: orchestrator_routing {assigned_agents}
 │                                               │  (snapshot taken first if
 │                                               │   plan_requires_snapshot)
@@ -1571,7 +1902,9 @@ UI                                          Daemon
 │                                               │   if a snapshot was taken)
 │                                               │
 │◄── notification: status {phase: "verifying"}
+│◄── notification: interaction_state {phase: "verifying"}
 │                                               │
+│◄── notification: task_complete {status, summary, duration_ms}
 │◄── response: execute result ─────────────────┤
 │   {status, results, verification, explanation}│
 │                                               │
@@ -1580,7 +1913,9 @@ UI                                          Daemon
 │◄── notification: rollback_complete {plan_id, snapshot_id, message}
 ```
 
-Throughout the call, `reasoning_event` notifications stream in parallel with the stage notifications, providing granular thought-graph telemetry.
+The UI receives observable stage and outcome telemetry, not hidden model
+chain-of-thought. A voice request follows this same sequence and additionally
+emits `voice_command`/`voice_result` plus listening/speaking state.
 
 If verification fails, the daemon re-plans and the cycle repeats (up to 2 retries), broadcasting `status: "re-planning (attempt 2)"` before the next `plan_preview`.
 
@@ -1614,7 +1949,10 @@ If verification fails, the daemon re-plans and the cycle repeats (up to 2 retrie
 | `daemon/pilot/intelligence/evolution_harness.py` | Detached-worktree/Docker engineering evaluation archive |
 | `daemon/pilot/agents/agent_mesh.py` | Specialist capability, resource, budget, routing-quality, delegation, and coverage contracts |
 | `daemon/pilot/plugins/` | Capability validation and constrained native/WASM execution |
-| `daemon/pilot/reasoning/events.py` | `ReasoningEvent` schema and event name constants |
+| `daemon/pilot/system/interaction.py` | Shared text/voice interaction phases and acknowledgement contract |
+| `daemon/pilot/agents/autonomous.py` | Bounded adaptive observe/act/verify application loop |
+| `daemon/pilot/system/applications.py` | Fail-closed cross-platform installed-application resolution and launch |
+| `daemon/pilot/system/window_mgr.py` | Target-window focus and editable-text verification |
 | `tauri-app/ui/src/lib/api/daemon.ts` | WebSocket client (`connect`, `call`, `onNotification`) |
 | `tauri-app/ui/src/lib/stores/session.ts` | Notification handlers for the core pipeline, confirm/rollback state |
 | `tauri-app/ui/src/lib/stores/multimodal.ts` | Multimodal fusion state and notification handler |

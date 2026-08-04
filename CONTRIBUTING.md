@@ -249,6 +249,7 @@ npm run check
 npm run test:static
 npm run test:unit -- --run
 npm run build
+npm audit --audit-level=high
 npm run test:visual
 
 cd ../src-tauri
@@ -256,6 +257,12 @@ cargo fmt -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ```
+
+If a change touches `.github/workflows/`, run `actionlint` as well. Changes to
+browser or desktop execution must test missing and ambiguous targets,
+no-progress termination, real post-action verification, and the relevant
+platform adapters. Do not make completion depend only on a command returning
+without an exception.
 
 Changes to execution, intelligence, security, plugins, or routing must also
 update or assess README, [Architecture](docs/ARCHITECTURE.md),

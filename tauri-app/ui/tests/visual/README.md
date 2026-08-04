@@ -1,6 +1,6 @@
 # Visual Regression Tests
 
-Playwright-based visual regression suite for the Heliox OS UI.  
+Playwright-based visual regression suite for the Heliox OS UI.
 Tests run against the **Vite dev server** (`http://localhost:1420`) — no Tauri binary or daemon required.
 
 ## Structure
@@ -10,7 +10,6 @@ tests/visual/
 ├── helpers.ts              # Shared setup: Tauri IPC mock, navigation, animation freeze
 ├── chat.spec.ts            # Chat, scroll retention, risk interruption, and results
 ├── settings.spec.ts        # Settings, world model, workflows, healing, mesh coverage
-├── agent-thoughts.spec.ts  # ReActPipeline (idle, skeleton, active, completed, thoughts)
 ├── __snapshots__/          # Committed baseline PNG screenshots
 └── README.md               # This file
 ```
@@ -51,18 +50,23 @@ Then commit the updated PNGs in `__snapshots__/` alongside your code changes.
 ## CI behaviour
 
 The `visual-regression` job in `.github/workflows/ci.yml`:
-- Runs on every PR against `main`
+
+- Runs on pushes to `main` and on pull requests, separately on Windows,
+  Ubuntu, and macOS
+- Compares against the committed baseline for that operating system
+- Generates and uploads a missing OS baseline for review, but never writes it
+  back to the protected branch
 - Uploads diff images as artifacts (retained 7 days) when tests fail
 - Reviewers can download the artifact to see exactly what changed visually
 
-The current suite contains 33 scenarios, including a visible world-model
+The current suite contains 24 scenarios, including a visible world-model
 interrupt, long-chat scroll retention, durable workflow controls, honest
 outdated-daemon status, and 21-specialist/156-action coverage.
 
 ## Pixel diff tolerance
 
-| Setting | Value | Reason |
-|---|---|---|
+| Setting             | Value          | Reason                                                |
+| ------------------- | -------------- | ----------------------------------------------------- |
 | `maxDiffPixelRatio` | `0.002` (0.2%) | Allows minor font/anti-aliasing differences across OS |
-| `threshold` | `0.1` | Per-pixel colour distance (0–1 scale) |
-| `animations` | `disabled` | Freezes CSS transitions for stable snapshots |
+| `threshold`         | `0.1`          | Per-pixel colour distance (0–1 scale)                 |
+| `animations`        | `disabled`     | Freezes CSS transitions for stable snapshots          |

@@ -6992,7 +6992,7 @@ def handle_tool(tool_name, params):
     async def _voice_command_dispatch_legacy(self, command_text: str) -> None:
         """Called by ContinuousVoiceListener when a voice command is recognized.
 
-        Runs the full ReAct pipeline and speaks the result back.
+        Runs the legacy voice planner/executor path and speaks the result back.
 
         Args:
             command_text: The recognized voice command text.
