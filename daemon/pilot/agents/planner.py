@@ -59,7 +59,7 @@ from pilot.actions import (
     WifiParams,
     WindowParams,
 )
-from pilot.memory.sliding_window import build_sliding_context
+from pilot.memory.sliding_window import build_sliding_context, fit_messages_to_token_budget
 
 if TYPE_CHECKING:
     from pilot.memory.store import MemoryStore
@@ -936,6 +936,15 @@ class Planner:
                     last = new_messages[-1].copy()
                     last["content"] = get_latest_content("", last_parse_error, last_raw_response)
                     new_messages[-1] = last
+
+                action_token_cap = int(getattr(getattr(config, "model", None), "max_tokens_per_action", 0) or 0)
+                if action_token_cap > 0:
+                    # Keep a small margin for provider-specific chat framing;
+                    # the router performs the final exact gate.
+                    new_messages = fit_messages_to_token_budget(
+                        new_messages,
+                        max_tokens=max(256, action_token_cap - 64),
+                    )
 
                 raw_response = await self._model.generate(
                     new_messages, json_mode=True, temperature=0.1, stream_callback=stream_callback

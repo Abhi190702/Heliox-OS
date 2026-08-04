@@ -158,3 +158,72 @@ def build_sliding_context(
     logger.info(f"Preserved last {len(recent_messages)} interactions.")
 
     return optimized_context
+
+
+def fit_messages_to_token_budget(
+    messages: list[dict[str, Any]],
+    max_tokens: int,
+) -> list[dict[str, Any]]:
+    """Hard-fit a message list below a model input budget.
+
+    ``build_sliding_context`` summarizes history but intentionally preserves a
+    generous recent window. A stricter per-action budget may be smaller than
+    that conversation budget. This final pass drops oldest optional history,
+    preserves the system policy and newest request, and only as a last resort
+    trims the *front* of the newest request so its goal at the tail survives.
+    """
+    if not messages or max_tokens <= 0:
+        return messages.copy()
+    fitted = [message.copy() for message in messages]
+    if count_message_tokens(fitted) <= max_tokens:
+        return fitted
+
+    system_index = next(
+        (
+            index
+            for index, message in enumerate(fitted)
+            if message.get("role") == "system" and not message.get("is_summary")
+        ),
+        None,
+    )
+    latest_index = len(fitted) - 1
+    goal_index = next((index for index, message in enumerate(fitted) if message.get("type") == "goal"), None)
+
+    # Drop summaries and ordinary history from oldest to newest. Keep the
+    # original goal until all other optional context has been removed.
+    removable = [index for index in range(len(fitted)) if index not in {system_index, latest_index, goal_index}]
+    removable.extend(index for index in [goal_index] if index is not None and index not in {system_index, latest_index})
+    removed: set[int] = set()
+    for index in removable:
+        removed.add(index)
+        candidate = [message for position, message in enumerate(fitted) if position not in removed]
+        if count_message_tokens(candidate) <= max_tokens:
+            return candidate
+
+    mandatory = [message for position, message in enumerate(fitted) if position not in removed]
+    if count_message_tokens(mandatory) <= max_tokens:
+        return mandatory
+
+    # The static system policy can be large. Retain it intact and fit the
+    # newest request by taking the longest suffix that stays under budget.
+    latest_position = next(
+        (position for position, message in enumerate(mandatory) if message is fitted[latest_index]),
+        len(mandatory) - 1,
+    )
+    latest = mandatory[latest_position].copy()
+    content = str(latest.get("content", ""))
+    low, high = 0, len(content)
+    best = ""
+    while low <= high:
+        length = (low + high) // 2
+        latest["content"] = content[-length:] if length else ""
+        candidate = mandatory.copy()
+        candidate[latest_position] = latest.copy()
+        if count_message_tokens(candidate) <= max_tokens:
+            best = str(latest["content"])
+            low = length + 1
+        else:
+            high = length - 1
+    latest["content"] = best
+    mandatory[latest_position] = latest
+    return mandatory
