@@ -13,6 +13,11 @@ from pilot.system.platform_detect import CURRENT_PLATFORM, Platform, run_command
 logger = logging.getLogger("pilot.system.windows")
 
 
+def _powershell_literal(value: str) -> str:
+    """Quote untrusted text as one PowerShell single-quoted literal."""
+    return "'" + value.replace("'", "''") + "'"
+
+
 async def window_list() -> str:
     """List all open windows."""
     if CURRENT_PLATFORM == Platform.WINDOWS:
@@ -58,23 +63,40 @@ async def window_focus(window_id: str | None = None, title: str | None = None, p
     """Focus/activate a window by ID, title, or process name."""
     if CURRENT_PLATFORM == Platform.WINDOWS:
         if process_name:
+            target = _powershell_literal(process_name)
             code, out, err = await run_powershell(
-                f"$p = Get-Process -Name '{process_name}' -ErrorAction SilentlyContinue | "
+                f"$target = {target}; "
+                f"$p = Get-Process -Name $target -ErrorAction SilentlyContinue | "
                 f"Where-Object {{$_.MainWindowHandle -ne 0}} | Select-Object -First 1; "
-                f"if ($p) {{ "
-                f"  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; "
-                f'  public class Win32 {{ [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }}\'; '
-                f"  [Win32]::SetForegroundWindow($p.MainWindowHandle) "
-                f"}} else {{ Write-Error 'Process not found' }}"
+                f"if (-not $p) {{ Write-Error 'Process not found'; exit 1 }}; "
+                f"Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; "
+                f'public class Win32 {{ [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow); '
+                f'[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); '
+                f'[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid); }}\'; '
+                f"[void][Win32]::ShowWindowAsync($p.MainWindowHandle, 9); "
+                f"$shell = New-Object -ComObject WScript.Shell; "
+                f"$activated = $shell.AppActivate([int]$p.Id); Start-Sleep -Milliseconds 120; "
+                f"$foregroundPid = 0; [void][Win32]::GetWindowThreadProcessId([Win32]::GetForegroundWindow(), [ref]$foregroundPid); "
+                f"if (-not $activated -or $foregroundPid -ne $p.Id) {{ "
+                f"Write-Error 'Window activation was rejected'; exit 1 }}; $p.Id"
             )
         elif title:
+            target = _powershell_literal(title)
             code, out, err = await run_powershell(
-                f"$p = Get-Process | Where-Object {{$_.MainWindowTitle -like '*{title}*'}} | Select-Object -First 1; "
-                f"if ($p) {{ "
-                f"  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; "
-                f'  public class Win32 {{ [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }}\'; '
-                f"  [Win32]::SetForegroundWindow($p.MainWindowHandle) "
-                f"}} else {{ Write-Error 'Window not found' }}"
+                f"$target = {target}; "
+                f"$pattern = '*' + [WildcardPattern]::Escape($target) + '*'; "
+                f"$p = Get-Process | Where-Object {{$_.MainWindowTitle -like $pattern}} | Select-Object -First 1; "
+                f"if (-not $p) {{ Write-Error 'Window not found'; exit 1 }}; "
+                f"Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; "
+                f'public class Win32 {{ [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow); '
+                f'[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); '
+                f'[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid); }}\'; '
+                f"[void][Win32]::ShowWindowAsync($p.MainWindowHandle, 9); "
+                f"$shell = New-Object -ComObject WScript.Shell; "
+                f"$activated = $shell.AppActivate([int]$p.Id); Start-Sleep -Milliseconds 120; "
+                f"$foregroundPid = 0; [void][Win32]::GetWindowThreadProcessId([Win32]::GetForegroundWindow(), [ref]$foregroundPid); "
+                f"if (-not $activated -or $foregroundPid -ne $p.Id) {{ "
+                f"Write-Error 'Window activation was rejected'; exit 1 }}; $p.Id"
             )
         else:
             raise ValueError("Provide process_name or title to focus a window")
