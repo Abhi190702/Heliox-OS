@@ -103,7 +103,14 @@ class BoundedNeuralBuffer:
         if self._last_sequence >= 0 and window.sequence_start < expected:
             raise NeuralAcquisitionError("sample sequence was replayed or reordered")
         if self._last_sequence >= 0 and window.sequence_start > expected:
-            self._dropped += window.sequence_start - expected
+            gap = window.sequence_start - expected
+            self._dropped += gap
+            window = NeuralSampleWindow(
+                samples_uv=window.samples_uv,
+                timestamps_ns=window.timestamps_ns,
+                sequence_start=window.sequence_start,
+                dropped_before=window.dropped_before + gap,
+            )
         if self._last_timestamp and window.timestamps_ns[0] <= self._last_timestamp:
             raise NeuralAcquisitionError("sample clock rolled back")
 
@@ -136,12 +143,14 @@ class BoundedNeuralBuffer:
         remaining = sample_count
         sample_parts: list[FloatArray] = []
         timestamp_parts: list[IntArray] = []
+        selected_windows: list[NeuralSampleWindow] = []
         sequence_start = 0
         for window in reversed(self._windows):
             take = min(remaining, window.sample_count)
             start = window.sample_count - take
             sample_parts.append(window.samples_uv[:, start:])
             timestamp_parts.append(window.timestamps_ns[start:])
+            selected_windows.append(window)
             sequence_start = window.sequence_start + start
             remaining -= take
             if remaining == 0:
@@ -150,7 +159,7 @@ class BoundedNeuralBuffer:
             samples_uv=np.concatenate(list(reversed(sample_parts)), axis=1),
             timestamps_ns=np.concatenate(list(reversed(timestamp_parts))),
             sequence_start=sequence_start,
-            dropped_before=self._dropped,
+            dropped_before=sum(window.dropped_before for window in selected_windows),
         )
 
     @property

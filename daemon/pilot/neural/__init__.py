@@ -16,6 +16,16 @@ from pilot.neural.acquisition import (
     PlaybackNeuralSource,
     SyntheticNeuralSource,
 )
+from pilot.neural.decoder import (
+    CalibrationEpoch,
+    CalibrationMetrics,
+    DecodedNeuralCandidate,
+    NeuralCalibrationError,
+    SSVEPCalibrationArtifact,
+    SSVEPCalibrator,
+    SSVEPDecoder,
+    SSVEPTarget,
+)
 from pilot.neural.gate import (
     NeuralIntentGate,
     NeuralIntentGateConfig,
@@ -31,14 +41,25 @@ from pilot.neural.protocol import (
     NeuralStreamDescriptorV1,
     SignalQuality,
 )
+from pilot.neural.quality import (
+    NeuralSignalQualityAnalyzer,
+    SignalQualityConfig,
+    SignalQualitySummary,
+)
+from pilot.neural.service import NeuralDecoderService, NeuralObservation
 
 __all__ = [
     "ArtifactFlag",
     "BoundedNeuralBuffer",
     "BrainFlowNeuralSource",
+    "CalibrationEpoch",
+    "CalibrationMetrics",
+    "DecodedNeuralCandidate",
     "LSLNeuralSource",
     "NeuralAcquisitionError",
     "NeuralBufferHealth",
+    "NeuralCalibrationError",
+    "NeuralDecoderService",
     "NeuralIntentClass",
     "NeuralIntentGate",
     "NeuralIntentGateConfig",
@@ -46,11 +67,19 @@ __all__ = [
     "NeuralIntentV1",
     "NeuralParadigm",
     "NeuralScope",
+    "NeuralObservation",
     "NeuralSampleWindow",
     "NeuralSessionState",
     "NeuralSource",
     "NeuralStreamDescriptorV1",
     "SignalQuality",
+    "SignalQualityConfig",
+    "SignalQualitySummary",
+    "NeuralSignalQualityAnalyzer",
     "PlaybackNeuralSource",
     "SyntheticNeuralSource",
+    "SSVEPCalibrationArtifact",
+    "SSVEPCalibrator",
+    "SSVEPDecoder",
+    "SSVEPTarget",
 ]
