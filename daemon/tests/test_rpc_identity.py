@@ -1,6 +1,7 @@
 from pilot.security.rpc_identity import (
     RpcClientRole,
     authenticate_rpc_client,
+    derive_neural_signing_key,
     rpc_method_allowed,
 )
 
@@ -22,3 +23,10 @@ def test_neural_sidecar_cannot_call_general_or_confirmation_methods() -> None:
     assert rpc_method_allowed(role, "confirm") is False
     assert rpc_method_allowed(role, "update_config") is False
     assert rpc_method_allowed(RpcClientRole.UI, "execute") is True
+
+
+def test_intent_signing_key_is_stable_domain_separated_and_bounded() -> None:
+    token = "n" * 43
+    assert derive_neural_signing_key(token) == derive_neural_signing_key(token)
+    assert derive_neural_signing_key(token) != token.encode()
+    assert len(derive_neural_signing_key(token)) == 32

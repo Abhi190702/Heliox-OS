@@ -16,6 +16,7 @@ from pilot.neural.acquisition import (
     PlaybackNeuralSource,
     SyntheticNeuralSource,
 )
+from pilot.neural.controller import NeuralControlError, NeuralController
 from pilot.neural.decoder import (
     CalibrationEpoch,
     CalibrationMetrics,
@@ -31,6 +32,12 @@ from pilot.neural.gate import (
     NeuralIntentGateConfig,
     NeuralIntentSigner,
     NeuralSessionState,
+)
+from pilot.neural.goals import (
+    NeuralGoalDefinition,
+    NeuralGoalError,
+    NeuralGoalRegistry,
+    default_neural_goals,
 )
 from pilot.neural.protocol import (
     ArtifactFlag,
@@ -59,12 +66,17 @@ __all__ = [
     "NeuralAcquisitionError",
     "NeuralBufferHealth",
     "NeuralCalibrationError",
+    "NeuralControlError",
+    "NeuralController",
     "NeuralDecoderService",
     "NeuralIntentClass",
     "NeuralIntentGate",
     "NeuralIntentGateConfig",
     "NeuralIntentSigner",
     "NeuralIntentV1",
+    "NeuralGoalDefinition",
+    "NeuralGoalError",
+    "NeuralGoalRegistry",
     "NeuralParadigm",
     "NeuralScope",
     "NeuralObservation",
@@ -78,6 +90,7 @@ __all__ = [
     "NeuralSignalQualityAnalyzer",
     "PlaybackNeuralSource",
     "SyntheticNeuralSource",
+    "default_neural_goals",
     "SSVEPCalibrationArtifact",
     "SSVEPCalibrator",
     "SSVEPDecoder",

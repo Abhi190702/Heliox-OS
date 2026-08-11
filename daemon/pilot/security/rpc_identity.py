@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 from enum import StrEnum
 
@@ -45,3 +46,15 @@ def rpc_method_allowed(role: RpcClientRole, method: str) -> bool:
     """The UI retains its existing API; neurod receives an explicit allow-list."""
 
     return role == RpcClientRole.UI or method in NEURAL_SIDECAR_METHODS
+
+
+def derive_neural_signing_key(neural_token: str) -> bytes:
+    """Derive a domain-separated intent MAC key without sharing the UI token."""
+
+    if len(neural_token) < 32:
+        raise ValueError("neural sidecar token is too short")
+    return hmac.new(
+        neural_token.encode("utf-8"),
+        b"heliox-neural-intent-signing-v1",
+        hashlib.sha256,
+    ).digest()

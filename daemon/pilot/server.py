@@ -81,6 +81,7 @@ from pilot.reasoning.events import (
 from pilot.security.rpc_identity import (
     RpcClientRole,
     authenticate_rpc_client,
+    derive_neural_signing_key,
     rpc_method_allowed,
 )
 from pilot.system.companion_speech import (
@@ -568,6 +569,8 @@ class PilotServer:
         # ── Authenticated WebSocket clients ──
         self._authenticated_clients: set[ServerConnection] = set()
         self._client_roles: dict[ServerConnection, RpcClientRole] = {}
+        self._neural_sidecar_client: ServerConnection | None = None
+        self._neural_controller: Any = None
         # Rotated on each daemon process start. neurod reads the separate
         # owner-only runtime file and never receives the UI token.
         self._neural_auth_token = secrets.token_urlsafe(32)
@@ -742,6 +745,27 @@ class PilotServer:
         self._executor.set_gateway(self._agent_gateway)
         self._executor.set_broadcast(self._broadcast_notification)
         self._executor.set_speech(self._speak_companion_text)
+
+        # Neural input owns a separate signing/session authority. Its fixed
+        # goals still converge on the same Executor, Agent Gateway, world
+        # model, permissions, validator, and audit path as other actions.
+        from pilot.neural.controller import NeuralController
+        from pilot.neural.gate import NeuralIntentGate, NeuralIntentSigner
+        from pilot.neural.goals import NeuralGoalRegistry
+
+        neural_goals = NeuralGoalRegistry()
+        neural_signer = NeuralIntentSigner(derive_neural_signing_key(self._neural_auth_token))
+        neural_gate = NeuralIntentGate(
+            signer=neural_signer,
+            safe_goals={command_id: command_id for command_id in neural_goals.command_ids},
+        )
+        self._neural_controller = NeuralController(
+            config=self.config,
+            gate=neural_gate,
+            executor=self._executor,
+            goals=neural_goals,
+            broadcast=self._broadcast_notification,
+        )
 
         # Advanced agent components
         self._reflector = Reflector(model_router)
@@ -1210,6 +1234,15 @@ class PilotServer:
             "autonomous_job": self._handle_autonomous_job,
             "risk_gate_status": self._handle_risk_gate_status,
             "risk_gate_config_update": self._handle_risk_gate_config_update,
+            # Least-privileged neural sidecar and explicit UI control plane.
+            "neural_status": self._handle_neural_status,
+            "neural_connect": self._handle_neural_connect,
+            "neural_begin_calibration": self._handle_neural_begin_calibration,
+            "neural_finish_calibration": self._handle_neural_finish_calibration,
+            "neural_arm": self._handle_neural_arm,
+            "neural_intent_preview": self._handle_neural_intent_preview,
+            "neural_commit": self._handle_neural_commit,
+            "neural_disarm": self._handle_neural_disarm,
             "self_healing_status": self._handle_self_healing_status,
             "self_healing_config_update": self._handle_self_healing_config_update,
             "narration_status": self._handle_narration_status,
@@ -1399,6 +1432,15 @@ class PilotServer:
             await websocket.close()
             logger.warning("Invalid auth token from %s — connection rejected", remote)
             return
+        if (
+            role == RpcClientRole.NEURAL_SIDECAR
+            and self._neural_sidecar_client is not None
+            and self._neural_sidecar_client is not websocket
+        ):
+            await websocket.send(_error_response(first_req.id, -32002, "A neural sidecar session is already connected"))
+            await websocket.close()
+            logger.warning("Second neural sidecar connection from %s rejected", remote)
+            return
 
         # Auth passed — acknowledge and register as an active client
         await websocket.send(_success_response(first_req.id, {"status": "authenticated", "role": role.value}))
@@ -1406,6 +1448,8 @@ class PilotServer:
             self._clients.add(websocket)
         self._authenticated_clients.add(websocket)
         self._client_roles[websocket] = role
+        if role == RpcClientRole.NEURAL_SIDECAR:
+            self._neural_sidecar_client = websocket
         logger.info("Client authenticated: %s role=%s", remote, role.value)
 
         # Keep ordinary requests sequential, but allow confirmation and abort
@@ -1473,6 +1517,10 @@ class PilotServer:
             self._clients.discard(websocket)
             self._authenticated_clients.discard(websocket)
             self._client_roles.pop(websocket, None)
+            if self._neural_sidecar_client is websocket:
+                self._neural_sidecar_client = None
+                if self._neural_controller is not None:
+                    await self._neural_controller.disarm(reason="sidecar_disconnected")
             logger.info("Client disconnected: %s", remote)
 
     async def _dispatch(self, request: JsonRpcRequest, ws: ServerConnection) -> str | None:
@@ -4838,6 +4886,94 @@ class PilotServer:
         task_id = params.get("task_id", "")
         ok = self._background.stop(task_id)
         return {"status": "stopped" if ok else "error", "task_id": task_id}
+
+    def _require_rpc_role(self, ws: ServerConnection, *allowed: RpcClientRole) -> None:
+        role = self._client_roles.get(ws)
+        if role not in allowed:
+            names = ", ".join(item.value for item in allowed)
+            raise PermissionError(f"RPC requires client role: {names}")
+
+    async def _handle_neural_status(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.UI, RpcClientRole.NEURAL_SIDECAR)
+        if self._neural_controller is None:
+            return {"status": "unavailable", "connected": False}
+        return {"status": "ok", **await self._neural_controller.status()}
+
+    async def _handle_neural_connect(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.NEURAL_SIDECAR)
+        try:
+            from pilot.neural.protocol import NeuralStreamDescriptorV1
+
+            descriptor = NeuralStreamDescriptorV1.model_validate(params.get("descriptor"))
+            return {"status": "ok", **await self._neural_controller.connect(descriptor)}
+        except (TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
+
+    async def _handle_neural_begin_calibration(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.UI)
+        try:
+            return {
+                "status": "ok",
+                **await self._neural_controller.begin_calibration(uuid.UUID(str(params["session_id"]))),
+            }
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
+
+    async def _handle_neural_finish_calibration(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.NEURAL_SIDECAR)
+        try:
+            return {
+                "status": "ok",
+                **await self._neural_controller.finish_calibration(
+                    uuid.UUID(str(params["session_id"])),
+                    calibration_id=str(params["calibration_id"]),
+                    subject_key=str(params["subject_key"]),
+                ),
+            }
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
+
+    async def _handle_neural_arm(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.UI)
+        try:
+            from pilot.neural.protocol import NeuralScope
+
+            return {
+                "status": "ok",
+                **await self._neural_controller.arm(
+                    uuid.UUID(str(params["session_id"])),
+                    scope=NeuralScope(str(params["scope"])),
+                    non_neural_authorized=params.get("user_authorized") is True,
+                ),
+            }
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
+
+    async def _handle_neural_intent_preview(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.NEURAL_SIDECAR)
+        try:
+            from pilot.neural.protocol import NeuralIntentV1
+
+            intent = NeuralIntentV1.model_validate(params.get("intent"))
+            return await self._neural_controller.preview(intent)
+        except (TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
+
+    async def _handle_neural_commit(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.UI)
+        try:
+            return await self._neural_controller.commit(
+                uuid.UUID(str(params["preview_id"])),
+                expected_revision=int(params["expected_revision"]),
+                world_model_approved=params.get("world_model_approved") is True,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
+
+    async def _handle_neural_disarm(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.UI, RpcClientRole.NEURAL_SIDECAR)
+        reason = _sanitize_summary(params.get("reason") or "user_disarm", 120)
+        return {"status": "ok", **await self._neural_controller.disarm(reason=reason)}
 
     async def _handle_risk_gate_status(self, params: dict, ws: ServerConnection) -> dict:
         """Report the trained risk-world-model state and latest prediction."""

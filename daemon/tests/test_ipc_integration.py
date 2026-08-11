@@ -134,6 +134,26 @@ async def test_neural_sidecar_token_is_role_scoped_and_cannot_call_ping(daemon_s
         auth = json.loads(await ws.recv())
         assert auth["result"] == {"status": "authenticated", "role": "neural_sidecar"}
 
+        async with websockets.connect(daemon_server) as duplicate:
+            await duplicate.send(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "auth",
+                        "params": {"token": token},
+                        "id": "duplicate-neural-auth",
+                    }
+                )
+            )
+            duplicate_denied = json.loads(await duplicate.recv())
+            assert duplicate_denied["error"]["code"] == -32002
+
+        await ws.send(json.dumps({"jsonrpc": "2.0", "method": "neural_status", "id": "neural-status"}))
+        status = json.loads(await ws.recv())
+        assert status["result"]["status"] == "ok"
+        assert status["result"]["connected"] is False
+        assert status["result"]["capabilities"]["physical_control"] is False
+
         await ws.send(json.dumps({"jsonrpc": "2.0", "method": "ping", "id": "forbidden"}))
         denied = json.loads(await ws.recv())
         assert denied["error"]["code"] == -32601
