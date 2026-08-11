@@ -56,6 +56,12 @@ from pilot.neural.quality import (
     SignalQualityConfig,
     SignalQualitySummary,
 )
+from pilot.neural.recording import (
+    EncryptedNeuralRecorder,
+    NeuralRecordingConsentV1,
+    NeuralRecordingError,
+    NeuralRecordingKeyStore,
+)
 from pilot.neural.service import NeuralDecoderService, NeuralObservation
 
 __all__ = [
@@ -65,6 +71,7 @@ __all__ = [
     "CalibrationEpoch",
     "CalibrationMetrics",
     "DecodedNeuralCandidate",
+    "EncryptedNeuralRecorder",
     "FaultInjectingNeuralSource",
     "LSLNeuralSource",
     "NeuralAcquisitionError",
@@ -84,6 +91,9 @@ __all__ = [
     "NeuralGoalError",
     "NeuralGoalRegistry",
     "NeuralParadigm",
+    "NeuralRecordingConsentV1",
+    "NeuralRecordingError",
+    "NeuralRecordingKeyStore",
     "NeuralScope",
     "NeuralObservation",
     "NeuralSampleWindow",

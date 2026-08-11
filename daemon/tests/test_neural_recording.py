@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime, timedelta
+
+import numpy as np
+import pytest
+
+from pilot.neural.acquisition import NeuralSampleWindow, SyntheticNeuralSource
+from pilot.neural.recording import (
+    EncryptedNeuralRecorder,
+    NeuralRecordingConsentV1,
+    NeuralRecordingError,
+)
+
+
+def _consent(source, *, export: bool = True) -> NeuralRecordingConsentV1:
+    now = datetime.now(UTC)
+    return NeuralRecordingConsentV1(
+        session_id=source.descriptor.session_id,
+        subject_key="local-subject",
+        purpose="local accessibility calibration",
+        granted_at=now,
+        expires_at=now + timedelta(days=1),
+        retention_days=1,
+        allow_bids_export=export,
+        authorized=True,
+    )
+
+
+def test_encrypted_recording_contains_no_plain_samples_and_exports_brainvision(tmp_path) -> None:
+    source = SyntheticNeuralSource(seed=3)
+    source.start()
+    window = source.read(50)
+    recorder = EncryptedNeuralRecorder(
+        destination=tmp_path / "session.neeg",
+        descriptor=source.descriptor,
+        consent=_consent(source),
+        key=b"k" * 32,
+    )
+    recorder.append(window)
+    text = recorder.destination.read_text(encoding="utf-8")
+    assert "samples_uv" not in text and "timestamps_ns" not in text
+    assert json.loads(text.splitlines()[1])["ciphertext"]
+
+    exported = recorder.export_bids_brainvision(tmp_path / "bids")
+    eeg_dir = exported / "sub-localsubject" / "eeg"
+    assert (exported / "dataset_description.json").is_file()
+    assert (eeg_dir / "sub-localsubject_task-heliox_eeg.vhdr").is_file()
+    assert (eeg_dir / "sub-localsubject_task-heliox_eeg.eeg").stat().st_size == 50 * 3 * 4
+
+
+def test_recording_fails_closed_without_consent_or_on_tamper(tmp_path) -> None:
+    source = SyntheticNeuralSource(seed=4)
+    source.start()
+    now = datetime.now(UTC)
+    with pytest.raises(ValueError, match="explicit authorization"):
+        NeuralRecordingConsentV1(
+            session_id=source.descriptor.session_id,
+            subject_key="local-subject",
+            purpose="local research recording",
+            granted_at=now,
+            expires_at=now + timedelta(hours=1),
+            retention_days=1,
+            authorized=False,
+        )
+
+    recorder = EncryptedNeuralRecorder(
+        destination=tmp_path / "tampered.neeg",
+        descriptor=source.descriptor,
+        consent=_consent(source),
+        key=b"q" * 32,
+    )
+    recorder.append(source.read(20))
+    lines = recorder.destination.read_text(encoding="utf-8").splitlines()
+    record = json.loads(lines[1])
+    record["ciphertext"] = record["ciphertext"][:-2] + "AA"
+    recorder.destination.write_text(lines[0] + "\n" + json.dumps(record) + "\n", encoding="utf-8")
+    with pytest.raises(NeuralRecordingError, match="authentication"):
+        recorder.export_bids_brainvision(tmp_path / "bad-export")
+
+
+def test_recording_rejects_replay_and_export_without_separate_consent(tmp_path) -> None:
+    source = SyntheticNeuralSource(seed=5)
+    source.start()
+    recorder = EncryptedNeuralRecorder(
+        destination=tmp_path / "no-export.neeg",
+        descriptor=source.descriptor,
+        consent=_consent(source, export=False),
+        key=b"z" * 32,
+    )
+    window = source.read(10)
+    recorder.append(window)
+    with pytest.raises(NeuralRecordingError, match="replayed"):
+        recorder.append(NeuralSampleWindow(window.samples_uv, window.timestamps_ns, window.sequence_start))
+    with pytest.raises(NeuralRecordingError, match="not included"):
+        recorder.export_bids_brainvision(tmp_path / "bids")

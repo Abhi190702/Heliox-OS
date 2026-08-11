@@ -1,0 +1,282 @@
+"""Explicit-consent encrypted neural recording and BrainVision BIDS export."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import io
+import json
+import os
+import secrets
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Annotated, Self
+from uuid import UUID, uuid4
+
+import numpy as np
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+
+from pilot.neural.acquisition import NeuralSampleWindow
+from pilot.neural.protocol import Identifier, NeuralStreamDescriptorV1
+
+Purpose = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=256)]
+
+
+class NeuralRecordingError(RuntimeError):
+    pass
+
+
+class NeuralRecordingConsentV1(BaseModel):
+    """Purpose-bound, expiring local consent. ``authorized`` must be literal true."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: int = Field(default=1, strict=True, ge=1, le=1)
+    consent_id: UUID = Field(default_factory=uuid4)
+    session_id: UUID
+    subject_key: Identifier
+    purpose: Purpose
+    granted_at: datetime
+    expires_at: datetime
+    retention_days: int = Field(strict=True, ge=1, le=365)
+    allow_bids_export: bool = False
+    authorized: bool
+
+    @model_validator(mode="after")
+    def validate_consent(self) -> Self:
+        if self.authorized is not True:
+            raise ValueError("raw neural recording requires explicit authorization")
+        if self.granted_at.tzinfo is None or self.expires_at.tzinfo is None:
+            raise ValueError("consent timestamps must include a timezone")
+        if self.expires_at <= self.granted_at:
+            raise ValueError("recording consent must expire after it is granted")
+        if self.expires_at > self.granted_at + timedelta(days=self.retention_days):
+            raise ValueError("consent expiry cannot exceed the retention period")
+        return self
+
+    def require_active(self, *, now: datetime | None = None) -> None:
+        current = now or datetime.now(UTC)
+        if current >= self.expires_at:
+            raise NeuralRecordingError("raw neural recording consent has expired")
+
+
+class NeuralRecordingKeyStore:
+    """Store the per-subject AES key only in the operating-system keyring."""
+
+    SERVICE = "heliox-neural-recordings"
+
+    def get_or_create(self, subject_key: str) -> bytes:
+        try:
+            import keyring
+            import keyring.backends
+
+            backend = keyring.get_keyring()
+            if float(getattr(backend, "priority", 0)) <= 0 or isinstance(
+                backend,
+                keyring.backends.fail.Keyring,  # type: ignore[attr-defined]
+            ):
+                raise NeuralRecordingError("secure OS key storage is unavailable; recording fails closed")
+            encoded = keyring.get_password(self.SERVICE, subject_key)
+            if encoded:
+                key = base64.b64decode(encoded, validate=True)
+                if len(key) != 32:
+                    raise NeuralRecordingError("stored neural recording key is invalid")
+                return key
+            key = AESGCM.generate_key(bit_length=256)
+            keyring.set_password(self.SERVICE, subject_key, base64.b64encode(key).decode("ascii"))
+            return key
+        except NeuralRecordingError:
+            raise
+        except Exception as exc:
+            raise NeuralRecordingError("secure OS key storage is unavailable; recording fails closed") from exc
+
+
+class EncryptedNeuralRecorder:
+    """Append independently authenticated sample chunks to a local-only container."""
+
+    def __init__(
+        self,
+        *,
+        destination: Path,
+        descriptor: NeuralStreamDescriptorV1,
+        consent: NeuralRecordingConsentV1,
+        key: bytes | None = None,
+        key_store: NeuralRecordingKeyStore | None = None,
+    ) -> None:
+        consent.require_active()
+        if consent.session_id != descriptor.session_id:
+            raise NeuralRecordingError("recording consent does not match the acquisition session")
+        self._destination = destination.expanduser().resolve()
+        if self._destination.exists():
+            raise NeuralRecordingError("recording destination already exists")
+        self._descriptor = descriptor
+        self._consent = consent
+        self._key = key or (key_store or NeuralRecordingKeyStore()).get_or_create(consent.subject_key)
+        if len(self._key) != 32:
+            raise NeuralRecordingError("recording encryption key must be 256 bits")
+        self._last_sequence = -1
+        self._destination.parent.mkdir(parents=True, exist_ok=True)
+        header = {
+            "type": "header",
+            "schema_version": 1,
+            "cipher": "AES-256-GCM",
+            "descriptor": descriptor.model_dump(mode="json"),
+            "consent": consent.model_dump(mode="json"),
+        }
+        self._destination.write_text(json.dumps(header, sort_keys=True) + "\n", encoding="utf-8")
+        try:
+            os.chmod(self._destination, 0o600)
+        except OSError:
+            pass
+
+    @property
+    def destination(self) -> Path:
+        return self._destination
+
+    def append(self, window: NeuralSampleWindow) -> None:
+        self._consent.require_active()
+        if self._last_sequence >= 0 and window.sequence_start <= self._last_sequence:
+            raise NeuralRecordingError("recording rejected replayed or reordered samples")
+        buffer = io.BytesIO()
+        np.savez_compressed(
+            buffer,
+            samples_uv=window.samples_uv,
+            timestamps_ns=window.timestamps_ns,
+            dropped_before=np.asarray(window.dropped_before, dtype=np.int64),
+        )
+        plaintext = buffer.getvalue()
+        aad = json.dumps(
+            {
+                "session_id": str(self._descriptor.session_id),
+                "sequence_start": window.sequence_start,
+                "sequence_end": window.sequence_end,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        nonce = secrets.token_bytes(12)
+        ciphertext = AESGCM(self._key).encrypt(nonce, plaintext, aad)
+        record = {
+            "type": "chunk",
+            "sequence_start": window.sequence_start,
+            "sequence_end": window.sequence_end,
+            "nonce": base64.b64encode(nonce).decode("ascii"),
+            "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
+            "plaintext_sha256": hashlib.sha256(plaintext).hexdigest(),
+        }
+        with self._destination.open("a", encoding="utf-8", newline="\n") as stream:
+            stream.write(json.dumps(record, sort_keys=True) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        self._last_sequence = window.sequence_end
+
+    def export_bids_brainvision(self, destination: Path) -> Path:
+        if not self._consent.allow_bids_export:
+            raise NeuralRecordingError("BIDS export was not included in this recording consent")
+        self._consent.require_active()
+        windows = self._decrypt_windows()
+        if not windows:
+            raise NeuralRecordingError("recording has no sample chunks to export")
+        samples = np.concatenate([window.samples_uv for window in windows], axis=1)
+        subject = "".join(character for character in self._consent.subject_key if character.isalnum())
+        if not subject:
+            raise NeuralRecordingError("subject key cannot form a BIDS participant label")
+        root = destination.expanduser().resolve()
+        eeg_dir = root / f"sub-{subject}" / "eeg"
+        eeg_dir.mkdir(parents=True, exist_ok=True)
+        stem = f"sub-{subject}_task-heliox_eeg"
+        data_name = f"{stem}.eeg"
+        marker_name = f"{stem}.vmrk"
+        (eeg_dir / data_name).write_bytes(samples.T.astype("<f4", copy=False).tobytes())
+        channel_lines = "\n".join(
+            f"Ch{index + 1}={name},,1,uV" for index, name in enumerate(self._descriptor.channel_names)
+        )
+        (eeg_dir / f"{stem}.vhdr").write_text(
+            "Brain Vision Data Exchange Header File Version 1.0\n"
+            "[Common Infos]\n"
+            f"DataFile={data_name}\nMarkerFile={marker_name}\nDataFormat=BINARY\n"
+            "DataOrientation=MULTIPLEXED\n"
+            f"NumberOfChannels={self._descriptor.channel_count}\n"
+            f"SamplingInterval={1_000_000 / self._descriptor.sample_rate_hz:.6f}\n"
+            "[Binary Infos]\nBinaryFormat=IEEE_FLOAT_32\n"
+            f"[Channel Infos]\n{channel_lines}\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        (eeg_dir / marker_name).write_text(
+            "Brain Vision Data Exchange Marker File, Version 1.0\n"
+            f"[Common Infos]\nDataFile={data_name}\n"
+            "[Marker Infos]\nMk1=New Segment,,1,1,0\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        (root / "dataset_description.json").write_text(
+            json.dumps(
+                {"Name": "Heliox consented neural recording", "BIDSVersion": "1.9.0", "DatasetType": "raw"},
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (root / "participants.tsv").write_text(
+            f"participant_id\nsub-{subject}\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        (eeg_dir / f"{stem}.json").write_text(
+            json.dumps(
+                {
+                    "TaskName": "heliox",
+                    "SamplingFrequency": self._descriptor.sample_rate_hz,
+                    "PowerLineFrequency": "n/a",
+                    "EEGReference": self._descriptor.reference,
+                    "RecordingType": "continuous",
+                    "SoftwareFilters": "n/a",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        channels = "name\ttype\tunits\tsampling_frequency\treference\tstatus\n" + "".join(
+            f"{name}\tEEG\tuV\t{self._descriptor.sample_rate_hz}\t{self._descriptor.reference}\tgood\n"
+            for name in self._descriptor.channel_names
+        )
+        (eeg_dir / f"{stem}_channels.tsv").write_text(channels, encoding="utf-8", newline="\n")
+        return root
+
+    def _decrypt_windows(self) -> list[NeuralSampleWindow]:
+        lines = self._destination.read_text(encoding="utf-8").splitlines()
+        windows: list[NeuralSampleWindow] = []
+        for line in lines[1:]:
+            record = json.loads(line)
+            if record.get("type") != "chunk":
+                raise NeuralRecordingError("unknown encrypted recording record")
+            aad = json.dumps(
+                {
+                    "session_id": str(self._descriptor.session_id),
+                    "sequence_start": record["sequence_start"],
+                    "sequence_end": record["sequence_end"],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            try:
+                plaintext = AESGCM(self._key).decrypt(
+                    base64.b64decode(record["nonce"], validate=True),
+                    base64.b64decode(record["ciphertext"], validate=True),
+                    aad,
+                )
+            except Exception as exc:
+                raise NeuralRecordingError("encrypted neural chunk failed authentication") from exc
+            if hashlib.sha256(plaintext).hexdigest() != record["plaintext_sha256"]:
+                raise NeuralRecordingError("encrypted neural chunk hash mismatch")
+            with np.load(io.BytesIO(plaintext), allow_pickle=False) as chunk:
+                windows.append(
+                    NeuralSampleWindow(
+                        chunk["samples_uv"],
+                        chunk["timestamps_ns"],
+                        int(record["sequence_start"]),
+                        int(chunk["dropped_before"].item()),
+                    )
+                )
+        return windows

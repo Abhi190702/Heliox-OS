@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Protocol
 from uuid import uuid4
 
 from pilot.neural.acquisition import (
     BoundedNeuralBuffer,
     NeuralAcquisitionError,
     NeuralBufferHealth,
+    NeuralSampleWindow,
     NeuralSource,
 )
 from pilot.neural.decoder import DecodedNeuralCandidate, SSVEPDecoder
@@ -32,6 +33,10 @@ class NeuralObservation:
     abstention_reason: str | None
 
 
+class NeuralWindowRecorder(Protocol):
+    def append(self, window: NeuralSampleWindow) -> None: ...
+
+
 class NeuralDecoderService:
     """Keep raw windows local and return only bounded derived observations."""
 
@@ -46,6 +51,7 @@ class NeuralDecoderService:
         validity_seconds: float = 3.0,
         minimum_decoder_posterior_permille: int = 500,
         monotonic_ns: Callable[[], int] = time.monotonic_ns,
+        recorder: NeuralWindowRecorder | None = None,
     ) -> None:
         self._source = source
         self._decoder = decoder
@@ -64,6 +70,7 @@ class NeuralDecoderService:
             raise ValueError("decoder posterior threshold must be permille")
         self._minimum_posterior = minimum_decoder_posterior_permille
         self._monotonic_ns = monotonic_ns
+        self._recorder = recorder
         self._buffer: BoundedNeuralBuffer | None = None
         self._sequence = 0
         self._last_target: str | None = None
@@ -98,7 +105,7 @@ class NeuralDecoderService:
             while self._buffer.health.buffered_samples < self._window_samples:
                 needed = self._window_samples - self._buffer.health.buffered_samples
                 try:
-                    self._buffer.append(self._source.read(min(needed, self._step_samples)))
+                    self._buffer.append(self._read_source(min(needed, self._step_samples)))
                 except NeuralAcquisitionError as exc:
                     # A live board may need a short warm-up before its first
                     # complete chunk. Never spin forever or hide other errors.
@@ -129,7 +136,7 @@ class NeuralDecoderService:
     ) -> NeuralObservation:
         if not self._running or self._buffer is None:
             raise RuntimeError("neural decoder service is not running")
-        self._buffer.append(self._source.read(self._step_samples))
+        self._buffer.append(self._read_source(self._step_samples))
         window = self._buffer.latest(self._window_samples)
         descriptor = self._source.descriptor
         quality = self._quality.analyze(
@@ -189,3 +196,9 @@ class NeuralDecoderService:
         if self._buffer is None:
             raise RuntimeError("neural decoder service is not running")
         return self._buffer.health
+
+    def _read_source(self, sample_count: int) -> NeuralSampleWindow:
+        window = self._source.read(sample_count)
+        if self._recorder is not None:
+            self._recorder.append(window)
+        return window
