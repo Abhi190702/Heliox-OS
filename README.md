@@ -262,10 +262,10 @@ The release gate is reproducible; it does not rely on an informal task-pass perc
 
 | Surface | Verification |
 |---------|--------------|
-| Python daemon | Ruff lint and format; 1,555 tests passed, 6 skipped |
-| Svelte UI | Prettier and `svelte-check` with zero warnings; 172 unit tests; production build |
+| Python daemon | Ruff lint and format; 1,628 tests passed, 6 skipped |
+| Svelte UI | CI-scoped Prettier and `svelte-check` with zero warnings; 178 unit tests; static asset-policy test; production build |
 | Dependencies | `npm audit --audit-level=high` with zero vulnerabilities |
-| Native Tauri bridge | Cargo format, Clippy with warnings denied, and 8 Rust tests |
+| Native Tauri bridge | Cargo format, Clippy with warnings denied, and 11 Rust tests |
 | Visual UI | 24 Playwright scenarios with committed Windows, Ubuntu, and macOS baselines |
 
 GitHub Actions repeats Python tests on Windows, Ubuntu, and macOS with Python 3.11 and 3.12, runs the frontend gate, compares per-OS visual baselines, and checks the Rust bridge on Linux. Camera, microphone, desktop permissions, model downloads, and OS-specific integrations still require real-device validation; CI cannot prove hardware behavior.
