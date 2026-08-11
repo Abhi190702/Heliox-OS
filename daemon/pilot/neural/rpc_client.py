@@ -23,6 +23,7 @@ from pilot.neural.decoder import SSVEPCalibrationArtifact, SSVEPDecoder
 from pilot.neural.gate import NeuralIntentSigner
 from pilot.neural.protocol import NeuralScope
 from pilot.neural.service import NeuralDecoderService
+from pilot.neural.simulator import ensure_synthetic_calibration_artifact
 from pilot.security.rpc_identity import derive_neural_signing_key
 
 logger = logging.getLogger("pilot.neural.rpc_client")
@@ -218,7 +219,12 @@ def _source_from_args(args: argparse.Namespace, artifact: SSVEPCalibrationArtifa
 
 async def _run_from_args(args: argparse.Namespace) -> None:
     token = Path(args.token_file).expanduser().resolve().read_text(encoding="utf-8").strip()
-    artifact = SSVEPCalibrationArtifact.load(Path(args.artifact))
+    if args.artifact:
+        artifact = SSVEPCalibrationArtifact.load(Path(args.artifact))
+    elif args.source == "synthetic":
+        artifact = ensure_synthetic_calibration_artifact(RUNTIME_DIR / "synthetic_ssvep_calibration.json")
+    else:
+        raise ValueError("--artifact is required for live and playback neural sources")
     source = _source_from_args(args, artifact)
     signer = NeuralIntentSigner(derive_neural_signing_key(token))
     service = NeuralDecoderService(source=source, decoder=SSVEPDecoder(artifact), signer=signer)
@@ -235,7 +241,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Heliox least-privileged neural gateway")
     parser.add_argument("--url", default="ws://127.0.0.1:8785")
     parser.add_argument("--token-file", default=str(RUNTIME_DIR / "neural_auth_token"))
-    parser.add_argument("--artifact", required=True, help="Content-addressed calibration JSON")
+    parser.add_argument(
+        "--artifact",
+        help="Content-addressed calibration JSON (generated automatically only for synthetic mode)",
+    )
     parser.add_argument("--source", choices=("synthetic", "playback", "brainflow", "lsl"), required=True)
     parser.add_argument("--playback")
     parser.add_argument("--board-id", type=int, default=0)
