@@ -180,6 +180,37 @@ async def test_safe_desktop_goal_rechecks_world_model_and_uses_neural_gateway() 
 
 
 @pytest.mark.asyncio
+async def test_safe_desktop_select_resolves_only_the_daemon_owned_focused_goal() -> None:
+    controller, signer, session_id, executor = await _controller(NeuralScope.SAFE_DESKTOP)
+    focused = str((await controller.status())["focused_command_id"])
+    intent = await _intent(
+        controller,
+        signer,
+        session_id,
+        intent_class=NeuralIntentClass.SELECT,
+        scope=NeuralScope.SAFE_DESKTOP,
+    )
+    executor.execute.return_value = [
+        ActionResult(
+            action=NeuralGoalRegistry().resolve(focused).plan().actions[0],
+            success=True,
+            output="safe result",
+        )
+    ]
+    with patch("pilot.neural.controller.assess_plan_risk", return_value=_safe_assessment()):
+        preview = await controller.preview(intent)
+        assert preview["resolved_command_id"] == focused
+        await asyncio.sleep(0.02)
+        result = await controller.commit(
+            uuid.UUID(str(preview["preview_id"])),
+            expected_revision=int(preview["state_revision"]),
+            world_model_approved=False,
+        )
+    assert result["command_id"] == focused
+    assert executor.execute.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_world_model_warning_requires_ui_approval_and_unavailable_model_disarms() -> None:
     controller, signer, session_id, executor = await _controller(NeuralScope.SAFE_DESKTOP)
     intent = await _intent(

@@ -393,8 +393,8 @@ class NeuralIntentGate:
             NeuralIntentClass.SELECT: "neural_ui.select",
         }
         if intent.intent_class in ui_goals:
-            if intent.requested_scope != NeuralScope.NAVIGATE:
-                raise NeuralGateError("UI navigation intents require navigate scope")
+            if intent.requested_scope not in {NeuralScope.NAVIGATE, NeuralScope.SAFE_DESKTOP}:
+                raise NeuralGateError("UI navigation intents require navigate or safe_desktop scope")
             return ui_goals[intent.intent_class]
         if intent.intent_class == NeuralIntentClass.SAFE_GOAL:
             if session.armed_scope != NeuralScope.SAFE_DESKTOP:

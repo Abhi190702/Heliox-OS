@@ -14,6 +14,7 @@ from pilot.neural.gate import NeuralCommit, NeuralIntentGate, NeuralPreview
 from pilot.neural.goals import NeuralGoalRegistry
 from pilot.neural.protocol import (
     NeuralCalibrationMetricsV1,
+    NeuralIntentClass,
     NeuralIntentV1,
     NeuralScope,
     NeuralStreamDescriptorV1,
@@ -35,6 +36,7 @@ class PendingNeuralExecution:
     preview: NeuralPreview
     plan: ActionPlan | None
     world_model: PlanRiskAssessment | None
+    resolved_command_id: str | None = None
 
 
 class NeuralController:
@@ -56,6 +58,7 @@ class NeuralController:
         self._broadcast = broadcast
         self._pending: PendingNeuralExecution | None = None
         self._last_observation: dict[str, object] | None = None
+        self._focus_index = 0
         self._lock = asyncio.Lock()
 
     async def connect(self, descriptor: NeuralStreamDescriptorV1) -> dict[str, object]:
@@ -121,16 +124,22 @@ class NeuralController:
 
             plan: ActionPlan | None = None
             world_model: PlanRiskAssessment | None = None
+            resolved_command_id = preview.command_id
             try:
-                if preview.command_id:
-                    plan = self._goals.resolve(preview.command_id).plan()
+                if (
+                    preview.intent_class == NeuralIntentClass.SELECT
+                    and preview.requested_scope == NeuralScope.SAFE_DESKTOP
+                ):
+                    resolved_command_id = self._focused_command_id()
+                if resolved_command_id:
+                    plan = self._goals.resolve(resolved_command_id).plan()
                     world_model = self._assess_world_model(plan)
             except Exception:
                 self._pending = None
                 await self._gate.disarm(reason="preview_safety_failure")
                 raise
 
-            self._pending = PendingNeuralExecution(preview, plan, world_model)
+            self._pending = PendingNeuralExecution(preview, plan, world_model, resolved_command_id)
             payload = self._preview_payload(self._pending)
             await self._emit("neural_preview", payload)
             return payload
@@ -163,7 +172,9 @@ class NeuralController:
             )
             self._pending = None
             if plan is None:
+                self._apply_navigation_commit(commit)
                 payload = self._navigation_commit_payload(commit)
+                payload["focused_command_id"] = self._focused_command_id()
                 await self._emit("neural_navigation", payload)
                 return payload
 
@@ -187,6 +198,7 @@ class NeuralController:
                 "intent_id": str(commit.intent_id),
                 "plan_id": plan_id,
                 "canonical_goal": commit.canonical_goal,
+                "command_id": pending.resolved_command_id,
                 "world_model": assessment.to_dict() if assessment else None,
                 "results": [result.model_dump(mode="json") for result in results],
                 "retry_allowed": False,
@@ -232,6 +244,7 @@ class NeuralController:
                 "destructive_approval": False,
             },
             "safe_goals": self._goals.public_summaries(),
+            "focused_command_id": self._focused_command_id(),
             "last_observation": self._last_observation,
         }
 
@@ -253,6 +266,7 @@ class NeuralController:
             "intent_id": str(preview.intent_id),
             "intent_class": preview.intent_class.value,
             "command_id": preview.command_id,
+            "resolved_command_id": pending.resolved_command_id,
             "canonical_goal": preview.canonical_goal,
             "requested_scope": preview.requested_scope.value,
             "state_revision": preview.state_revision,
@@ -273,6 +287,21 @@ class NeuralController:
             "requested_scope": commit.requested_scope.value,
             "committed_at_ns": commit.committed_at_ns,
         }
+
+    def _focused_command_id(self) -> str:
+        command_ids = self._goals.command_ids
+        if not command_ids:
+            raise NeuralControlError("no safe neural goals are registered")
+        return command_ids[self._focus_index % len(command_ids)]
+
+    def _apply_navigation_commit(self, commit: NeuralCommit) -> None:
+        command_ids = self._goals.command_ids
+        if not command_ids:
+            return
+        if commit.canonical_goal == "neural_ui.focus_left":
+            self._focus_index = (self._focus_index - 1) % len(command_ids)
+        elif commit.canonical_goal == "neural_ui.focus_right":
+            self._focus_index = (self._focus_index + 1) % len(command_ids)
 
     async def _emit(self, method: str, payload: dict[str, object]) -> None:
         if self._broadcast is not None:
