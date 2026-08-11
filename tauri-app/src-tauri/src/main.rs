@@ -24,7 +24,7 @@ fn get_app_data_dir() -> std::path::PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     home.join(".config").join("heliox-os")
 }
-fn get_venv_python() -> std::path::PathBuf {
+pub(crate) fn get_venv_python() -> std::path::PathBuf {
     let venv_dir = get_app_data_dir().join("env");
     #[cfg(target_os = "windows")]
     {
@@ -593,6 +593,7 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .manage(DaemonProcess(Mutex::new(daemon_child)))
+        .manage(commands::NeuralProcess::new())
         .manage(file_access::AllowedPaths::new())
         .manage(commands::GestureCursor::init())
         .setup(|app| {
@@ -638,6 +639,9 @@ fn main() {
             commands::extract_file_text,
             commands::move_gesture_cursor,
             commands::click_gesture_cursor,
+            commands::get_neural_sidecar_status,
+            commands::start_neural_sidecar,
+            commands::stop_neural_sidecar,
             file_access::register_allowed_path,
             file_access::revoke_allowed_path,
         ])
@@ -647,6 +651,8 @@ fn main() {
             if let tauri::RunEvent::Exit = event {
                 let state = app_handle.state::<DaemonProcess>();
                 stop_daemon(&state);
+                let neural = app_handle.state::<commands::NeuralProcess>();
+                commands::stop_neural_process(neural.inner());
             }
         });
 }

@@ -1,7 +1,8 @@
 use enigo::{Button, Coordinate, Direction, Enigo, Mouse, Settings};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use sysinfo::System;
 use tauri::{AppHandle, Emitter, Manager};
@@ -74,6 +75,208 @@ pub struct DaemonStatus {
 /// does, cursor-control commands fail gracefully with an error instead of
 /// panicking the whole app.
 pub struct GestureCursor(pub Mutex<Option<Enigo>>);
+
+/// Desktop-owned neurod child. It is deliberately separate from the daemon
+/// process so a decoder crash/disconnect disarms neural control without taking
+/// down Heliox itself.
+pub struct NeuralProcess(Mutex<Option<Child>>);
+
+impl NeuralProcess {
+    pub fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeuralLaunchOptions {
+    source: String,
+    artifact_path: Option<String>,
+    playback_path: Option<String>,
+    board_id: Option<i32>,
+    serial_port: Option<String>,
+    lsl_name: Option<String>,
+    synthetic_frequency: Option<f64>,
+}
+
+#[derive(Serialize)]
+pub struct NeuralSidecarStatus {
+    running: bool,
+    pid: Option<u32>,
+}
+
+fn checked_data_file(
+    value: Option<&str>,
+    label: &str,
+    required: bool,
+) -> Result<Option<PathBuf>, String> {
+    let Some(raw) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return if required {
+            Err(format!("{label} is required for this neural source"))
+        } else {
+            Ok(None)
+        };
+    };
+    let path = PathBuf::from(raw)
+        .canonicalize()
+        .map_err(|_| format!("{label} does not exist or cannot be read"))?;
+    if !path.is_file() {
+        return Err(format!("{label} must point to a file"));
+    }
+    Ok(Some(path))
+}
+
+fn neural_sidecar_args(options: &NeuralLaunchOptions) -> Result<Vec<String>, String> {
+    if !matches!(
+        options.source.as_str(),
+        "synthetic" | "playback" | "brainflow" | "lsl"
+    ) {
+        return Err("Unsupported neural source".to_string());
+    }
+    let artifact = checked_data_file(
+        options.artifact_path.as_deref(),
+        "Calibration artifact",
+        options.source != "synthetic",
+    )?;
+    let playback = checked_data_file(
+        options.playback_path.as_deref(),
+        "Playback recording",
+        options.source == "playback",
+    )?;
+    let frequency = options.synthetic_frequency.unwrap_or(12.0);
+    if !frequency.is_finite() || !(6.0..=40.0).contains(&frequency) {
+        return Err("Synthetic frequency must be between 6 and 40 Hz".to_string());
+    }
+    let board_id = options.board_id.unwrap_or(0);
+    if !(-1000..=1000).contains(&board_id) {
+        return Err("BrainFlow board id is out of range".to_string());
+    }
+    let serial = options.serial_port.as_deref().unwrap_or("").trim();
+    if serial.len() > 256 || serial.chars().any(char::is_control) {
+        return Err("Serial port is invalid".to_string());
+    }
+    let lsl_name = options.lsl_name.as_deref().unwrap_or("HelioxEEG").trim();
+    if lsl_name.is_empty() || lsl_name.len() > 128 || lsl_name.chars().any(char::is_control) {
+        return Err("LSL stream name is invalid".to_string());
+    }
+
+    let mut args = vec![
+        "-m".to_string(),
+        "pilot.neural.rpc_client".to_string(),
+        "--source".to_string(),
+        options.source.clone(),
+        "--synthetic-frequency".to_string(),
+        frequency.to_string(),
+        "--board-id".to_string(),
+        board_id.to_string(),
+        "--lsl-name".to_string(),
+        lsl_name.to_string(),
+    ];
+    if let Some(path) = artifact {
+        args.extend([
+            "--artifact".to_string(),
+            path.to_string_lossy().into_owned(),
+        ]);
+    }
+    if let Some(path) = playback {
+        args.extend([
+            "--playback".to_string(),
+            path.to_string_lossy().into_owned(),
+        ]);
+    }
+    if !serial.is_empty() {
+        args.extend(["--serial-port".to_string(), serial.to_string()]);
+    }
+    Ok(args)
+}
+
+fn reap_neural_process(guard: &mut Option<Child>) -> Result<(), String> {
+    let finished = match guard.as_mut() {
+        Some(child) => child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_some(),
+        None => false,
+    };
+    if finished {
+        *guard = None;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_neural_sidecar_status(
+    state: tauri::State<NeuralProcess>,
+) -> Result<NeuralSidecarStatus, String> {
+    let mut guard = state.0.lock().map_err(|error| error.to_string())?;
+    reap_neural_process(&mut guard)?;
+    Ok(NeuralSidecarStatus {
+        running: guard.is_some(),
+        pid: guard.as_ref().map(Child::id),
+    })
+}
+
+#[tauri::command]
+pub fn start_neural_sidecar(
+    state: tauri::State<NeuralProcess>,
+    options: NeuralLaunchOptions,
+) -> Result<NeuralSidecarStatus, String> {
+    let args = neural_sidecar_args(&options)?;
+    let mut guard = state.0.lock().map_err(|error| error.to_string())?;
+    reap_neural_process(&mut guard)?;
+    if guard.is_some() {
+        return Err("The neural sidecar is already running".to_string());
+    }
+    let configured = crate::get_venv_python();
+    #[cfg(target_os = "windows")]
+    let fallback = PathBuf::from("python");
+    #[cfg(not(target_os = "windows"))]
+    let fallback = PathBuf::from("python3");
+    let mut command = Command::new(if configured.exists() {
+        configured
+    } else {
+        fallback
+    });
+    command
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let child = command
+        .spawn()
+        .map_err(|error| format!("Could not start the neural sidecar: {error}"))?;
+    let pid = child.id();
+    *guard = Some(child);
+    Ok(NeuralSidecarStatus {
+        running: true,
+        pid: Some(pid),
+    })
+}
+
+#[tauri::command]
+pub fn stop_neural_sidecar(
+    state: tauri::State<NeuralProcess>,
+) -> Result<NeuralSidecarStatus, String> {
+    stop_neural_process(&state);
+    Ok(NeuralSidecarStatus {
+        running: false,
+        pid: None,
+    })
+}
+
+pub fn stop_neural_process(state: &NeuralProcess) {
+    if let Ok(mut guard) = state.0.lock() {
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
 
 impl GestureCursor {
     pub fn init() -> Self {
@@ -572,5 +775,40 @@ mod tests {
             result.unwrap_err(),
             "Daemon authentication token is unavailable"
         );
+    }
+
+    #[test]
+    fn synthetic_neural_launch_needs_no_external_artifact() {
+        let args = neural_sidecar_args(&NeuralLaunchOptions {
+            source: "synthetic".to_string(),
+            artifact_path: None,
+            playback_path: None,
+            board_id: None,
+            serial_port: None,
+            lsl_name: None,
+            synthetic_frequency: Some(12.0),
+        })
+        .unwrap();
+
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--source", "synthetic"]));
+        assert!(!args.iter().any(|arg| arg == "--artifact"));
+    }
+
+    #[test]
+    fn live_neural_launch_requires_a_calibration_artifact() {
+        let error = neural_sidecar_args(&NeuralLaunchOptions {
+            source: "brainflow".to_string(),
+            artifact_path: None,
+            playback_path: None,
+            board_id: Some(0),
+            serial_port: None,
+            lsl_name: None,
+            synthetic_frequency: None,
+        })
+        .unwrap_err();
+
+        assert!(error.contains("Calibration artifact is required"));
     }
 }
