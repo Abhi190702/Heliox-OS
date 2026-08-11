@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onDestroy, onMount } from "svelte";
+  import { call } from "../api/daemon";
   import { neural } from "../stores/neural";
 
   const targets = [
@@ -7,6 +9,19 @@
     { id: "select", label: "Select", frequency: "12 Hz", period: "83.333ms" },
     { id: "cancel", label: "Cancel / stop", frequency: "15 Hz", period: "66.667ms" },
   ];
+
+  function marker(event: "grid_shown" | "grid_hidden" | "target_on" | "target_off", targetId?: string) {
+    if (!$neural.sessionId) return;
+    void call("neural_stimulus_marker", {
+      session_id: $neural.sessionId,
+      event,
+      target_id: targetId ?? null,
+      client_performance_ms: performance.now(),
+    }).catch((cause) => console.warn("SSVEP marker was not accepted.", cause));
+  }
+
+  onMount(() => marker("grid_shown"));
+  onDestroy(() => marker("grid_hidden"));
 </script>
 
 <div class="stimulus-shell" aria-label="Four-target SSVEP research stimulus">
@@ -16,11 +31,17 @@
   </div>
   <div class="stimulus-grid">
     {#each targets as target (target.id)}
-      <div class="stimulus-target" style={`--stimulus-period: ${target.period}`}>
+      <button
+        class="stimulus-target"
+        style={`--stimulus-period: ${target.period}`}
+        onpointerdown={() => marker("target_on", target.id)}
+        onpointerup={() => marker("target_off", target.id)}
+        onpointercancel={() => marker("target_off", target.id)}
+      >
         <span class="flicker" aria-hidden="true"></span>
         <strong>{target.label}</strong>
         <small>{target.frequency}</small>
-      </div>
+      </button>
     {/each}
   </div>
 </div>
@@ -70,6 +91,9 @@
     background: var(--bg-primary);
     border: 1px solid var(--border);
     border-radius: 8px;
+    color: inherit;
+    font: inherit;
+    text-align: left;
   }
   .stimulus-target strong {
     overflow: hidden;

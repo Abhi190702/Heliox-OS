@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 from uuid import UUID
@@ -18,6 +20,8 @@ from pilot.neural.protocol import (
     NeuralIntentClass,
     NeuralIntentV1,
     NeuralScope,
+    NeuralStimulusEvent,
+    NeuralStimulusMarkerV1,
     NeuralStreamDescriptorV1,
 )
 from pilot.neural.quality import SignalQualitySummary
@@ -65,6 +69,8 @@ class NeuralController:
         self._pending: PendingNeuralExecution | None = None
         self._last_observation: dict[str, object] | None = None
         self._focus_index = 0
+        self._stimulus_markers: deque[NeuralStimulusMarkerV1] = deque(maxlen=512)
+        self._stimulus_sequence = 0
         self._lock = asyncio.Lock()
 
     async def connect(self, descriptor: NeuralStreamDescriptorV1) -> dict[str, object]:
@@ -325,7 +331,49 @@ class NeuralController:
             "focused_command_id": self._focused_command_id(),
             "last_observation": self._last_observation,
             "audit": audit_status,
+            "latest_stimulus_marker": (
+                self._stimulus_markers[-1].model_dump(mode="json") if self._stimulus_markers else None
+            ),
         }
+
+    async def record_stimulus_marker(
+        self,
+        session_id: UUID,
+        *,
+        target_id: str | None,
+        event: NeuralStimulusEvent,
+        client_performance_ms: float,
+    ) -> dict[str, object]:
+        async with self._lock:
+            status = await self._gate.status()
+            if not status.get("connected") or str(status.get("session_id")) != str(session_id):
+                raise NeuralControlError("stimulus marker does not match the active neural session")
+            if target_id is not None and target_id not in {"focus_left", "focus_right", "select", "cancel"}:
+                raise NeuralControlError("stimulus target is not in the registered SSVEP grid")
+            marker = NeuralStimulusMarkerV1(
+                session_id=session_id,
+                sequence=self._stimulus_sequence,
+                target_id=target_id,
+                event=event,
+                received_monotonic_ns=time.monotonic_ns(),
+                client_performance_ms=client_performance_ms,
+            )
+            self._stimulus_sequence += 1
+            self._stimulus_markers.append(marker)
+            if self._audit_store is not None:
+                await self._audit_store.record_event(
+                    stage="stimulus_marker",
+                    session_id=str(session_id),
+                    outcome=event.value,
+                    metadata={"target_id": target_id, "sequence": marker.sequence},
+                )
+            return marker.model_dump(mode="json")
+
+    async def stimulus_markers(self, *, after_sequence: int) -> tuple[dict[str, object], ...]:
+        async with self._lock:
+            return tuple(
+                marker.model_dump(mode="json") for marker in self._stimulus_markers if marker.sequence > after_sequence
+            )
 
     async def _audit(
         self,

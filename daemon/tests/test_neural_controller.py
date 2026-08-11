@@ -19,6 +19,7 @@ from pilot.neural.protocol import (
     NeuralIntentV1,
     NeuralParadigm,
     NeuralScope,
+    NeuralStimulusEvent,
     NeuralStreamDescriptorV1,
     NeuralTransport,
     SignalQuality,
@@ -369,3 +370,28 @@ async def test_simultaneous_cancel_after_preview_disarms_before_commit() -> None
         )
     assert (await controller.status())["armed_scope"] == "observe"
     executor.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stimulus_markers_are_daemon_stamped_bounded_and_audited(tmp_path) -> None:
+    audit = NeuralAuditStore(tmp_path / "neural.db", tmp_path / "neural.key")
+    controller, _, session_id, _ = await _controller(NeuralScope.NAVIGATE, audit_store=audit)
+    marker = await controller.record_stimulus_marker(
+        session_id,
+        target_id="focus_left",
+        event=NeuralStimulusEvent.TARGET_ON,
+        client_performance_ms=25.5,
+    )
+    assert marker["sequence"] == 0
+    assert marker["received_monotonic_ns"] > 0
+    assert await controller.stimulus_markers(after_sequence=-1) == (marker,)
+    assert await controller.stimulus_markers(after_sequence=0) == ()
+    events = await audit.list_events()
+    assert events[0]["stage"] == "stimulus_marker"
+    with pytest.raises(NeuralControlError, match="registered SSVEP"):
+        await controller.record_stimulus_marker(
+            session_id,
+            target_id="dynamic-command",
+            event=NeuralStimulusEvent.TARGET_ON,
+            client_performance_ms=26.0,
+        )

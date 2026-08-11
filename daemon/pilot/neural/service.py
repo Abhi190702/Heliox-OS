@@ -19,6 +19,7 @@ from pilot.neural.gate import NeuralIntentSigner
 from pilot.neural.protocol import (
     NeuralIntentV1,
     NeuralScope,
+    NeuralStimulusMarkerV1,
     NeuralStreamDescriptorV1,
     SignalQuality,
 )
@@ -35,6 +36,8 @@ class NeuralObservation:
 
 class NeuralWindowRecorder(Protocol):
     def append(self, window: NeuralSampleWindow) -> None: ...
+
+    def append_marker(self, marker: NeuralStimulusMarkerV1) -> None: ...
 
 
 class NeuralDecoderService:
@@ -200,6 +203,14 @@ class NeuralDecoderService:
         self._sequence += 1
         intent = unsigned.model_copy(update={"signature": self._signer.sign(unsigned)})
         return NeuralObservation(quality, candidate, intent, None)
+
+    def record_stimulus_marker(self, marker: NeuralStimulusMarkerV1) -> None:
+        if not self._running:
+            raise RuntimeError("neural decoder service is not running")
+        if marker.session_id != self._source.descriptor.session_id:
+            raise ValueError("stimulus marker does not match the acquisition session")
+        if self._recorder is not None:
+            self._recorder.append_marker(marker)
 
     @property
     def descriptor(self) -> NeuralStreamDescriptorV1:

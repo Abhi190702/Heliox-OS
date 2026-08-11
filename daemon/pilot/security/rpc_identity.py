@@ -20,6 +20,7 @@ NEURAL_SIDECAR_METHODS = frozenset(
         "neural_intent_preview",
         "neural_observation",
         "neural_disarm",
+        "neural_stimulus_markers",
     }
 )
 

@@ -22,7 +22,7 @@ from pilot.neural.acquisition import (
 )
 from pilot.neural.decoder import SSVEPCalibrationArtifact, SSVEPDecoder
 from pilot.neural.gate import NeuralIntentSigner
-from pilot.neural.protocol import NeuralScope
+from pilot.neural.protocol import NeuralScope, NeuralStimulusMarkerV1
 from pilot.neural.recording import (
     EncryptedNeuralRecorder,
     NeuralRecordingConsentV1,
@@ -127,6 +127,7 @@ class NeurodBridge:
         self._artifact = artifact
         self._poll_seconds = poll_seconds
         self._activated_revision = -1
+        self._last_marker_sequence = -1
 
     async def run(self, stop_event: asyncio.Event | None = None) -> None:
         stop = stop_event or asyncio.Event()
@@ -139,6 +140,15 @@ class NeurodBridge:
             )
             self._require_ok(connected, "connect")
             while not stop.is_set():
+                marker_result = await self._transport.call(
+                    "neural_stimulus_markers",
+                    {"after_sequence": self._last_marker_sequence},
+                )
+                self._require_ok(marker_result, "stimulus marker sync")
+                for payload in marker_result.get("markers", []):
+                    marker = NeuralStimulusMarkerV1.model_validate(payload)
+                    self._service.record_stimulus_marker(marker)
+                    self._last_marker_sequence = marker.sequence
                 status = await self._transport.call("neural_status")
                 state = str(status.get("state") or "")
                 revision = int(status.get("state_revision", 0))

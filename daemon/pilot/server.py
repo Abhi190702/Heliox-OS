@@ -1255,6 +1255,8 @@ class PilotServer:
             "neural_observation": self._handle_neural_observation,
             "neural_commit": self._handle_neural_commit,
             "neural_disarm": self._handle_neural_disarm,
+            "neural_stimulus_marker": self._handle_neural_stimulus_marker,
+            "neural_stimulus_markers": self._handle_neural_stimulus_markers,
             "self_healing_status": self._handle_self_healing_status,
             "self_healing_config_update": self._handle_self_healing_config_update,
             "narration_status": self._handle_narration_status,
@@ -5011,6 +5013,32 @@ class PilotServer:
         self._require_rpc_role(ws, RpcClientRole.UI, RpcClientRole.NEURAL_SIDECAR)
         reason = _sanitize_summary(params.get("reason") or "user_disarm", 120)
         return {"status": "ok", **await self._neural_controller.disarm(reason=reason)}
+
+    async def _handle_neural_stimulus_marker(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.UI)
+        try:
+            from pilot.neural.protocol import NeuralStimulusEvent
+
+            marker = await self._neural_controller.record_stimulus_marker(
+                uuid.UUID(str(params["session_id"])),
+                target_id=str(params["target_id"]) if params.get("target_id") is not None else None,
+                event=NeuralStimulusEvent(str(params["event"])),
+                client_performance_ms=float(params.get("client_performance_ms", 0)),
+            )
+            return {"status": "ok", "marker": marker}
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
+
+    async def _handle_neural_stimulus_markers(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.NEURAL_SIDECAR)
+        try:
+            after = int(params.get("after_sequence", -1))
+            if after < -1:
+                raise ValueError("after_sequence cannot be less than -1")
+            markers = await self._neural_controller.stimulus_markers(after_sequence=after)
+            return {"status": "ok", "markers": markers}
+        except (TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
 
     async def _handle_risk_gate_status(self, params: dict, ws: ServerConnection) -> dict:
         """Report the trained risk-world-model state and latest prediction."""

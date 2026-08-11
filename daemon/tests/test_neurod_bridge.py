@@ -18,6 +18,7 @@ class FakeTransport:
         self.status_count = 0
         self.connected = False
         self.closed = False
+        self.markers: list[dict] = []
 
     async def connect(self) -> None:
         self.connected = True
@@ -35,6 +36,9 @@ class FakeTransport:
                 if self.status_count == 1
                 else {"status": "ok", "state": "armed_safe_ui", "state_revision": 4}
             )
+        if method == "neural_stimulus_markers":
+            markers, self.markers = self.markers, []
+            return {"status": "ok", "markers": markers}
         if method == "neural_intent_preview":
             self.stop.set()
             return {"status": "previewed"}
@@ -58,6 +62,7 @@ class FakeService:
         self.buffer_health = SimpleNamespace(buffered_samples=500, dropped_samples=0)
         self.started = False
         self.stopped = False
+        self.markers = []
 
     def start(self) -> None:
         self.started = True
@@ -85,12 +90,26 @@ class FakeService:
         }
         return SimpleNamespace(quality=quality, intent=intent)
 
+    def record_stimulus_marker(self, marker) -> None:
+        self.markers.append(marker)
+
 
 @pytest.mark.asyncio
 async def test_bridge_activates_calibration_streams_only_summaries_and_closes() -> None:
     stop = asyncio.Event()
     transport = FakeTransport(stop)
     service = FakeService()
+    transport.markers = [
+        {
+            "schema_version": 1,
+            "session_id": str(service.descriptor.session_id),
+            "sequence": 0,
+            "target_id": "focus_right",
+            "event": "target_on",
+            "received_monotonic_ns": 100,
+            "client_performance_ms": 50.0,
+        }
+    ]
     metrics = MagicMock()
     metrics.model_dump.return_value = {"balanced_accuracy": 1.0}
     artifact = SimpleNamespace(
@@ -108,10 +127,16 @@ async def test_bridge_activates_calibration_streams_only_summaries_and_closes() 
     await asyncio.wait_for(bridge.run(stop), timeout=2)
 
     methods = [method for method, _ in transport.calls]
-    assert methods[:3] == ["neural_connect", "neural_status", "neural_finish_calibration"]
+    assert methods[:4] == [
+        "neural_connect",
+        "neural_stimulus_markers",
+        "neural_status",
+        "neural_finish_calibration",
+    ]
     assert "neural_observation" in methods
     assert "neural_intent_preview" in methods
     observation = next(params for method, params in transport.calls if method == "neural_observation")
     assert "samples_uv" not in observation and "timestamps_ns" not in observation
     assert transport.connected and transport.closed
     assert service.started and service.stopped
+    assert service.markers[0].target_id == "focus_right"

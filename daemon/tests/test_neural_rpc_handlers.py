@@ -24,6 +24,8 @@ def server() -> tuple[PilotServer, MagicMock, MagicMock]:
     instance._neural_controller.update_observation = AsyncMock(
         return_value={"quality": {"quality": "good"}, "dropped_samples": 0}
     )
+    instance._neural_controller.record_stimulus_marker = AsyncMock(return_value={"sequence": 0, "event": "grid_shown"})
+    instance._neural_controller.stimulus_markers = AsyncMock(return_value=())
     ui = MagicMock()
     sidecar = MagicMock()
     instance._client_roles[ui] = RpcClientRole.UI
@@ -124,3 +126,26 @@ async def test_quality_telemetry_accepts_only_bounded_summary_from_sidecar(serve
         await instance._handle_neural_observation({"quality": quality}, ui)
     rejected = await instance._handle_neural_observation({"quality": {**quality, "samples_uv": [[1.0]]}}, sidecar)
     assert rejected["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_stimulus_marker_write_is_ui_only_and_read_is_sidecar_only(server) -> None:
+    instance, ui, sidecar = server
+    session_id = str(uuid.uuid4())
+    written = await instance._handle_neural_stimulus_marker(
+        {
+            "session_id": session_id,
+            "event": "grid_shown",
+            "target_id": None,
+            "client_performance_ms": 12.5,
+        },
+        ui,
+    )
+    assert written["status"] == "ok"
+    with pytest.raises(PermissionError):
+        await instance._handle_neural_stimulus_marker({"session_id": session_id, "event": "grid_shown"}, sidecar)
+
+    drained = await instance._handle_neural_stimulus_markers({"after_sequence": -1}, sidecar)
+    assert drained == {"status": "ok", "markers": ()}
+    with pytest.raises(PermissionError):
+        await instance._handle_neural_stimulus_markers({"after_sequence": -1}, ui)

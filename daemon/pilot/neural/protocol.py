@@ -50,6 +50,13 @@ class NeuralScope(StrEnum):
     PHYSICAL_GOAL = "physical_goal"
 
 
+class NeuralStimulusEvent(StrEnum):
+    GRID_SHOWN = "grid_shown"
+    GRID_HIDDEN = "grid_hidden"
+    TARGET_ON = "target_on"
+    TARGET_OFF = "target_off"
+
+
 class SignalQuality(StrEnum):
     GOOD = "good"
     DEGRADED = "degraded"
@@ -158,6 +165,27 @@ class NeuralIntentV1(BaseModel):
         if not all(math.isfinite(value) for value in (self.posterior_permille, self.margin_permille)):
             raise ValueError("non-finite confidence values are forbidden")
         return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+
+
+class NeuralStimulusMarkerV1(BaseModel):
+    """Daemon-stamped SSVEP marker; no browser clock is trusted for order."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+
+    schema_version: SchemaVersion = 1
+    session_id: UUID
+    sequence: SequenceNumber
+    target_id: Identifier | None = None
+    event: NeuralStimulusEvent
+    received_monotonic_ns: MonotonicTimestamp
+    client_performance_ms: float = Field(ge=0, le=1_000_000_000_000)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> Self:
+        targeted = self.event in {NeuralStimulusEvent.TARGET_ON, NeuralStimulusEvent.TARGET_OFF}
+        if targeted != (self.target_id is not None):
+            raise ValueError("target markers require target_id and grid markers forbid it")
+        return self
 
 
 class NeuralCalibrationMetricsV1(BaseModel):
