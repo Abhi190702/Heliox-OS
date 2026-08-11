@@ -12,6 +12,7 @@
 
   import { session } from "../stores/session";
   import { companion } from "../stores/companion";
+  import { multimodal } from "../stores/multimodal";
   import AudioVisualizer from "./AudioVisualizer.svelte";
   import { call, offNotification, onNotification } from "../api/daemon";
   import { onDestroy, onMount } from "svelte";
@@ -282,6 +283,16 @@
     }
 
     const wasTaskRunning = get(session).loading;
+
+    // Feed the same finalized transcript into the bounded fusion window
+    // before execution. Fusion observes context/cancellation only; the
+    // session command remains the sole action-producing path.
+    multimodal.onVoiceInput(text, 0.9, true);
+    try {
+      await call("voice_event", { transcript: text, confidence: 0.9, is_final: true });
+    } catch (cause) {
+      console.warn("Voice fusion context unavailable; command routing continues safely.", cause);
+    }
 
     // The session store routes speech to the same out-of-band correction
     // channel as typed input whenever a task is active.

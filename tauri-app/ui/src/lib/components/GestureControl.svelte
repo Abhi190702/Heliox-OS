@@ -43,6 +43,7 @@
 
   import { session } from "../stores/session";
   import { settings } from "../stores/settings";
+  import { multimodal } from "../stores/multimodal";
   import { invoke } from "../api/invoke";
   import { call, offNotification, onNotification } from "../api/daemon";
   import { tick } from "svelte";
@@ -1145,6 +1146,12 @@
           const now = Date.now();
           if (now - lastGestureTime > GESTURE_COOLDOWN_MS) {
             lastGestureTime = now;
+            multimodal.onGestureInput(gesture.name, gesture.confidence);
+            void call("gesture_event", {
+              gesture: gesture.name,
+              confidence: gesture.confidence,
+              data: { source: "on_device_camera", raw_landmarks_excluded: true },
+            }).catch((cause) => console.warn("Gesture fusion context unavailable.", cause));
             // A gesture-sourced workflow currently paused/waiting claims
             // continue/cancel gestures instead of them firing their normal
             // action — see subscribeToWorkflowState()/workflowControl.ts.

@@ -17,6 +17,7 @@
  */
 
 import { writable, derived, get } from "svelte/store";
+import { offNotification, onNotification } from "../api/daemon";
 
 // ── Types ──
 
@@ -111,6 +112,15 @@ function createMultimodalStore() {
 }
 
 export const multimodal = createMultimodalStore();
+
+const notificationHandler = (method: string, params: unknown) => {
+  if (method === "multimodal_intent" && params && typeof params === "object") {
+    multimodal.onFusedIntent(params as FusedIntent);
+  }
+};
+onNotification(notificationHandler);
+const hot = (import.meta as ImportMeta & { hot?: { dispose(callback: () => void): void } }).hot;
+if (hot) hot.dispose(() => offNotification(notificationHandler));
 
 // ── Derived stores for easy UI binding ──
 
