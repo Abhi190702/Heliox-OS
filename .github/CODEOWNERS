@@ -5,3 +5,8 @@
 /daemon/pilot/plugins/marketplace.py @VyomKulshrestha
 /docs/PLUGIN_MARKETPLACE.md @VyomKulshrestha
 /.github/workflows/marketplace.yml @VyomKulshrestha
+
+# Sponsorship destinations and public funding promises must not be redirected
+# or changed without the project owner's review.
+/.github/FUNDING.yml @VyomKulshrestha
+/docs/SPONSORING.md @VyomKulshrestha

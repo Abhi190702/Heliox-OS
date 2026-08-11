@@ -7,6 +7,7 @@
   <a href="https://github.com/VyomKulshrestha/Heliox-OS/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/VyomKulshrestha/Heliox-OS/release.yml?style=for-the-badge&label=Build" alt="Build Status"></a>
   <a href="https://github.com/VyomKulshrestha/Heliox-OS/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/VyomKulshrestha/Heliox-OS/ci.yml?style=for-the-badge&label=CI&color=44cc11" alt="CI"></a>
   <a href="https://github.com/VyomKulshrestha/Heliox-OS/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22"><img src="https://img.shields.io/github/issues/VyomKulshrestha/Heliox-OS/good%20first%20issue?style=for-the-badge&color=purple&label=Good%20First%20Issues" alt="Good First Issues"></a>
+  <a href="https://github.com/sponsors/VyomKulshrestha"><img src="https://img.shields.io/github/sponsors/VyomKulshrestha?style=for-the-badge&color=ea4aaa&label=Sponsor" alt="Sponsor Heliox OS"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/VyomKulshrestha/Heliox-OS?style=for-the-badge&color=blue" alt="License"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-333?style=for-the-badge" alt="Platform">
 </p>
@@ -31,7 +32,8 @@
   <a href="#architecture">Architecture</a> •
   <a href="#security">Security</a> •
   <a href="#troubleshooting">Troubleshooting</a> •
-  <a href="CONTRIBUTING.md">Contributing</a>
+  <a href="CONTRIBUTING.md">Contributing</a> •
+  <a href="docs/SPONSORING.md">Sponsor</a>
 </p>
 
 ---
