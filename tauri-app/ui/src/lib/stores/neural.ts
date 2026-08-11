@@ -53,6 +53,7 @@ export interface NeuralState {
   connected: boolean;
   sidecarRunning: boolean;
   sidecarPid: number | null;
+  stimulusEnabled: boolean;
   sessionId: string;
   sourceId: string;
   transport: string;
@@ -84,6 +85,7 @@ const DEFAULT_STATE: NeuralState = {
   connected: false,
   sidecarRunning: false,
   sidecarPid: null,
+  stimulusEnabled: false,
   sessionId: "",
   sourceId: "",
   transport: "",
@@ -304,6 +306,9 @@ function createNeuralControl() {
     disarm,
     approvePreview: () => commitPreview(true),
     cancelPreview: () => disarm("preview_cancelled_by_user"),
+    setStimulusEnabled(enabled: boolean) {
+      store.update((current) => ({ ...current, stimulusEnabled: enabled }));
+    },
   };
 }
 

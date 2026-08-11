@@ -52,7 +52,7 @@
   </div>
 
   <label class="consent-row">
-    <input type="checkbox" bind:checked={warningAccepted} />
+    <input type="checkbox" bind:checked={warningAccepted} onchange={() => neural.setStimulusEnabled(warningAccepted)} />
     <span>{$_("neural.photosensitivity")}</span>
   </label>
 

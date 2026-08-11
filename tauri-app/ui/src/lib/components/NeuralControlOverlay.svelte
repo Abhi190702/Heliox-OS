@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
   import { neural } from "../stores/neural";
+  import SSVEPStimulusGrid from "./SSVEPStimulusGrid.svelte";
 
   const armed = $derived(["armed_safe_ui", "armed_safe_desktop", "previewed", "cooldown"].includes($neural.state));
 
@@ -14,8 +15,12 @@
   });
 </script>
 
+{#if armed && $neural.stimulusEnabled}
+  <SSVEPStimulusGrid />
+{/if}
+
 {#if $neural.connected}
-  <div class="neural-dock" class:armed aria-live="polite">
+  <div class="neural-dock" class:armed class:with-stimulus={armed && $neural.stimulusEnabled} aria-live="polite">
     <span class="pulse"></span>
     <div>
       <strong>{$_("neural.dock_title")}</strong>
@@ -71,6 +76,9 @@
   }
   .neural-dock.armed {
     border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  }
+  .neural-dock.with-stimulus {
+    bottom: 176px;
   }
   .pulse {
     width: 8px;

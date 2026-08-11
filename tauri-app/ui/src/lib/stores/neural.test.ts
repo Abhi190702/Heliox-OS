@@ -71,4 +71,12 @@ describe("neural control store", () => {
     expect(call).toHaveBeenCalledWith("neural_disarm", { reason: "user_emergency_disarm" });
     expect(get(neural).preview).toBeNull();
   });
+
+  it("keeps the flicker stimulus off until explicit local consent", async () => {
+    const { neural } = await import("./neural");
+    neural.setStimulusEnabled(false);
+    expect(get(neural).stimulusEnabled).toBe(false);
+    neural.setStimulusEnabled(true);
+    expect(get(neural).stimulusEnabled).toBe(true);
+  });
 });
