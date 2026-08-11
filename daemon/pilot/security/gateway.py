@@ -83,6 +83,7 @@ class InvocationSource(StrEnum):
     WEB_AGENT = "web_agent"
     VOICE = "voice"
     GESTURE = "gesture"
+    NEURAL = "neural"
     SELF_HEALING = "self_healing"
     # Per-specialist-agent sources — see SECURITY.md's Agent Gateway section
     # for why these were added: previously only web_agent/autonomous/voice/
@@ -235,6 +236,31 @@ DEFAULT_SOURCE_PROFILES: dict[str, SourceProfile] = {
             ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.SYSTEM_MODIFY),
             ActionFamily.OTHER.value: int(PermissionTier.USER_WRITE),
         },
+        allow_root=False,
+    ),
+    # Neural input releases only the exact Tier-0/1 action types compiled in
+    # pilot.neural.goals. The exhaustive deny-list prevents a routing bug or
+    # newly added action type from inheriting this profile's family ceiling.
+    "neural": SourceProfile(
+        max_tier={family.value: int(PermissionTier.USER_WRITE) for family in ActionFamily},
+        deny_action_types=[
+            action.value
+            for action in ActionType
+            if action
+            not in {
+                ActionType.SYSTEM_INFO,
+                ActionType.CPU_USAGE,
+                ActionType.MEMORY_USAGE,
+                ActionType.DISK_USAGE,
+                ActionType.NETWORK_INFO,
+                ActionType.BATTERY_INFO,
+                ActionType.PROCESS_LIST,
+                ActionType.WINDOW_LIST,
+                ActionType.VOLUME_GET,
+                ActionType.OPEN_APPLICATION,
+                ActionType.NOTIFY,
+            }
+        ],
         allow_root=False,
     ),
     # AutonomousHealingEngine's own tiered check (see agents/autonomous_healing.py)

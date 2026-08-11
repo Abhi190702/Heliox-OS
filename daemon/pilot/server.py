@@ -78,6 +78,11 @@ from pilot.reasoning.events import (
     VERIFICATION_PASSED,
     VERIFICATION_STARTED,
 )
+from pilot.security.rpc_identity import (
+    RpcClientRole,
+    authenticate_rpc_client,
+    rpc_method_allowed,
+)
 from pilot.system.companion_speech import (
     CompanionSpeechCoordinator,
     SpeechChannel,
@@ -114,7 +119,7 @@ CONFIRM_TIMEOUT_SECONDS = 300
 # ``abort`` interrupts execution, ``interject`` revises it, and speech
 # replacement/stop must interrupt an in-flight utterance. All other RPCs
 # remain sequential per connection.
-OUT_OF_BAND_RPC_METHODS = frozenset({"confirm", "abort", "interject", "speak_text", "stop_speech"})
+OUT_OF_BAND_RPC_METHODS = frozenset({"confirm", "abort", "interject", "speak_text", "stop_speech", "neural_disarm"})
 
 # ── Plan History DB path (sibling of the main DB) ──
 PLAN_HISTORY_DB_FILE = DATA_DIR / "plan_history.db"
@@ -562,6 +567,10 @@ class PilotServer:
         self._threat_bridge: Any = None
         # ── Authenticated WebSocket clients ──
         self._authenticated_clients: set[ServerConnection] = set()
+        self._client_roles: dict[ServerConnection, RpcClientRole] = {}
+        # Rotated on each daemon process start. neurod reads the separate
+        # owner-only runtime file and never receives the UI token.
+        self._neural_auth_token = secrets.token_urlsafe(32)
 
     def _start_tts_warmup(self) -> None:
         """Warm the selected local voice without blocking daemon startup.
@@ -1380,29 +1389,24 @@ class PilotServer:
             return
 
         provided_token = first_req.params.get("token", "")
-        expected_token = self.config.server.auth_token
-
-        # Reject non-string tokens immediately (e.g. null → None in Python)
-        if not isinstance(provided_token, str):
-            await websocket.send(_error_response(first_req.id, -32001, "Invalid auth token"))
-            await websocket.close()
-            logger.warning("Non-string auth token from %s — connection rejected", remote)
-            return
-
-        # Constant-time comparison prevents timing-based token oracle attacks
-        import hmac as _hmac
-
-        if not expected_token or not _hmac.compare_digest(provided_token, expected_token):
+        role = authenticate_rpc_client(
+            provided_token,
+            ui_token=self.config.server.auth_token,
+            neural_token=self._neural_auth_token,
+        )
+        if role is None:
             await websocket.send(_error_response(first_req.id, -32001, "Invalid auth token"))
             await websocket.close()
             logger.warning("Invalid auth token from %s — connection rejected", remote)
             return
 
         # Auth passed — acknowledge and register as an active client
-        await websocket.send(_success_response(first_req.id, {"status": "authenticated"}))
-        self._clients.add(websocket)
+        await websocket.send(_success_response(first_req.id, {"status": "authenticated", "role": role.value}))
+        if role == RpcClientRole.UI:
+            self._clients.add(websocket)
         self._authenticated_clients.add(websocket)
-        logger.info("Client authenticated: %s", remote)
+        self._client_roles[websocket] = role
+        logger.info("Client authenticated: %s role=%s", remote, role.value)
 
         # Keep ordinary requests sequential, but allow confirmation and abort
         # RPCs to bypass a long-running ``execute`` request on the same socket.
@@ -1413,6 +1417,16 @@ class PilotServer:
 
         async def _process_request(request: JsonRpcRequest) -> None:
             try:
+                if not rpc_method_allowed(role, request.method):
+                    if request.id is not None:
+                        await websocket.send(
+                            _error_response(
+                                request.id,
+                                -32601,
+                                f"Method not available to {role.value}: {request.method}",
+                            )
+                        )
+                    return
                 if request.method in OUT_OF_BAND_RPC_METHODS:
                     response = await self._dispatch(request, websocket)
                 else:
@@ -1458,6 +1472,7 @@ class PilotServer:
             await asyncio.gather(*request_tasks, return_exceptions=True)
             self._clients.discard(websocket)
             self._authenticated_clients.discard(websocket)
+            self._client_roles.pop(websocket, None)
             logger.info("Client disconnected: %s", remote)
 
     async def _dispatch(self, request: JsonRpcRequest, ws: ServerConnection) -> str | None:
@@ -6484,13 +6499,17 @@ def handle_tool(tool_name, params):
         RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
         token_file = RUNTIME_DIR / "auth_token"
         token_file.write_text(self.config.server.auth_token, encoding="utf-8")
+        neural_token_file = RUNTIME_DIR / "neural_auth_token"
+        neural_token_file.write_text(self._neural_auth_token, encoding="utf-8")
         try:
             import os as _os
 
             _os.chmod(token_file, 0o600)
+            _os.chmod(neural_token_file, 0o600)
         except Exception:
             pass  # chmod not available on Windows — file is in user-private dir
         logger.info("Auth token written to %s", token_file)
+        logger.info("Neural sidecar token written to %s", neural_token_file)
 
         logger.info("Starting Pilot daemon on ws://%s:%d", host, port)
         self._server = await websockets.serve(

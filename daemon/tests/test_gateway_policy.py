@@ -107,6 +107,15 @@ class TestDefaultSourceProfiles:
         self_healing = DEFAULT_SOURCE_PROFILES["self_healing"]
         assert all(tier < int(PermissionTier.ROOT_CRITICAL) for tier in self_healing.max_tier.values())
 
+    def test_neural_profile_is_explicit_exhaustive_and_tier_one_only(self):
+        neural = DEFAULT_SOURCE_PROFILES["neural"]
+        assert neural.allow_root is False
+        assert all(tier == int(PermissionTier.USER_WRITE) for tier in neural.max_tier.values())
+        assert "shell_command" in neural.deny_action_types
+        assert "browser_click" in neural.deny_action_types
+        assert "file_write" in neural.deny_action_types
+        assert "system_info" not in neural.deny_action_types
+
 
 @pytest.fixture
 def gateway():
@@ -170,6 +179,13 @@ class TestAgentGatewayAuthorize:
         # untagged call sites must not suddenly break.
         decision = await gateway.authorize(_plan(ActionType.BROWSER_EXECUTE_JS), InvocationSource.UNKNOWN)
         assert decision.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_neural_source_only_allows_compiled_low_risk_actions(self, gateway):
+        allowed = await gateway.authorize(_plan(ActionType.SYSTEM_INFO), InvocationSource.NEURAL)
+        denied = await gateway.authorize(_plan(ActionType.FILE_WRITE), InvocationSource.NEURAL)
+        assert allowed.allowed is True
+        assert denied.allowed is False
 
 
 class TestPerSpecialistAgentSourceProfiles:

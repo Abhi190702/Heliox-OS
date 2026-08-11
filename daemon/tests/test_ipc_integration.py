@@ -116,6 +116,31 @@ async def test_ipc_ping_pong(daemon_server):
 
 
 @pytest.mark.asyncio
+async def test_neural_sidecar_token_is_role_scoped_and_cannot_call_ping(daemon_server):
+    from pilot import config as config_module
+
+    token = (config_module.RUNTIME_DIR / "neural_auth_token").read_text(encoding="utf-8")
+    async with websockets.connect(daemon_server) as ws:
+        await ws.send(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "auth",
+                    "params": {"token": token},
+                    "id": "neural-auth",
+                }
+            )
+        )
+        auth = json.loads(await ws.recv())
+        assert auth["result"] == {"status": "authenticated", "role": "neural_sidecar"}
+
+        await ws.send(json.dumps({"jsonrpc": "2.0", "method": "ping", "id": "forbidden"}))
+        denied = json.loads(await ws.recv())
+        assert denied["error"]["code"] == -32601
+        assert "neural_sidecar" in denied["error"]["message"]
+
+
+@pytest.mark.asyncio
 async def test_ipc_parse_error(daemon_server):
     """Verify that invalid JSON returns a Parse error (-32700)."""
     async with websockets.connect(daemon_server) as ws:
