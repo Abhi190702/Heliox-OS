@@ -36,6 +36,8 @@ vault.enc
 *.pem
 
 # Test artifacts
+tauri-app/ui/test-results/
+tauri-app/ui/playwright-report/
 !daemon/tests/test_react_latency.py
 !daemon/tests/test_ipc_integration.py
 !daemon/tests/test_pty_session.py
