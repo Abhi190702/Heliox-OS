@@ -77,8 +77,11 @@ class NeuralIntentGateConfig:
 
 @dataclass(frozen=True, slots=True)
 class NeuralPreview:
+    session_id: UUID
     preview_id: UUID
     intent_id: UUID
+    window_start_ns: int
+    window_end_ns: int
     intent_class: NeuralIntentClass
     command_id: str | None
     canonical_goal: str
@@ -91,8 +94,11 @@ class NeuralPreview:
 
 @dataclass(frozen=True, slots=True)
 class NeuralCommit:
+    session_id: UUID
     preview_id: UUID
     intent_id: UUID
+    window_start_ns: int
+    window_end_ns: int
     canonical_goal: str
     requested_scope: NeuralScope
     committed_at_ns: int
@@ -255,8 +261,11 @@ class NeuralIntentGate:
             session.state = NeuralSessionState.CANDIDATE_INTENT
             session.state_revision += 1
             preview = NeuralPreview(
+                session_id=intent.session_id,
                 preview_id=uuid4(),
                 intent_id=intent.intent_id,
+                window_start_ns=intent.window_start_ns,
+                window_end_ns=intent.window_end_ns,
                 intent_class=intent.intent_class,
                 command_id=intent.command_id,
                 canonical_goal=canonical_goal,
@@ -303,8 +312,11 @@ class NeuralIntentGate:
             session.state = NeuralSessionState.COMMITTED
             session.state_revision += 1
             commit = NeuralCommit(
+                session_id=preview.session_id,
                 preview_id=preview.preview_id,
                 intent_id=preview.intent_id,
+                window_start_ns=preview.window_start_ns,
+                window_end_ns=preview.window_end_ns,
                 canonical_goal=preview.canonical_goal,
                 requested_scope=preview.requested_scope,
                 committed_at_ns=now,

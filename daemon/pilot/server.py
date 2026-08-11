@@ -749,6 +749,8 @@ class PilotServer:
         # Neural input owns a separate signing/session authority. Its fixed
         # goals still converge on the same Executor, Agent Gateway, world
         # model, permissions, validator, and audit path as other actions.
+        from pilot import config as config_module
+        from pilot.neural.audit import NeuralAuditStore
         from pilot.neural.controller import NeuralController
         from pilot.neural.gate import NeuralIntentGate, NeuralIntentSigner
         from pilot.neural.goals import NeuralGoalRegistry
@@ -759,12 +761,18 @@ class PilotServer:
             signer=neural_signer,
             safe_goals={command_id: command_id for command_id in neural_goals.command_ids},
         )
+        neural_audit = NeuralAuditStore(
+            config_module.DATA_DIR / "neural_intent_audit.db",
+            config_module.DATA_DIR / "neural_intent_audit.key",
+        )
+        await neural_audit.initialize()
         self._neural_controller = NeuralController(
             config=self.config,
             gate=neural_gate,
             executor=self._executor,
             goals=neural_goals,
             broadcast=self._broadcast_notification,
+            audit_store=neural_audit,
         )
 
         # Advanced agent components

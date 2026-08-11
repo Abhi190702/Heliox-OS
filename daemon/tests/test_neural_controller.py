@@ -10,6 +10,7 @@ import pytest
 from pilot.actions import Action, ActionResult, ActionType, EmptyParams
 from pilot.agents.destructive_critic import PlanRiskAssessment
 from pilot.config import PilotConfig
+from pilot.neural.audit import NeuralAuditStore
 from pilot.neural.controller import NeuralControlError, NeuralController
 from pilot.neural.gate import NeuralIntentGate, NeuralIntentGateConfig, NeuralIntentSigner
 from pilot.neural.goals import NeuralGoalDefinition, NeuralGoalError, NeuralGoalRegistry
@@ -41,7 +42,11 @@ def _safe_assessment(*, requires_confirmation: bool = False) -> PlanRiskAssessme
     )
 
 
-async def _controller(scope: NeuralScope) -> tuple[NeuralController, NeuralIntentSigner, uuid.UUID, AsyncMock]:
+async def _controller(
+    scope: NeuralScope,
+    *,
+    audit_store: NeuralAuditStore | None = None,
+) -> tuple[NeuralController, NeuralIntentSigner, uuid.UUID, AsyncMock]:
     signer = NeuralIntentSigner(b"k" * 32)
     session_id = uuid.uuid4()
     goals = NeuralGoalRegistry()
@@ -56,6 +61,7 @@ async def _controller(scope: NeuralScope) -> tuple[NeuralController, NeuralInten
         gate=gate,
         executor=executor,
         goals=goals,
+        audit_store=audit_store,
     )
     descriptor = NeuralStreamDescriptorV1(
         session_id=session_id,
@@ -256,3 +262,47 @@ async def test_world_model_warning_requires_ui_approval_and_unavailable_model_di
     ):
         await controller2.preview(intent2)
     assert (await controller2.status())["armed_scope"] == "observe"
+
+
+@pytest.mark.asyncio
+async def test_controller_audit_links_accepted_window_to_executed_plan(tmp_path) -> None:
+    audit = NeuralAuditStore(tmp_path / "neural.db", tmp_path / "neural.key")
+    controller, signer, session_id, executor = await _controller(
+        NeuralScope.SAFE_DESKTOP,
+        audit_store=audit,
+    )
+    intent = await _intent(
+        controller,
+        signer,
+        session_id,
+        intent_class=NeuralIntentClass.SAFE_GOAL,
+        scope=NeuralScope.SAFE_DESKTOP,
+        command_id="system-overview",
+    )
+    executor.execute.return_value = [
+        ActionResult(
+            action=NeuralGoalRegistry().resolve("system-overview").plan().actions[0],
+            success=True,
+            output="system data",
+        )
+    ]
+    with patch("pilot.neural.controller.assess_plan_risk", return_value=_safe_assessment()):
+        preview = await controller.preview(intent)
+        await asyncio.sleep(0.02)
+        result = await controller.commit(
+            uuid.UUID(str(preview["preview_id"])),
+            expected_revision=int(preview["state_revision"]),
+            world_model_approved=False,
+        )
+
+    events = list(reversed(await audit.list_events(intent_id=str(intent.intent_id))))
+    assert [event["stage"] for event in events] == [
+        "intent_accepted",
+        "preview_created",
+        "commit_authorized",
+        "result",
+    ]
+    assert events[-1]["preview_id"] == preview["preview_id"]
+    assert events[-1]["plan_id"] == result["plan_id"]
+    assert events[0]["window_start_ns"] == intent.window_start_ns
+    assert (await audit.verify_chain()).valid is True

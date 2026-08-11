@@ -10,6 +10,7 @@ from uuid import UUID
 from pilot.actions import ActionPlan, PermissionTier
 from pilot.agents.destructive_critic import PlanRiskAssessment, assess_plan_risk
 from pilot.config import PilotConfig
+from pilot.neural.audit import NeuralAuditStore
 from pilot.neural.gate import NeuralCommit, NeuralIntentGate, NeuralPreview
 from pilot.neural.goals import NeuralGoalRegistry
 from pilot.neural.protocol import (
@@ -50,12 +51,14 @@ class NeuralController:
         executor: Any,
         goals: NeuralGoalRegistry | None = None,
         broadcast: Callable[[str, Any], Awaitable[None]] | None = None,
+        audit_store: NeuralAuditStore | None = None,
     ) -> None:
         self._config = config
         self._gate = gate
         self._executor = executor
         self._goals = goals or NeuralGoalRegistry()
         self._broadcast = broadcast
+        self._audit_store = audit_store
         self._pending: PendingNeuralExecution | None = None
         self._last_observation: dict[str, object] | None = None
         self._focus_index = 0
@@ -116,6 +119,19 @@ class NeuralController:
     async def preview(self, intent: NeuralIntentV1) -> dict[str, object]:
         async with self._lock:
             preview = await self._gate.preview(intent)
+            await self._audit(
+                stage="intent_accepted",
+                intent=intent,
+                outcome="cancelled" if preview is None else "accepted",
+                metadata={
+                    "intent_class": intent.intent_class.value,
+                    "requested_scope": intent.requested_scope.value,
+                    "signal_quality": intent.signal_quality.value,
+                    "dwell_windows": intent.dwell_windows,
+                    "posterior_permille": intent.posterior_permille,
+                    "margin_permille": intent.margin_permille,
+                },
+            )
             if preview is None:
                 self._pending = None
                 status = await self._gate.status()
@@ -141,6 +157,17 @@ class NeuralController:
 
             self._pending = PendingNeuralExecution(preview, plan, world_model, resolved_command_id)
             payload = self._preview_payload(self._pending)
+            await self._audit(
+                stage="preview_created",
+                intent=intent,
+                preview=preview,
+                outcome="previewed",
+                metadata={
+                    "canonical_goal": preview.canonical_goal,
+                    "command_id": resolved_command_id,
+                    "world_model": world_model.to_dict() if world_model else None,
+                },
+            )
             await self._emit("neural_preview", payload)
             return payload
 
@@ -171,14 +198,33 @@ class NeuralController:
                 effect_tier=effect_tier,
             )
             self._pending = None
+            plan_id = f"neural-{commit.intent_id}" if plan is not None else ""
+            await self._audit(
+                stage="commit_authorized",
+                preview=pending.preview,
+                commit=commit,
+                plan_id=plan_id,
+                outcome="authorized",
+                metadata={
+                    "canonical_goal": commit.canonical_goal,
+                    "command_id": pending.resolved_command_id,
+                    "effect_tier": effect_tier,
+                },
+            )
             if plan is None:
                 self._apply_navigation_commit(commit)
                 payload = self._navigation_commit_payload(commit)
                 payload["focused_command_id"] = self._focused_command_id()
+                await self._audit(
+                    stage="result",
+                    preview=pending.preview,
+                    commit=commit,
+                    outcome="committed",
+                    metadata={"canonical_goal": commit.canonical_goal},
+                )
                 await self._emit("neural_navigation", payload)
                 return payload
 
-            plan_id = f"neural-{commit.intent_id}"
             profile = self._config.gateway.source_profiles.get("neural", DEFAULT_SOURCE_PROFILES["neural"])
             results = await self._executor.execute(
                 plan,
@@ -203,6 +249,18 @@ class NeuralController:
                 "results": [result.model_dump(mode="json") for result in results],
                 "retry_allowed": False,
             }
+            await self._audit(
+                stage="result",
+                preview=pending.preview,
+                commit=commit,
+                plan_id=plan_id,
+                outcome=str(payload["status"]),
+                metadata={
+                    "canonical_goal": commit.canonical_goal,
+                    "command_id": pending.resolved_command_id,
+                    "result_count": len(results),
+                },
+            )
             await self._emit("neural_result", payload)
             return payload
 
@@ -233,6 +291,14 @@ class NeuralController:
 
     async def status(self) -> dict[str, object]:
         status = await self._gate.status()
+        audit_status: dict[str, object] = {"enabled": self._audit_store is not None}
+        if self._audit_store is not None:
+            verification = await self._audit_store.verify_chain()
+            audit_status.update(
+                valid=verification.valid,
+                checked_entries=verification.checked_entries,
+                error=verification.error,
+            )
         return {
             **status,
             "capabilities": {
@@ -246,7 +312,36 @@ class NeuralController:
             "safe_goals": self._goals.public_summaries(),
             "focused_command_id": self._focused_command_id(),
             "last_observation": self._last_observation,
+            "audit": audit_status,
         }
+
+    async def _audit(
+        self,
+        *,
+        stage: str,
+        intent: NeuralIntentV1 | None = None,
+        preview: NeuralPreview | None = None,
+        commit: NeuralCommit | None = None,
+        plan_id: str = "",
+        outcome: str = "",
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        if self._audit_store is None:
+            return
+        source = intent or preview or commit
+        if source is None:
+            raise NeuralControlError("neural audit event is missing provenance")
+        await self._audit_store.record_event(
+            stage=stage,
+            session_id=str(source.session_id),
+            intent_id=str(source.intent_id),
+            preview_id=str(getattr(preview or commit, "preview_id", "")),
+            plan_id=plan_id,
+            window_start_ns=int(getattr(intent or preview, "window_start_ns", 0)),
+            window_end_ns=int(getattr(intent or preview, "window_end_ns", 0)),
+            outcome=outcome,
+            metadata=metadata,
+        )
 
     def _assess_world_model(self, plan: ActionPlan) -> PlanRiskAssessment:
         if not self._config.gateway.risk_gate_enabled:
