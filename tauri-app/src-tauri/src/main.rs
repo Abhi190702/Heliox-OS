@@ -642,6 +642,7 @@ fn main() {
             commands::get_neural_sidecar_status,
             commands::start_neural_sidecar,
             commands::stop_neural_sidecar,
+            commands::export_neural_recording,
             file_access::register_allowed_path,
             file_access::revoke_allowed_path,
         ])

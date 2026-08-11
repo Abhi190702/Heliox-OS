@@ -316,3 +316,7 @@ def export_main() -> None:
     args = parser.parse_args()
     recorder = EncryptedNeuralRecorder.open_existing(Path(args.recording))
     recorder.export_bids_brainvision(Path(args.destination))
+
+
+if __name__ == "__main__":
+    export_main()

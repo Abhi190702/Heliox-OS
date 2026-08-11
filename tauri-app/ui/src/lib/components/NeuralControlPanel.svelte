@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
+  import { invoke } from "../api/invoke";
   import { neural } from "../stores/neural";
 
   let source = $state<"synthetic" | "playback" | "brainflow" | "lsl">("synthetic");
@@ -11,6 +12,14 @@
   let lslName = $state("HelioxEEG");
   let syntheticFrequency = $state(12);
   let warningAccepted = $state(false);
+  let recordRaw = $state(false);
+  let recordingFile = $state("");
+  let recordingPurpose = $state("local accessibility calibration");
+  let retentionDays = $state(7);
+  let allowBidsExport = $state(false);
+  let exportRecording = $state("");
+  let exportDestination = $state("");
+  let exportMessage = $state("");
 
   onMount(() => {
     void neural.refresh();
@@ -27,7 +36,22 @@
       serialPort,
       lslName,
       syntheticFrequency,
+      recordRaw,
+      recordingFile: recordingFile || null,
+      recordingPurpose,
+      retentionDays,
+      allowBidsExport,
     });
+  }
+
+  async function exportBids() {
+    exportMessage = "";
+    try {
+      await invoke("export_neural_recording", { recording: exportRecording, destination: exportDestination });
+      exportMessage = $_("neural.export_success");
+    } catch (cause) {
+      exportMessage = cause instanceof Error ? cause.message : String(cause);
+    }
   }
 
   function percent(value: number | undefined): string {
@@ -102,6 +126,52 @@
         </select>
       </label>
     {/if}
+  </div>
+
+  <div class="recording-controls">
+    <label class="consent-row compact">
+      <input type="checkbox" bind:checked={recordRaw} disabled={$neural.sidecarRunning} />
+      <span>{$_("neural.record_consent")}</span>
+    </label>
+    {#if recordRaw}
+      <div class="configuration-grid">
+        <label class="wide">
+          <span>{$_("neural.recording_purpose")}</span>
+          <input bind:value={recordingPurpose} maxlength="256" disabled={$neural.sidecarRunning} />
+        </label>
+        <label>
+          <span>{$_("neural.recording_file")}</span>
+          <input bind:value={recordingFile} placeholder="Optional new .neeg path" disabled={$neural.sidecarRunning} />
+        </label>
+        <label>
+          <span>{$_("neural.retention_days")}</span>
+          <input type="number" min="1" max="365" bind:value={retentionDays} disabled={$neural.sidecarRunning} />
+        </label>
+        <label class="consent-row compact wide">
+          <input type="checkbox" bind:checked={allowBidsExport} disabled={$neural.sidecarRunning} />
+          <span>{$_("neural.export_consent")}</span>
+        </label>
+      </div>
+    {/if}
+    <details>
+      <summary>{$_("neural.export_title")}</summary>
+      <div class="configuration-grid">
+        <label>
+          <span>{$_("neural.encrypted_recording")}</span>
+          <input bind:value={exportRecording} placeholder="C:\path\session.neeg" />
+        </label>
+        <label>
+          <span>{$_("neural.export_destination")}</span>
+          <input bind:value={exportDestination} placeholder="C:\path\new-bids-dataset" />
+        </label>
+      </div>
+      <div class="actions">
+        <button onclick={exportBids} disabled={!exportRecording.trim() || !exportDestination.trim()}>
+          {$_("neural.export_button")}
+        </button>
+        {#if exportMessage}<span class="export-message">{exportMessage}</span>{/if}
+      </div>
+    </details>
   </div>
 
   <div class="actions">
@@ -235,6 +305,32 @@
   }
   .consent-row input {
     margin-top: 2px;
+  }
+  .consent-row.compact {
+    padding: 0;
+  }
+  .recording-controls {
+    display: grid;
+    gap: 10px;
+    margin: 0 14px 12px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  details summary {
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .recording-controls .configuration-grid {
+    padding: 10px 0 0;
+  }
+  .recording-controls .actions {
+    padding: 8px 0 0;
+  }
+  .export-message {
+    color: var(--text-muted);
+    font-size: 10px;
   }
   .configuration-grid {
     display: grid;

@@ -97,6 +97,11 @@ pub struct NeuralLaunchOptions {
     serial_port: Option<String>,
     lsl_name: Option<String>,
     synthetic_frequency: Option<f64>,
+    record_raw: Option<bool>,
+    recording_file: Option<String>,
+    recording_purpose: Option<String>,
+    retention_days: Option<u16>,
+    allow_bids_export: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -124,6 +129,41 @@ fn checked_data_file(
         return Err(format!("{label} must point to a file"));
     }
     Ok(Some(path))
+}
+
+fn checked_new_file(value: Option<&str>, label: &str) -> Result<Option<PathBuf>, String> {
+    let Some(raw) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let requested = PathBuf::from(raw);
+    if requested.exists() {
+        return Err(format!(
+            "{label} already exists; Heliox never overwrites neural data"
+        ));
+    }
+    let name = requested
+        .file_name()
+        .ok_or_else(|| format!("{label} needs a file name"))?;
+    let parent = requested
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .canonicalize()
+        .map_err(|_| format!("{label} parent directory does not exist"))?;
+    Ok(Some(parent.join(name)))
+}
+
+fn checked_new_neural_recording(value: Option<&str>) -> Result<Option<PathBuf>, String> {
+    let path = checked_new_file(value, "Recording destination")?;
+    if let Some(path) = &path {
+        let is_neeg = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("neeg"));
+        if !is_neeg {
+            return Err("Neural recording destination must use the .neeg extension".to_string());
+        }
+    }
+    Ok(path)
 }
 
 fn neural_sidecar_args(options: &NeuralLaunchOptions) -> Result<Vec<String>, String> {
@@ -187,7 +227,59 @@ fn neural_sidecar_args(options: &NeuralLaunchOptions) -> Result<Vec<String>, Str
     if !serial.is_empty() {
         args.extend(["--serial-port".to_string(), serial.to_string()]);
     }
+    if options.record_raw.unwrap_or(false) {
+        let purpose = options.recording_purpose.as_deref().unwrap_or("").trim();
+        if !(3..=256).contains(&purpose.len()) || purpose.chars().any(char::is_control) {
+            return Err("A 3-256 character recording purpose is required".to_string());
+        }
+        let retention = options.retention_days.unwrap_or(7);
+        if !(1..=365).contains(&retention) {
+            return Err("Neural recording retention must be 1-365 days".to_string());
+        }
+        let recording = checked_new_neural_recording(options.recording_file.as_deref())?;
+        args.extend([
+            "--record-raw".to_string(),
+            "--recording-purpose".to_string(),
+            purpose.to_string(),
+            "--retention-days".to_string(),
+            retention.to_string(),
+        ]);
+        if let Some(path) = recording {
+            args.extend([
+                "--recording-file".to_string(),
+                path.to_string_lossy().into_owned(),
+            ]);
+        }
+        if options.allow_bids_export.unwrap_or(false) {
+            args.push("--allow-bids-export".to_string());
+        }
+    }
     Ok(args)
+}
+
+fn neural_python() -> PathBuf {
+    let configured = crate::get_venv_python();
+    if configured.exists() {
+        return configured;
+    }
+    #[cfg(target_os = "windows")]
+    return PathBuf::from("python");
+    #[cfg(not(target_os = "windows"))]
+    return PathBuf::from("python3");
+}
+
+fn hidden_python_command() -> Command {
+    let mut command = Command::new(neural_python());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command
 }
 
 fn reap_neural_process(guard: &mut Option<Child>) -> Result<(), String> {
@@ -227,26 +319,8 @@ pub fn start_neural_sidecar(
     if guard.is_some() {
         return Err("The neural sidecar is already running".to_string());
     }
-    let configured = crate::get_venv_python();
-    #[cfg(target_os = "windows")]
-    let fallback = PathBuf::from("python");
-    #[cfg(not(target_os = "windows"))]
-    let fallback = PathBuf::from("python3");
-    let mut command = Command::new(if configured.exists() {
-        configured
-    } else {
-        fallback
-    });
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
+    let mut command = hidden_python_command();
+    command.args(args);
     let child = command
         .spawn()
         .map_err(|error| format!("Could not start the neural sidecar: {error}"))?;
@@ -256,6 +330,44 @@ pub fn start_neural_sidecar(
         running: true,
         pid: Some(pid),
     })
+}
+
+#[tauri::command]
+pub fn export_neural_recording(recording: String, destination: String) -> Result<(), String> {
+    let recording = checked_data_file(Some(&recording), "Encrypted neural recording", true)?
+        .ok_or_else(|| "Encrypted neural recording is required".to_string())?;
+    let destination = PathBuf::from(destination.trim());
+    if destination.as_os_str().is_empty() {
+        return Err("BIDS export destination is required".to_string());
+    }
+    if destination.exists() {
+        return Err("BIDS export destination must not already exist".to_string());
+    }
+    let parent = destination
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .canonicalize()
+        .map_err(|_| "BIDS export parent directory does not exist".to_string())?;
+    let name = destination
+        .file_name()
+        .ok_or_else(|| "BIDS export destination needs a directory name".to_string())?;
+    let destination = parent.join(name);
+    let status = hidden_python_command()
+        .args([
+            "-m",
+            "pilot.neural.recording",
+            &recording.to_string_lossy(),
+            &destination.to_string_lossy(),
+        ])
+        .status()
+        .map_err(|error| format!("Could not start neural export: {error}"))?;
+    if !status.success() {
+        return Err(
+            "Neural export failed; verify consent, keyring access, and the recording file"
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -787,6 +899,11 @@ mod tests {
             serial_port: None,
             lsl_name: None,
             synthetic_frequency: Some(12.0),
+            record_raw: None,
+            recording_file: None,
+            recording_purpose: None,
+            retention_days: None,
+            allow_bids_export: None,
         })
         .unwrap();
 
@@ -806,9 +923,39 @@ mod tests {
             serial_port: None,
             lsl_name: None,
             synthetic_frequency: None,
+            record_raw: None,
+            recording_file: None,
+            recording_purpose: None,
+            retention_days: None,
+            allow_bids_export: None,
         })
         .unwrap_err();
 
         assert!(error.contains("Calibration artifact is required"));
+    }
+
+    #[test]
+    fn raw_neural_recording_requires_and_carries_explicit_bounded_consent() {
+        let args = neural_sidecar_args(&NeuralLaunchOptions {
+            source: "synthetic".to_string(),
+            artifact_path: None,
+            playback_path: None,
+            board_id: None,
+            serial_port: None,
+            lsl_name: None,
+            synthetic_frequency: Some(12.0),
+            record_raw: Some(true),
+            recording_file: None,
+            recording_purpose: Some("local accessibility calibration".to_string()),
+            retention_days: Some(14),
+            allow_bids_export: Some(true),
+        })
+        .unwrap();
+
+        assert!(args.iter().any(|arg| arg == "--record-raw"));
+        assert!(args.iter().any(|arg| arg == "--allow-bids-export"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--retention-days", "14"]));
     }
 }
