@@ -297,6 +297,7 @@ class PlaybackNeuralSource:
         self._samples = checked.samples_uv
         self._timestamps = checked.timestamps_ns
         self._cursor = 0
+        self._timestamp_offset = 0
         self._running = False
         self._descriptor = NeuralStreamDescriptorV1(
             session_id=session_id or uuid4(),
@@ -346,6 +347,7 @@ class PlaybackNeuralSource:
 
     def start(self) -> None:
         self._cursor = 0
+        self._timestamp_offset = time.monotonic_ns() - int(self._timestamps[0])
         self._running = True
 
     def read(self, sample_count: int) -> NeuralSampleWindow:
@@ -358,7 +360,7 @@ class PlaybackNeuralSource:
             raise EOFError("playback is exhausted")
         window = NeuralSampleWindow(
             self._samples[:, self._cursor : end],
-            self._timestamps[self._cursor : end],
+            self._timestamps[self._cursor : end] + self._timestamp_offset,
             self._cursor,
         )
         self._cursor = end
@@ -463,6 +465,8 @@ class BrainFlowNeuralSource:
             raise NeuralAcquisitionError("BrainFlow source is not running")
         if not 1 <= sample_count <= self._sample_rate * 30:
             raise NeuralAcquisitionError("BrainFlow read exceeds the bounded window")
+        if int(self._board.get_board_data_count()) < sample_count:
+            raise NeuralAcquisitionError("BrainFlow has not buffered the requested samples")
         # Consume samples so a fast caller cannot decode the same board tail twice.
         data = np.asarray(self._board.get_board_data(sample_count), dtype=np.float64)
         if data.ndim != 2 or data.shape[1] < sample_count:
@@ -561,11 +565,21 @@ class LSLNeuralSource:
             raise NeuralAcquisitionError("LSL source is not running")
         if not 1 <= sample_count <= self._sample_rate * 30:
             raise NeuralAcquisitionError("LSL read exceeds the bounded window")
-        samples, timestamps = self._inlet.pull_chunk(
-            timeout=max(1.0, sample_count / self._sample_rate * 2), max_samples=sample_count
-        )
-        if len(samples) != sample_count or len(timestamps) != sample_count:
-            raise NeuralAcquisitionError("LSL did not return the complete requested window")
+        deadline = time.monotonic() + max(1.0, sample_count / self._sample_rate * 2)
+        samples: list[list[float]] = []
+        timestamps: list[float] = []
+        while len(samples) < sample_count:
+            remaining_seconds = deadline - time.monotonic()
+            if remaining_seconds <= 0:
+                raise NeuralAcquisitionError("LSL did not return the complete requested window")
+            chunk, chunk_timestamps = self._inlet.pull_chunk(
+                timeout=remaining_seconds,
+                max_samples=sample_count - len(samples),
+            )
+            if len(chunk) != len(chunk_timestamps):
+                raise NeuralAcquisitionError("LSL returned mismatched sample/timestamp counts")
+            samples.extend(chunk)
+            timestamps.extend(chunk_timestamps)
         matrix = np.asarray(samples, dtype=np.float64).T
         monotonic = self._monotonic_anchor + np.rint(
             (np.asarray(timestamps, dtype=np.float64) - self._lsl_anchor) * 1_000_000_000

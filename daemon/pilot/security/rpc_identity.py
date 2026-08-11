@@ -18,6 +18,7 @@ NEURAL_SIDECAR_METHODS = frozenset(
         "neural_connect",
         "neural_finish_calibration",
         "neural_intent_preview",
+        "neural_observation",
         "neural_disarm",
     }
 )

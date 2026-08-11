@@ -7,10 +7,20 @@ from dataclasses import dataclass
 from typing import Callable
 from uuid import uuid4
 
-from pilot.neural.acquisition import BoundedNeuralBuffer, NeuralSource
+from pilot.neural.acquisition import (
+    BoundedNeuralBuffer,
+    NeuralAcquisitionError,
+    NeuralBufferHealth,
+    NeuralSource,
+)
 from pilot.neural.decoder import DecodedNeuralCandidate, SSVEPDecoder
 from pilot.neural.gate import NeuralIntentSigner
-from pilot.neural.protocol import NeuralIntentV1, NeuralScope, SignalQuality
+from pilot.neural.protocol import (
+    NeuralIntentV1,
+    NeuralScope,
+    NeuralStreamDescriptorV1,
+    SignalQuality,
+)
 from pilot.neural.quality import NeuralSignalQualityAnalyzer, SignalQualitySummary
 
 
@@ -33,7 +43,7 @@ class NeuralDecoderService:
         signer: NeuralIntentSigner,
         window_seconds: float = 2.0,
         step_seconds: float = 0.5,
-        validity_seconds: float = 1.5,
+        validity_seconds: float = 3.0,
         minimum_decoder_posterior_permille: int = 500,
         monotonic_ns: Callable[[], int] = time.monotonic_ns,
     ) -> None:
@@ -84,9 +94,21 @@ class NeuralDecoderService:
             )
             self._sequence = descriptor.sequence_start
             self._running = True
+            warmup_deadline = time.monotonic() + 10.0
             while self._buffer.health.buffered_samples < self._window_samples:
                 needed = self._window_samples - self._buffer.health.buffered_samples
-                self._buffer.append(self._source.read(min(needed, self._step_samples)))
+                try:
+                    self._buffer.append(self._source.read(min(needed, self._step_samples)))
+                except NeuralAcquisitionError as exc:
+                    # A live board may need a short warm-up before its first
+                    # complete chunk. Never spin forever or hide other errors.
+                    if "not buffered" not in str(exc).casefold():
+                        raise
+                    if time.monotonic() >= warmup_deadline:
+                        raise NeuralAcquisitionError(
+                            "neural source did not buffer a complete window within 10 seconds"
+                        ) from exc
+                    time.sleep(min(self._step_seconds / 4, 0.05))
         except Exception:
             self._source.stop()
             self._running = False
@@ -157,3 +179,13 @@ class NeuralDecoderService:
         self._sequence += 1
         intent = unsigned.model_copy(update={"signature": self._signer.sign(unsigned)})
         return NeuralObservation(quality, candidate, intent, None)
+
+    @property
+    def descriptor(self) -> NeuralStreamDescriptorV1:
+        return self._source.descriptor
+
+    @property
+    def buffer_health(self) -> NeuralBufferHealth:
+        if self._buffer is None:
+            raise RuntimeError("neural decoder service is not running")
+        return self._buffer.health

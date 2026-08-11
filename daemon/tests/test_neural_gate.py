@@ -4,7 +4,12 @@ import uuid
 
 import pytest
 
-from pilot.neural.gate import NeuralGateError, NeuralIntentGate, NeuralIntentSigner
+from pilot.neural.gate import (
+    NeuralGateError,
+    NeuralIntentGate,
+    NeuralIntentGateConfig,
+    NeuralIntentSigner,
+)
 from pilot.neural.protocol import (
     ArtifactFlag,
     NeuralIntentClass,
@@ -124,6 +129,34 @@ async def test_signed_preview_and_tier_one_commit_respect_cancellation_window() 
 
 
 @pytest.mark.asyncio
+async def test_status_restores_armed_state_after_cooldown() -> None:
+    clock = [NOW]
+    signer = NeuralIntentSigner(b"n" * 32)
+    session_id = uuid.uuid4()
+    gate = NeuralIntentGate(
+        signer=signer,
+        config=NeuralIntentGateConfig(cancellation_window_ns=1, cooldown_ns=100),
+        monotonic_ns=lambda: clock[0],
+    )
+    await gate.connect(_descriptor(session_id))
+    await gate.begin_calibration(session_id)
+    await gate.finish_calibration(session_id, calibration_id=CALIBRATION, subject_key=SUBJECT)
+    armed = await gate.arm(session_id, scope=NeuralScope.NAVIGATE, non_neural_authorized=True)
+    intent = _signed_intent(signer, session_id=session_id, revision=int(armed["state_revision"]))
+    preview = await gate.preview(intent, now_ns=NOW)
+    assert preview is not None
+    await gate.commit(
+        preview.preview_id,
+        expected_revision=preview.state_revision,
+        effect_tier=0,
+        now_ns=NOW + 1,
+    )
+    assert (await gate.status())["state"] == "cooldown"
+    clock[0] = NOW + 101
+    assert (await gate.status())["state"] == "armed_safe_ui"
+
+
+@pytest.mark.asyncio
 async def test_replay_signature_and_stale_revision_fail_closed() -> None:
     gate, signer, session_id, revision = await _armed_gate()
     intent = _signed_intent(signer, session_id=session_id, revision=revision)
@@ -133,6 +166,23 @@ async def test_replay_signature_and_stale_revision_fail_closed() -> None:
     tampered = intent.model_copy(update={"intent_id": uuid.uuid4(), "sequence": 2, "posterior_permille": 999})
     with pytest.raises(NeuralGateError, match="signature"):
         await gate.preview(tampered, now_ns=NOW)
+
+
+@pytest.mark.asyncio
+async def test_old_evidence_cannot_be_revived_with_a_future_expiry() -> None:
+    gate, signer, session_id, revision = await _armed_gate()
+    intent = _signed_intent(signer, session_id=session_id, revision=revision)
+    old = intent.model_copy(
+        update={
+            "window_start_ns": NOW - 9_000_000_000,
+            "window_end_ns": NOW - 8_000_000_000,
+            "expires_at_ns": NOW + 2_000_000_000,
+            "signature": "0" * 64,
+        }
+    )
+    old = old.model_copy(update={"signature": signer.sign(old)})
+    with pytest.raises(NeuralGateError, match="stale"):
+        await gate.preview(old, now_ns=NOW)
 
 
 @pytest.mark.asyncio

@@ -12,13 +12,21 @@ from enum import StrEnum
 from typing import Callable
 from uuid import UUID, uuid4
 
+from pydantic import TypeAdapter
+
 from pilot.neural.protocol import (
+    ArtifactHash,
+    Identifier,
+    NeuralCalibrationMetricsV1,
     NeuralIntentClass,
     NeuralIntentV1,
     NeuralScope,
     NeuralStreamDescriptorV1,
     SignalQuality,
 )
+
+_ARTIFACT_HASH = TypeAdapter(ArtifactHash)
+_IDENTIFIER = TypeAdapter(Identifier)
 
 
 class NeuralGateError(ValueError):
@@ -45,6 +53,7 @@ class NeuralIntentGateConfig:
     min_margin_permille: int = 150
     min_dwell_windows: int = 3
     max_window_ns: int = 5_000_000_000
+    max_window_age_ns: int = 5_000_000_000
     max_future_skew_ns: int = 500_000_000
     cancellation_window_ns: int = 800_000_000
     cooldown_ns: int = 1_000_000_000
@@ -56,6 +65,7 @@ class NeuralIntentGateConfig:
         for field_name in (
             "min_dwell_windows",
             "max_window_ns",
+            "max_window_age_ns",
             "max_future_skew_ns",
             "cancellation_window_ns",
             "cooldown_ns",
@@ -93,6 +103,8 @@ class _Session:
     descriptor: NeuralStreamDescriptorV1
     state: NeuralSessionState = NeuralSessionState.CONNECTED_UNCALIBRATED
     calibration_id: str = ""
+    decoder_version: str = ""
+    calibration_metrics: NeuralCalibrationMetricsV1 | None = None
     subject_key: str = ""
     armed_scope: NeuralScope = NeuralScope.OBSERVE
     state_revision: int = 0
@@ -170,13 +182,17 @@ class NeuralIntentGate:
         *,
         calibration_id: str,
         subject_key: str,
+        decoder_version: str = "",
+        metrics: NeuralCalibrationMetricsV1 | None = None,
     ) -> dict[str, object]:
         async with self._lock:
             session = self._require_session(session_id)
             if session.state != NeuralSessionState.CALIBRATING:
                 raise NeuralGateError("calibration was not active")
-            session.calibration_id = calibration_id
-            session.subject_key = subject_key
+            session.calibration_id = _ARTIFACT_HASH.validate_python(calibration_id)
+            session.subject_key = _IDENTIFIER.validate_python(subject_key)
+            session.decoder_version = _ARTIFACT_HASH.validate_python(decoder_version) if decoder_version else ""
+            session.calibration_metrics = metrics
             session.state = NeuralSessionState.OBSERVE_ONLY
             session.state_revision += 1
             return self._status_locked()
@@ -298,7 +314,22 @@ class NeuralIntentGate:
 
     async def status(self) -> dict[str, object]:
         async with self._lock:
+            if self._session is not None:
+                self._refresh_cooldown(self._session, self._monotonic_ns())
             return self._status_locked()
+
+    def _refresh_cooldown(self, session: _Session, now: int) -> None:
+        if (
+            session.state == NeuralSessionState.COOLDOWN
+            and session.last_commit_ns
+            and now - session.last_commit_ns >= self._config.cooldown_ns
+        ):
+            session.state = (
+                NeuralSessionState.ARMED_SAFE_UI
+                if session.armed_scope == NeuralScope.NAVIGATE
+                else NeuralSessionState.ARMED_SAFE_DESKTOP
+            )
+            session.state_revision += 1
 
     def _verify_authenticated_envelope(self, session: _Session, intent: NeuralIntentV1, now: int) -> None:
         if not self._signer.verify(intent):
@@ -317,6 +348,8 @@ class NeuralIntentGate:
             raise NeuralGateError("neural evidence window is too large")
         if intent.window_start_ns > now + self._config.max_future_skew_ns:
             raise NeuralGateError("neural evidence timestamp is in the future")
+        if intent.window_end_ns < now - self._config.max_window_age_ns:
+            raise NeuralGateError("neural evidence window is stale")
         if intent.expires_at_ns < now:
             raise NeuralGateError("neural intent expired")
 
@@ -395,6 +428,10 @@ class NeuralIntentGate:
             "transport": session.descriptor.transport.value,
             "calibrated": bool(session.calibration_id),
             "calibration_id": session.calibration_id,
+            "decoder_version": session.decoder_version,
+            "calibration_metrics": (
+                session.calibration_metrics.model_dump(mode="json") if session.calibration_metrics else None
+            ),
             "armed_scope": session.armed_scope.value,
             "state_revision": session.state_revision,
             "last_sequence": session.last_sequence,

@@ -16,7 +16,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score
 
 from pilot.neural.acquisition import NeuralSampleWindow
-from pilot.neural.protocol import ArtifactHash, NeuralIntentClass, NeuralParadigm
+from pilot.neural.protocol import (
+    ArtifactHash,
+    NeuralCalibrationMetricsV1,
+    NeuralIntentClass,
+    NeuralParadigm,
+)
 from pilot.neural.quality import SignalQualitySummary
 
 TargetId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:-]{1,64}$")]
@@ -51,14 +56,7 @@ class CalibrationEpoch:
     block_id: str
 
 
-class CalibrationMetrics(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
-
-    epoch_count: int = Field(ge=1)
-    block_count: int = Field(ge=2)
-    balanced_accuracy: float = Field(ge=0, le=1)
-    expected_calibration_error: float = Field(ge=0, le=1)
-    per_class_recall: dict[str, float]
+CalibrationMetrics = NeuralCalibrationMetricsV1
 
 
 class SSVEPCalibrationArtifact(BaseModel):

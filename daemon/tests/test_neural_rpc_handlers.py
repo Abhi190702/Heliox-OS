@@ -21,6 +21,9 @@ def server() -> tuple[PilotServer, MagicMock, MagicMock]:
     instance._neural_controller.arm = AsyncMock(return_value={"state": "armed_safe_ui"})
     instance._neural_controller.commit = AsyncMock(return_value={"status": "committed"})
     instance._neural_controller.disarm = AsyncMock(return_value={"state": "observe_only"})
+    instance._neural_controller.update_observation = AsyncMock(
+        return_value={"quality": {"quality": "good"}, "dropped_samples": 0}
+    )
     ui = MagicMock()
     sidecar = MagicMock()
     instance._client_roles[ui] = RpcClientRole.UI
@@ -98,3 +101,26 @@ async def test_disarm_is_available_to_both_roles_and_reason_is_bounded(server) -
     reasons = [call.kwargs["reason"] for call in instance._neural_controller.disarm.await_args_list]
     assert reasons[0] == "disconnect"
     assert len(reasons[1]) <= 120
+
+
+@pytest.mark.asyncio
+async def test_quality_telemetry_accepts_only_bounded_summary_from_sidecar(server) -> None:
+    instance, ui, sidecar = server
+    quality = {
+        "quality": "good",
+        "artifact_flags": [],
+        "channel_std_uv": [4.2, 4.1],
+        "line_noise_ratio": 0.01,
+        "muscle_ratio": 0.02,
+        "estimated_missing_samples": 0,
+        "timestamp_jitter_ratio": 0.0,
+        "reasons": [],
+    }
+    result = await instance._handle_neural_observation(
+        {"quality": quality, "buffered_samples": 500, "dropped_samples": 0}, sidecar
+    )
+    assert result["status"] == "ok"
+    with pytest.raises(PermissionError):
+        await instance._handle_neural_observation({"quality": quality}, ui)
+    rejected = await instance._handle_neural_observation({"quality": {**quality, "samples_uv": [[1.0]]}}, sidecar)
+    assert rejected["status"] == "rejected"

@@ -10,6 +10,7 @@ import pytest
 from pilot.neural.acquisition import (
     BoundedNeuralBuffer,
     BrainFlowNeuralSource,
+    LSLNeuralSource,
     NeuralAcquisitionError,
     NeuralSampleWindow,
     PlaybackNeuralSource,
@@ -74,7 +75,9 @@ def test_playback_npz_is_safe_bounded_and_deterministic(tmp_path: Path) -> None:
     )
     source = PlaybackNeuralSource.from_npz(path)
     source.start()
-    assert source.read(4).sequence_start == 0
+    first = source.read(4)
+    assert first.sequence_start == 0
+    assert first.timestamps_ns[0] > 1_000_000_000
     assert source.read(6).sequence_end == 9
     with pytest.raises(EOFError):
         source.read(1)
@@ -126,6 +129,9 @@ def test_brainflow_adapter_validates_metadata_and_releases_driver(monkeypatch: p
         def get_board_data(self, count: int) -> np.ndarray:
             return np.arange(2 * count, dtype=np.float64).reshape(2, count)
 
+        def get_board_data_count(self) -> int:
+            return 1000
+
         def stop_stream(self) -> None:
             calls.append("stop")
 
@@ -149,3 +155,53 @@ def test_brainflow_adapter_validates_metadata_and_releases_driver(monkeypatch: p
     assert source.read(25).sample_count == 25
     source.stop()
     assert calls == ["prepare", "start", "stop", "release"]
+
+
+def test_lsl_adapter_accumulates_partial_chunks_without_dropping_samples(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[float, int]] = []
+
+    class Info:
+        @staticmethod
+        def channel_count() -> int:
+            return 2
+
+        @staticmethod
+        def nominal_srate() -> float:
+            return 250.0
+
+    class Inlet:
+        def __init__(self, info: Info, **kwargs: object) -> None:
+            assert kwargs["recover"] is False
+            self._chunks = [
+                ([[1.0, 2.0], [3.0, 4.0]], [100.001, 100.002]),
+                ([[5.0, 6.0]], [100.003]),
+            ]
+
+        def pull_chunk(self, *, timeout: float, max_samples: int):
+            calls.append((timeout, max_samples))
+            return self._chunks.pop(0)
+
+        def close_stream(self) -> None:
+            pass
+
+    module = types.ModuleType("pylsl")
+    module.resolve_byprop = lambda *args, **kwargs: [Info()]
+    module.local_clock = lambda: 100.0
+    module.StreamInlet = Inlet
+    monkeypatch.setitem(sys.modules, "pylsl", module)
+
+    source = LSLNeuralSource(
+        stream_name="HelioxEEG",
+        channel_names=("O1", "Oz"),
+        sample_rate_hz=250,
+        reference="linked-mastoids",
+    )
+    source.start()
+    window = source.read(3)
+    source.stop()
+
+    assert window.samples_uv.tolist() == [[1.0, 3.0, 5.0], [2.0, 4.0, 6.0]]
+    assert window.sequence_start == 0
+    assert [max_samples for _, max_samples in calls] == [3, 1]

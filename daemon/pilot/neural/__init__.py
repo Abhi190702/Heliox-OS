@@ -41,6 +41,7 @@ from pilot.neural.goals import (
 )
 from pilot.neural.protocol import (
     ArtifactFlag,
+    NeuralCalibrationMetricsV1,
     NeuralIntentClass,
     NeuralIntentV1,
     NeuralParadigm,
@@ -66,6 +67,7 @@ __all__ = [
     "NeuralAcquisitionError",
     "NeuralBufferHealth",
     "NeuralCalibrationError",
+    "NeuralCalibrationMetricsV1",
     "NeuralControlError",
     "NeuralController",
     "NeuralDecoderService",

@@ -158,3 +158,18 @@ class NeuralIntentV1(BaseModel):
         if not all(math.isfinite(value) for value in (self.posterior_permille, self.margin_permille)):
             raise ValueError("non-finite confidence values are forbidden")
         return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+
+
+class NeuralCalibrationMetricsV1(BaseModel):
+    """Bounded held-block metrics safe to expose outside neurod."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+
+    epoch_count: Annotated[int, Field(strict=True, ge=1, le=100000)]
+    block_count: Annotated[int, Field(strict=True, ge=2, le=10000)]
+    balanced_accuracy: float = Field(ge=0, le=1)
+    expected_calibration_error: float = Field(ge=0, le=1)
+    per_class_recall: dict[Identifier, Annotated[float, Field(ge=0, le=1)]] = Field(
+        min_length=2,
+        max_length=16,
+    )

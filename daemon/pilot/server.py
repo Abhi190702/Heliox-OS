@@ -1241,6 +1241,7 @@ class PilotServer:
             "neural_finish_calibration": self._handle_neural_finish_calibration,
             "neural_arm": self._handle_neural_arm,
             "neural_intent_preview": self._handle_neural_intent_preview,
+            "neural_observation": self._handle_neural_observation,
             "neural_commit": self._handle_neural_commit,
             "neural_disarm": self._handle_neural_disarm,
             "self_healing_status": self._handle_self_healing_status,
@@ -4922,12 +4923,21 @@ class PilotServer:
     async def _handle_neural_finish_calibration(self, params: dict, ws: ServerConnection) -> dict:
         self._require_rpc_role(ws, RpcClientRole.NEURAL_SIDECAR)
         try:
+            from pilot.neural.protocol import NeuralCalibrationMetricsV1
+
+            metrics = (
+                NeuralCalibrationMetricsV1.model_validate(params["metrics"])
+                if params.get("metrics") is not None
+                else None
+            )
             return {
                 "status": "ok",
                 **await self._neural_controller.finish_calibration(
                     uuid.UUID(str(params["session_id"])),
                     calibration_id=str(params["calibration_id"]),
                     subject_key=str(params["subject_key"]),
+                    decoder_version=str(params.get("decoder_version") or ""),
+                    metrics=metrics,
                 ),
             }
         except (KeyError, TypeError, ValueError) as exc:
@@ -4956,6 +4966,22 @@ class PilotServer:
 
             intent = NeuralIntentV1.model_validate(params.get("intent"))
             return await self._neural_controller.preview(intent)
+        except (TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
+
+    async def _handle_neural_observation(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.NEURAL_SIDECAR)
+        try:
+            from pilot.neural.quality import SignalQualitySummary
+
+            summary = SignalQualitySummary.model_validate(params.get("quality"))
+            observation = await self._neural_controller.update_observation(
+                summary,
+                buffered_samples=max(0, int(params.get("buffered_samples", 0))),
+                dropped_samples=max(0, int(params.get("dropped_samples", 0))),
+                observed_at_ns=max(0, int(params.get("observed_at_ns", 0))),
+            )
+            return {"status": "ok", **observation}
         except (TypeError, ValueError) as exc:
             return {"status": "rejected", "error": str(exc)}
 

@@ -133,6 +133,7 @@ dev = [
 
 [project.scripts]
 pilot-daemon = "pilot.server:main"
+pilot-neurod = "pilot.neural.rpc_client:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pilot"]

@@ -12,7 +12,13 @@ from pilot.agents.destructive_critic import PlanRiskAssessment, assess_plan_risk
 from pilot.config import PilotConfig
 from pilot.neural.gate import NeuralCommit, NeuralIntentGate, NeuralPreview
 from pilot.neural.goals import NeuralGoalRegistry
-from pilot.neural.protocol import NeuralIntentV1, NeuralScope, NeuralStreamDescriptorV1
+from pilot.neural.protocol import (
+    NeuralCalibrationMetricsV1,
+    NeuralIntentV1,
+    NeuralScope,
+    NeuralStreamDescriptorV1,
+)
+from pilot.neural.quality import SignalQualitySummary
 from pilot.security.gateway import (
     DEFAULT_SOURCE_PROFILES,
     InvocationSource,
@@ -49,11 +55,13 @@ class NeuralController:
         self._goals = goals or NeuralGoalRegistry()
         self._broadcast = broadcast
         self._pending: PendingNeuralExecution | None = None
+        self._last_observation: dict[str, object] | None = None
         self._lock = asyncio.Lock()
 
     async def connect(self, descriptor: NeuralStreamDescriptorV1) -> dict[str, object]:
         async with self._lock:
             self._pending = None
+            self._last_observation = None
             status = await self._gate.connect(descriptor)
             await self._emit("neural_status", status)
             return status
@@ -65,12 +73,22 @@ class NeuralController:
             await self._emit("neural_status", status)
             return status
 
-    async def finish_calibration(self, session_id: UUID, *, calibration_id: str, subject_key: str) -> dict[str, object]:
+    async def finish_calibration(
+        self,
+        session_id: UUID,
+        *,
+        calibration_id: str,
+        subject_key: str,
+        decoder_version: str = "",
+        metrics: NeuralCalibrationMetricsV1 | None = None,
+    ) -> dict[str, object]:
         async with self._lock:
             status = await self._gate.finish_calibration(
                 session_id,
                 calibration_id=calibration_id,
                 subject_key=subject_key,
+                decoder_version=decoder_version,
+                metrics=metrics,
             )
             await self._emit("neural_status", status)
             return status
@@ -183,6 +201,24 @@ class NeuralController:
             await self._emit("neural_disarmed", status)
             return status
 
+    async def update_observation(
+        self,
+        summary: SignalQualitySummary,
+        *,
+        buffered_samples: int,
+        dropped_samples: int,
+        observed_at_ns: int,
+    ) -> dict[str, object]:
+        async with self._lock:
+            self._last_observation = {
+                "quality": summary.model_dump(mode="json"),
+                "buffered_samples": max(0, buffered_samples),
+                "dropped_samples": max(0, dropped_samples),
+                "observed_at_ns": max(0, observed_at_ns),
+            }
+            await self._emit("neural_observation", self._last_observation)
+            return dict(self._last_observation)
+
     async def status(self) -> dict[str, object]:
         status = await self._gate.status()
         return {
@@ -196,6 +232,7 @@ class NeuralController:
                 "destructive_approval": False,
             },
             "safe_goals": self._goals.public_summaries(),
+            "last_observation": self._last_observation,
         }
 
     def _assess_world_model(self, plan: ActionPlan) -> PlanRiskAssessment:
