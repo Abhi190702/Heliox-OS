@@ -123,3 +123,26 @@ def test_sidecar_emits_only_signed_derived_intent_and_tracks_dwell() -> None:
     assert all(signer.verify(intent) for intent in intents if intent)
     wire = intents[-1].model_dump(mode="json", by_alias=True) if intents[-1] else {}
     assert "samples_uv" not in wire and "timestamps_ns" not in wire
+
+
+def test_sidecar_records_every_acquired_chunk_only_when_factory_is_supplied() -> None:
+    artifact = _artifact()
+    source = SyntheticNeuralSource(target_hz=15, noise_uv=1.0, seed=101)
+    recorded: list[NeuralSampleWindow] = []
+
+    class Recorder:
+        def append(self, window: NeuralSampleWindow) -> None:
+            recorded.append(window)
+
+    service = NeuralDecoderService(
+        source=source,
+        decoder=SSVEPDecoder(artifact),
+        signer=NeuralIntentSigner(b"r" * 32),
+        recorder_factory=lambda descriptor: Recorder(),
+    )
+    service.start()
+    warmup_chunks = len(recorded)
+    service.observe_once(state_revision=1, requested_scope=NeuralScope.NAVIGATE)
+    service.stop()
+    assert warmup_chunks > 0
+    assert len(recorded) == warmup_chunks + 1

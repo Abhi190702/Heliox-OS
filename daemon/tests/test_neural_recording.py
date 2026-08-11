@@ -48,6 +48,8 @@ def test_encrypted_recording_contains_no_plain_samples_and_exports_brainvision(t
     assert (exported / "dataset_description.json").is_file()
     assert (eeg_dir / "sub-localsubject_task-heliox_eeg.vhdr").is_file()
     assert (eeg_dir / "sub-localsubject_task-heliox_eeg.eeg").stat().st_size == 50 * 3 * 4
+    reopened = EncryptedNeuralRecorder.open_existing(recorder.destination, key=b"k" * 32)
+    assert reopened.export_bids_brainvision(tmp_path / "bids-reopened").is_dir()
 
 
 def test_recording_fails_closed_without_consent_or_on_tamper(tmp_path) -> None:

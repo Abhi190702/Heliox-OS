@@ -7,12 +7,13 @@ import asyncio
 import json
 import logging
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
 from websockets.asyncio.client import ClientConnection, connect
 
-from pilot.config import RUNTIME_DIR
+from pilot.config import DATA_DIR, RUNTIME_DIR
 from pilot.neural.acquisition import (
     BrainFlowNeuralSource,
     LSLNeuralSource,
@@ -22,6 +23,7 @@ from pilot.neural.acquisition import (
 from pilot.neural.decoder import SSVEPCalibrationArtifact, SSVEPDecoder
 from pilot.neural.gate import NeuralIntentSigner
 from pilot.neural.protocol import NeuralScope
+from pilot.neural.recording import EncryptedNeuralRecorder, NeuralRecordingConsentV1
 from pilot.neural.service import NeuralDecoderService
 from pilot.neural.simulator import ensure_synthetic_calibration_artifact
 from pilot.security.rpc_identity import derive_neural_signing_key
@@ -227,7 +229,38 @@ async def _run_from_args(args: argparse.Namespace) -> None:
         raise ValueError("--artifact is required for live and playback neural sources")
     source = _source_from_args(args, artifact)
     signer = NeuralIntentSigner(derive_neural_signing_key(token))
-    service = NeuralDecoderService(source=source, decoder=SSVEPDecoder(artifact), signer=signer)
+    recorder_factory = None
+    if args.record_raw:
+        granted_at = datetime.now(UTC)
+        recording_path = (
+            Path(args.recording_file)
+            if args.recording_file
+            else DATA_DIR / "neural" / f"{artifact.subject_key}-{granted_at:%Y%m%dT%H%M%SZ}.neeg"
+        )
+
+        def recorder_factory(descriptor):
+            consent = NeuralRecordingConsentV1(
+                session_id=descriptor.session_id,
+                subject_key=artifact.subject_key,
+                purpose=args.recording_purpose,
+                granted_at=granted_at,
+                expires_at=granted_at + timedelta(days=args.retention_days),
+                retention_days=args.retention_days,
+                allow_bids_export=args.allow_bids_export,
+                authorized=True,
+            )
+            return EncryptedNeuralRecorder(
+                destination=recording_path,
+                descriptor=descriptor,
+                consent=consent,
+            )
+
+    service = NeuralDecoderService(
+        source=source,
+        decoder=SSVEPDecoder(artifact),
+        signer=signer,
+        recorder_factory=recorder_factory,
+    )
     bridge = NeurodBridge(
         transport=NeuralRpcTransport(url=args.url, token=token),
         service=service,
@@ -253,6 +286,11 @@ def main() -> None:
     parser.add_argument("--synthetic-frequency", type=float, default=15.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--poll-seconds", type=float, default=0.5)
+    parser.add_argument("--record-raw", action="store_true", help="Explicitly consent to encrypted local raw EEG")
+    parser.add_argument("--recording-file", help="New .neeg destination; never overwritten")
+    parser.add_argument("--recording-purpose", default="local accessibility calibration")
+    parser.add_argument("--retention-days", type=int, choices=range(1, 366), default=7, metavar="1-365")
+    parser.add_argument("--allow-bids-export", action="store_true")
     args = parser.parse_args()
     try:
         asyncio.run(_run_from_args(args))

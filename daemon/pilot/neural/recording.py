@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import base64
 import hashlib
 import io
@@ -133,6 +134,32 @@ class EncryptedNeuralRecorder:
     @property
     def destination(self) -> Path:
         return self._destination
+
+    @classmethod
+    def open_existing(
+        cls,
+        source: Path,
+        *,
+        key: bytes | None = None,
+        key_store: NeuralRecordingKeyStore | None = None,
+    ) -> EncryptedNeuralRecorder:
+        path = source.expanduser().resolve()
+        try:
+            header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+            if header.get("type") != "header" or header.get("cipher") != "AES-256-GCM":
+                raise ValueError("unsupported recording header")
+            descriptor = NeuralStreamDescriptorV1.model_validate(header["descriptor"])
+            consent = NeuralRecordingConsentV1.model_validate(header["consent"])
+        except (OSError, IndexError, KeyError, ValueError) as exc:
+            raise NeuralRecordingError("invalid encrypted neural recording") from exc
+        consent.require_active()
+        instance = cls.__new__(cls)
+        instance._destination = path
+        instance._descriptor = descriptor
+        instance._consent = consent
+        instance._key = key or (key_store or NeuralRecordingKeyStore()).get_or_create(consent.subject_key)
+        instance._last_sequence = -1
+        return instance
 
     def append(self, window: NeuralSampleWindow) -> None:
         self._consent.require_active()
@@ -280,3 +307,12 @@ class EncryptedNeuralRecorder:
                     )
                 )
         return windows
+
+
+def export_main() -> None:
+    parser = argparse.ArgumentParser(description="Export a consented Heliox neural recording to BIDS/BrainVision")
+    parser.add_argument("recording", help="Encrypted .neeg recording")
+    parser.add_argument("destination", help="Empty or new BIDS dataset directory")
+    args = parser.parse_args()
+    recorder = EncryptedNeuralRecorder.open_existing(Path(args.recording))
+    recorder.export_bids_brainvision(Path(args.destination))

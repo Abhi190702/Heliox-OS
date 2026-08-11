@@ -52,6 +52,7 @@ class NeuralDecoderService:
         minimum_decoder_posterior_permille: int = 500,
         monotonic_ns: Callable[[], int] = time.monotonic_ns,
         recorder: NeuralWindowRecorder | None = None,
+        recorder_factory: Callable[[NeuralStreamDescriptorV1], NeuralWindowRecorder] | None = None,
     ) -> None:
         self._source = source
         self._decoder = decoder
@@ -71,6 +72,9 @@ class NeuralDecoderService:
         self._minimum_posterior = minimum_decoder_posterior_permille
         self._monotonic_ns = monotonic_ns
         self._recorder = recorder
+        self._recorder_factory = recorder_factory
+        if recorder is not None and recorder_factory is not None:
+            raise ValueError("provide a neural recorder or recorder factory, not both")
         self._buffer: BoundedNeuralBuffer | None = None
         self._sequence = 0
         self._last_target: str | None = None
@@ -83,6 +87,8 @@ class NeuralDecoderService:
         self._source.start()
         try:
             descriptor = self._source.descriptor
+            if self._recorder_factory is not None:
+                self._recorder = self._recorder_factory(descriptor)
             if descriptor.sample_rate_hz != self._decoder.artifact.sample_rate_hz:
                 raise ValueError("source sample rate does not match calibration")
             if descriptor.channel_names != self._decoder.artifact.channel_names:
@@ -127,6 +133,10 @@ class NeuralDecoderService:
         self._buffer = None
         self._last_target = None
         self._dwell = 0
+
+    @property
+    def recorder(self) -> NeuralWindowRecorder | None:
+        return self._recorder
 
     def observe_once(
         self,
