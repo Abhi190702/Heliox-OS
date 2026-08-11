@@ -20,6 +20,7 @@
   import SelfHealingPanel from "./SelfHealingPanel.svelte";
   import NarrationPanel from "./NarrationPanel.svelte";
   import SupervisionPanel from "./SupervisionPanel.svelte";
+  import NeuralControlPanel from "./NeuralControlPanel.svelte";
   import { getSharedGestureCalibrationStore } from "../gesture/calibration";
   import { gazeRuntime, resetGazeRuntime } from "../stores/gazeRuntime";
   import { defaultHotkey, isNativeTauriRuntime, normalizeHotkeyValue } from "../hotkey";
@@ -1630,6 +1631,10 @@
 
   <section class="settings-group feature-panel-section">
     <RiskWorldModelPanel />
+  </section>
+
+  <section class="settings-group feature-panel-section">
+    <NeuralControlPanel />
   </section>
 
   <section class="settings-group feature-panel-section">

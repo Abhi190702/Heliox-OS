@@ -34,6 +34,7 @@
   import CommandHistory from "./lib/components/CommandHistory.svelte";
   import ChatSessionControls from "./lib/components/ChatSessionControls.svelte";
   import InteractiveServices from "./lib/components/InteractiveServices.svelte";
+  import NeuralControlOverlay from "./lib/components/NeuralControlOverlay.svelte";
   import { _, isLoading } from "svelte-i18n";
 
   let isDragging = $state(false);
@@ -235,6 +236,7 @@
         <BudgetExceededDialog />
         <InterruptDialog />
         <SupervisionAlertDialog />
+        <NeuralControlOverlay />
 
         {#if $session.proactiveSuggestion}
           <aside
