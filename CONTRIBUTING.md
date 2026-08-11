@@ -12,6 +12,7 @@ heliox-os/
 │       ├── models/          # LLM routing (Gemini, OpenAI, Claude, Ollama)
 │       ├── intelligence/    # Ledger, learning, replay, strategy, and evolution
 │       ├── memory/          # Temporal facts and bounded context assembly
+│       ├── neural/          # Acquisition, calibrated decoding, intent gate, recording
 │       ├── plugins/         # Capability validation and native/WASM brokers
 │       ├── security/        # Permission, gateway, audit, risk, and plugin policy
 │       ├── workflows/       # Durable tasks and voice/gesture workflows
@@ -267,6 +268,15 @@ without an exception.
 Changes to execution, intelligence, security, plugins, or routing must also
 update or assess README, [Architecture](docs/ARCHITECTURE.md),
 [Security](SECURITY.md), and [IPC](IPC_MESSAGE_FORMATS.md).
+
+Neural changes must additionally preserve role separation, strict/replay-safe
+contracts, bounded buffers, abstention, explicit non-neural arming, preview and
+cancellation, the fixed Tier 0/1 goal registry, raw-data consent/retention, and
+physical-control denial. Run the neural protocol/acquisition/decoder/gate/
+controller/recording tests and the paired UI/sidecar end-to-end test. Synthetic
+evidence must never be described as live-headset or human accuracy evidence;
+record physical hardware results separately. See
+[Neural Intent Research Controls](docs/NEURAL_INTENT.md).
 
 ## 📜 License
 

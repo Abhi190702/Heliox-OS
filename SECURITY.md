@@ -26,6 +26,7 @@ This policy covers the following Heliox OS components:
 - **🤖 Python Daemon** — the core backend driving agent orchestration, planning, and verification
 - **🖱️ Gesture Cursor Control** — the continuous gesture-to-cursor bridge (off by default, opt-in only) that drives the real OS mouse cursor; the one capability in Heliox OS that acts without a per-action confirmation gate, so its escape hatches (open palm, stop button, disabling the setting) and screen-bounds clamping are treated as security-relevant, not just UX
 - **🚪 Agent Gateway** — source-scoped permission floors, tamper-evident audit logging, and dry-run/simulation coverage for shell, browsing, and system-control actions, layered alongside the tier-based `PermissionChecker` (see the dedicated section below)
+- **🧠 Neural Intent Research Controls** — role-separated sidecar authentication, signed/replay-safe intent, explicit non-neural arming and commit, fixed Tier 0/1 goals, encrypted consented recording, and a hard prohibition on physical authority
 
 **Out of scope:**
 - Bugs solely in third-party plugin business logic that Heliox does not
@@ -470,6 +471,86 @@ model itself.
 - **Windows-only verified.** macOS requires an explicit Accessibility/Input Monitoring permission grant outside this codebase's control; Linux/Wayland is likely broken since `pynput`'s hook backend relies on X11/Xlib. Neither was exercised in this pass.
 - No per-application context for keystroke or OCR matches — this is flat, content-only pattern matching, false positives included.
 - Not verified against a live daemon with the real OS-level hook installed in this pass — the engine's trigger/cooldown logic and the hook's buffer/privacy-boundary behavior are covered by unit tests with fakes (mirroring `test_narrator.py`'s pattern), and the frontend pieces were verified live in-browser (the panel's toggles, the "I understand" gate, and the dismiss-only dialog all render and behave correctly), but the actual `pynput` listener installation and a real risky-keystroke round trip need a real Windows session and weren't exercised end-to-end here.
+
+---
+
+## Neural intent research controls
+
+**Threat model.** Neural acquisition adds an untrusted high-rate sensor and a
+decoder whose output can be confidently wrong. The boundary assumes a source
+may crash, reorder or replay data, forge confidence, reuse an old session,
+inject artifacts, race another modality, or try to convert a decoded label
+into broader system authority. Biological signal quality is not treated as an
+authentication factor, and repeating a neural choice is never user approval.
+
+**Separate process and credential.** `pilot-neurod` owns acquisition, signal
+quality, calibration, decoding, and optional raw recording. The daemon creates
+a distinct random sidecar token and derives a domain-separated HMAC key for
+intent envelopes. The UI credential is never shared. Only one sidecar may be
+connected, and its RPC allow-list contains status/connect, calibration result,
+observation, preview submission, disarm, and stimulus-marker read. It cannot
+arm, commit, approve, execute, store credentials, change configuration, or
+call ordinary Heliox methods. Disconnecting it immediately disarms the active
+neural session.
+
+**Strict, expiring evidence.** `NeuralStreamDescriptorV1` and
+`NeuralIntentV1` reject unknown fields, unsupported versions, unbounded values,
+NaN/Inf, invalid enums, duplicated artifacts, and inconsistent channel/session
+metadata. The gate verifies HMAC, active session, calibration artifact,
+pseudonymous subject, state revision, strictly increasing sequence, unique
+intent UUID, monotonic evidence window, future skew, freshness, short expiry,
+signal quality, artifacts, confidence, class margin, dwell, and armed scope.
+Buffers and remembered intent IDs are bounded. Playback timestamps are rebased
+to the current monotonic domain; no old recording can retain live authority.
+
+**Independent user authority.** Only the UI role can begin calibration, arm a
+scope, write SSVEP stimulus markers, or commit a visible preview. Arming is a
+deliberate keyboard/mouse action. Preview and execute are separate APIs with an
+800 ms cancellation interval, compare-and-set revision, expiry, and cooldown.
+`cancel`, a concurrent voice/gesture cancellation, a stale context, or a
+sidecar/source/decoder failure dominates selection. The emergency disarm RPC
+is out-of-band so it is not trapped behind a long ordinary request.
+
+**No command strings and no physical authority.** Decoder classes map through
+compiled `NeuralGoalRegistry` identifiers. Every safe desktop goal is checked
+to be reversible and Tier 0/1; arbitrary targets or parameters never cross the
+neural boundary. The `neural` source profile cannot be widened by a caller.
+The resolved plan passes world-model assessment before preview and again at
+commit, then the ordinary shared executor's schema, deterministic permission,
+gateway, durable claim, adapter, audit, and verification layers. Physical
+scope always rejects. The sidecar has no destructive approval, root,
+filesystem wildcard, process execution, provider secret, or actuator command
+authority.
+
+**Concurrency.** One cooperative execution lease covers ordinary effectful
+plans from every feature. A neural commit fails closed if an effect already
+owns the lease instead of waiting and executing a stale preview. Sensor
+acquisition and voice/gesture/gaze cancellation remain responsive. There is no
+automatic retry after ambiguous delivery.
+
+**Raw-data privacy.** Raw EEG and feature vectors stay in `neurod` and are not
+sent to an LLM or the experience ledger. Recording is disabled unless the user
+explicitly grants a bounded purpose, expiry, retention period, and new local
+destination. Sample chunks and stimulus markers use independent AES-256-GCM
+records; keys live in the OS credential store and recording fails closed when
+secure storage is unavailable. Expired files are pruned before another
+recording; cleanup failure blocks recording. BIDS/BrainVision export requires
+separate consent and never overwrites a destination.
+
+**Audit.** A dedicated append-only HMAC chain links evidence-window metadata,
+intent, preview, commit, plan, result, disarm, and stimulus markers. It excludes
+raw samples, feature vectors, audio, frames, landmarks, and screen pixels. Its
+key is independent of the recording key, UI token, and sidecar token.
+
+**Known limits.** The shipped no-control soak and paired-RPC integration use a
+deterministic synthetic source. They do not establish a biological false-
+activation rate, cross-session accuracy, comfort, fatigue, or live headset
+reliability. Browser/WebView SSVEP markers are daemon-stamped integration
+markers, not laboratory-grade hardware triggers. A real OpenBCI/LSL session,
+multi-day held-out calibration, human artifact/no-control trials, and physical
+keyboard/mouse emergency-disarm exercise are still required before claiming a
+physically validated N1-N3 system. N4/N5 physical shadow/pilot authority is not
+implemented. See [Neural Intent Research Controls](docs/NEURAL_INTENT.md).
 
 ---
 

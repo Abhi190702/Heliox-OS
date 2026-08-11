@@ -7,7 +7,7 @@ contract, not a roadmap. Exact action values live in
 
 ## System boundaries
 
-Heliox is split into three trust boundaries:
+Heliox is split into four trust boundaries:
 
 1. **Tauri desktop shell and Svelte UI** collect explicit text, voice, gesture,
    gaze, camera, and settings input. The UI is not the execution authority.
@@ -17,6 +17,11 @@ Heliox is split into three trust boundaries:
 3. **Constrained child runtimes** execute reviewed native and WebAssembly
    plugins. Evolution candidates run in detached Git worktrees inside a
    prebuilt, network-disabled Docker image.
+4. **Least-privileged neural sidecar** owns optional synthetic/playback/
+   BrainFlow/LSL acquisition, signal quality, calibration, decoding, and
+   consented encrypted raw recording. It authenticates with a separate token
+   and can send only bounded observations, stimulus reads, and signed intent;
+   it cannot arm, commit, execute, approve, or use the UI credential.
 
 Raw camera frames, audio, hand or face landmarks, screen pixels, and binary
 payloads are excluded from the experience and learning stores by default.
@@ -26,6 +31,10 @@ payloads are excluded from the experience and learning stores by default.
 ```mermaid
 flowchart LR
     Input["Text, voice, gesture, gaze, screen context"] --> Interaction["Observable interaction state"]
+    NeuralSource["Synthetic/playback/BrainFlow/LSL"] --> Neurod["neurod: quality, calibration and decode"]
+    Neurod --> SignedIntent["Signed, expiring neural intent"]
+    SignedIntent --> NeuralGate["Dwell, replay, preview and cancellation gate"]
+    NeuralGate --> Interaction
     Interaction --> Ledger["Append-only experience ledger"]
     Ledger --> Context["Temporal context assembler"]
     Context --> Planner["Planner and strategy assignment"]
@@ -53,6 +62,12 @@ cancellation, or the round limit.
 The ordinary action path is sequential. Parallel branches are allowed only
 when a caller explicitly attests that they are independent; fan-out,
 delegation depth, cancellation, and resource budgets remain bounded.
+
+All ordinary side effects also share one cooperative execution lease. Neural
+acquisition, voice, gesture, gaze, and cancellation remain responsive while an
+effect is running. A neural commit does not queue behind another effect and
+later execute from a stale preview; it fails closed and must be deliberately
+selected again.
 
 ## Intelligence and reliability layers
 
@@ -254,6 +269,40 @@ App-Paths, PATH, and registered apps; macOS uses Launch Services through
 `open -a`; Linux accepts a PATH executable or a verified `gtk-launch` desktop
 entry. No launcher reports success merely because a shell command was issued.
 
+### Neural intent research boundary
+
+The optional `pilot-neurod` process is an acquisition and decoder gateway, not
+an agent or executor. It supports bounded synthetic, `.npz` playback,
+BrainFlow, and named local LSL sources. A subject-calibrated SSVEP baseline
+emits only `cancel`, `focus_left`, `focus_right`, `select`, or a compiled safe
+goal identifier. Unknown fields, invalid hashes/signatures, NaN/Inf, stale or
+future windows, reordered sequences, replayed intent IDs, mismatched sessions
+or calibration, poor quality, artifacts, insufficient dwell/confidence/margin,
+and source/decoder crashes fail closed.
+
+The UI is the independent authority for calibration start, arming, stimulus
+markers, commit, approval, and emergency disarm. A preview has an 800 ms cancel
+interval, short expiry, compare-and-set revision, and post-commit cooldown.
+Voice or gesture cancellation dominates selection. The resolved canonical
+goal—not raw EEG—is evaluated by the OS world model before preview and again
+before execution.
+
+Dedicated neural UI navigation has no OS side effect. Safe desktop mode maps
+only through `NeuralGoalRegistry`, whose shipped entries are reversible Tier
+0/1 status, calculator, and local-notification actions. The `neural` gateway
+profile, shared executor, normal permission policy, durable claim, adapter,
+audit, and verification remain authoritative. Physical control, destructive
+approval, arbitrary command text, and provider credentials are unavailable.
+
+Raw samples stay inside `neurod` unless a user grants explicit purpose-bound
+recording consent. `.neeg` chunks and stimulus markers use AES-256-GCM with a
+key in the OS credential store, bounded retention, no overwrite, and optional
+separately-consented BIDS/BrainVision export. The daemon audit stores bounded
+window/intent/preview/plan/result provenance, never samples or feature vectors.
+
+See [Neural Intent Research Controls](NEURAL_INTENT.md) for the state machine,
+source commands, current N0-N3 evidence, and unimplemented N4/N5 boundaries.
+
 ## Security decision order
 
 An action is allowed to reach a side-effect adapter only after the applicable
@@ -287,6 +336,8 @@ All state is local unless the user explicitly configures an external service:
 | Strategy archive | Inert candidates, evaluations, assignments, and rollback |
 | Evolution archive/worktrees | Isolated engineering candidates and evidence |
 | Permission and gateway audit stores | Independent tamper-evident decision chains |
+| Neural intent audit | HMAC-chained window, intent, preview, commit, plan, result, disarm, and marker provenance without raw EEG |
+| Consented neural recordings | Purpose-bound encrypted local `.neeg` files with expiry and optional BIDS export; absent by default |
 
 API keys live in the operating-system credential store, not in these databases.
 

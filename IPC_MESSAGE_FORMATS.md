@@ -12,7 +12,7 @@ The Heliox OS UI and daemon communicate over a local WebSocket using the [JSON-R
 | Request timeout | 5 minutes |
 | Reconnect interval | 3 seconds (auto-reconnect on close) |
 
-The daemon currently registers **146 WebSocket RPC methods**. That is the API
+The daemon currently registers **157 WebSocket RPC methods**. That is the API
 surface count, not the action catalog: Heliox still exposes **156 action
 types** through the guarded planner/executor system. This document names every
 registered RPC method; grouped tables are used where several methods share one
@@ -676,6 +676,97 @@ Return fusion engine statistics.
 
 **Params:** `{}`
 **Result:** fusion engine stats dict.
+
+---
+
+### Neural Intent Research Controls
+
+Neural RPC uses two authenticated roles. The UI retains the ordinary daemon
+token. The one allowed `pilot-neurod` connection authenticates with a separate
+short-lived sidecar token and can call only the methods marked Sidecar below.
+Role violations return method-not-available before a handler runs.
+
+| Method | Role | Purpose |
+|--------|------|---------|
+| `neural_status` | UI, Sidecar | Read state, capabilities, fixed goals, quality and bounded audit status |
+| `neural_connect` | Sidecar | Register one strict `NeuralStreamDescriptorV1` session |
+| `neural_begin_calibration` | UI | Move the current session into explicit calibration |
+| `neural_finish_calibration` | Sidecar | Bind verified artifact, subject pseudonym, decoder version and held-block metrics |
+| `neural_arm` | UI | Arm `navigate` or `safe_desktop` with explicit non-neural authorization |
+| `neural_intent_preview` | Sidecar | Submit one signed, expiring `NeuralIntentV1` candidate |
+| `neural_observation` | Sidecar | Publish a bounded quality/artifact/buffer summary; no samples |
+| `neural_commit` | UI | Commit the current preview by UUID and expected state revision |
+| `neural_disarm` | UI, Sidecar | Immediately return to observe-only/disconnected safety state |
+| `neural_stimulus_marker` | UI | Write one daemon-stamped grid/target marker |
+| `neural_stimulus_markers` | Sidecar | Read new markers after a sequence for local recording/epoching |
+
+`neural_connect` params contain `descriptor` with schema version, UUID,
+pseudonymous source, transport, sample rate, channel metadata, reference,
+optional calibration hash, sequence start, and monotonic start. Unknown fields,
+invalid ranges, inconsistent channels, and unsupported versions reject.
+
+`neural_finish_calibration`:
+
+```json
+{
+  "session_id": "6eaf...",
+  "calibration_id": "4ad7...",
+  "subject_key": "local-subject-1",
+  "decoder_version": "34bc...",
+  "metrics": {
+    "epoch_count": 24,
+    "block_count": 6,
+    "balanced_accuracy": 0.84,
+    "expected_calibration_error": 0.08,
+    "per_class_recall": {
+      "focus_left": 0.83,
+      "focus_right": 0.85,
+      "select": 0.82,
+      "cancel": 0.86
+    }
+  }
+}
+```
+
+`neural_arm` accepts only a current `session_id`, `scope` (`navigate` or
+`safe_desktop`), and `user_authorized: true`. `physical_goal` always rejects.
+
+`neural_intent_preview` carries the strict signed envelope under `intent`.
+Accepted candidates produce `status: "previewed"` with `preview_id`,
+`intent_id`, resolved canonical goal, scope, state revision, cancellation/
+expiry timestamps, world-model assessment, non-neural approval requirement,
+and a raw-media-free fusion summary. Cancel returns `status: "cancelled"` and
+disarms without creating a preview.
+
+`neural_commit`:
+
+```json
+{
+  "preview_id": "2d7e...",
+  "expected_revision": 5,
+  "world_model_approved": false
+}
+```
+
+The UI calls commit only after the preview's cancellation interval. A world-
+model warning requires a distinct UI approval and `world_model_approved: true`;
+neural repetition is not approval. A missing, stale, expired, raced, replayed,
+or already-consumed preview returns `status: "rejected"`. There is no automatic
+retry.
+
+`neural_observation` accepts `quality`, `buffered_samples`, `dropped_samples`,
+and `observed_at_ns`. `quality` contains only the enum, artifact flags, bounded
+metrics, and reasons defined in `SignalQualitySummary`—never raw EEG or feature
+vectors.
+
+`neural_stimulus_marker` accepts active `session_id`, optional registered
+`target_id`, event (`grid_shown`, `grid_hidden`, `target_on`, `target_off`), and
+the client's display-performance timestamp. The daemon assigns authoritative
+order and `received_monotonic_ns`. Sidecar reads use
+`{"after_sequence": 12}`. The queue is bounded.
+
+See [Neural Intent Research Controls](docs/NEURAL_INTENT.md) for the complete
+state machine, security boundary, and honest N0-N3 evidence.
 
 ---
 
@@ -1676,6 +1767,24 @@ A fused voice + gesture intent from the fusion engine.
 
 ---
 
+### Neural notifications
+
+- `neural_status` — active state/session/scope and fixed capability summary.
+- `neural_observation` — bounded signal quality, artifacts, buffered and
+  dropped counts.
+- `neural_preview` — visible candidate, cancellation/expiry timestamps,
+  resolved goal, fusion summary, and world-model caution.
+- `neural_navigation` — committed dedicated-UI focus/select result.
+- `neural_result` — fixed safe-desktop plan ID, verified action results, and
+  `retry_allowed: false`.
+- `neural_disarmed` — terminal safety transition and reason.
+
+The daemon never broadcasts sidecar credentials, signatures, raw EEG, feature
+vectors, or recording keys. The sidecar itself is excluded from ordinary UI
+broadcast recipients.
+
+---
+
 ### `feature_announcement`
 Emitted once on startup when a new daemon version introduces new capabilities.
 
@@ -1948,6 +2057,10 @@ If verification fails, the daemon re-plans and the cycle repeats (up to 2 retrie
 | `daemon/pilot/intelligence/strategy_evolution.py` | Inert strategy candidate lifecycle and assignments |
 | `daemon/pilot/intelligence/evolution_harness.py` | Detached-worktree/Docker engineering evaluation archive |
 | `daemon/pilot/agents/agent_mesh.py` | Specialist capability, resource, budget, routing-quality, delegation, and coverage contracts |
+| `daemon/pilot/neural/` | Neural contracts, acquisition, calibration/decoder, intent gate, controller, provenance, recording, and sidecar bridge |
+| `daemon/pilot/security/rpc_identity.py` | Separate UI/sidecar authentication and sidecar method allow-list |
+| `tauri-app/src-tauri/src/commands.rs` | Native neural sidecar lifecycle and recording export commands |
+| `tauri-app/ui/src/lib/stores/neural.ts` | Neural UI state, lifecycle, calibration, arming, commit, and disarm |
 | `daemon/pilot/plugins/` | Capability validation and constrained native/WASM execution |
 | `daemon/pilot/system/interaction.py` | Shared text/voice interaction phases and acknowledgement contract |
 | `daemon/pilot/agents/autonomous.py` | Bounded adaptive observe/act/verify application loop |

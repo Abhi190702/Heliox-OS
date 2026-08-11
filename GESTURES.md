@@ -298,6 +298,28 @@ above.
 
 ---
 
+## Neural-intent fusion and cancellation
+
+The optional neural research path does not replace gesture/gaze fusion.
+Immediately before creating a neural preview and again before committing it,
+the daemon captures one bounded multimodal snapshot containing only recent
+voice text/confidence, gesture label/confidence, coarse gaze region/confidence,
+and timing metadata. Raw camera/audio/landmark data is excluded.
+
+An open-palm, palm-pull, stop phrase, or other registered cancellation signal
+always dominates a simultaneous neural selection and disarms neural control.
+Gaze remains passive context and cannot raise neural authority or create a
+command. Gesture/voice agreement may add context to the audit and preview, but
+it cannot lower the neural dwell, quality, confidence, margin, freshness,
+world-model, permission, or approval requirements.
+
+Neural acquisition continues while gesture/camera processing is active, and
+all ordinary side effects coordinate through the shared execution lease so
+enabling every modality does not silently suppress another feature. See
+[Neural Intent Research Controls](docs/NEURAL_INTENT.md).
+
+---
+
 ## Gesture Cursor Control (continuous cursor bridge)
 
 A separate, **off-by-default** mode that continuously drives the real OS

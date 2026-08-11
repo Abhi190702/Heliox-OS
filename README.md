@@ -96,6 +96,7 @@ Heliox OS combines reactive commands with opt-in proactive and background capabi
 - 🪟 **Target-Bound Desktop Control**: Background text entry is tied to the task's intended native window. Heliox re-focuses and verifies the target instead of typing into whichever app happens to be foreground, and installed-app launchers fail clearly when a name is missing or ambiguous.
 - 💬 **Local Chat Sessions**: Start a new chat or reopen a prior one from the history dialog. Each chat keeps its own transcript and active task context locally, while durable user preferences and evidence-backed memory remain available across sessions without copying an unbounded old transcript into every prompt.
 - 🤚 **30+ Hand Gestures & Air Drawing**: Control your PC via webcam with static poses (Palm, Pinch) and motion gestures (Two-Finger Swipe). A lightweight kinematic prediction layer smooths tracking and reduces misfires. An opt-in 3D world-model backend (`vision.mediapipe_backend: "tasks"`) adds real-metric-scale depth via MediaPipe's `HandLandmarker` — see [GESTURES.md](GESTURES.md#3d-world-model-layer-mediapipe-tasks). An opt-in coarse gaze-tracking modality (`vision.gaze_tracking_enabled`) fuses screen-region gaze with voice + gesture on-device — see [GESTURES.md](GESTURES.md#gaze-tracking-third-input-modality).
+- 🧠 **Neural Intent Research Controls**: A least-privileged `neurod` sidecar can acquire synthetic, playback, BrainFlow, or local LSL streams and decode a calibrated four-choice SSVEP vocabulary. Signed, expiring intent can navigate a dedicated UI or propose a small compiled set of reversible Tier 0/1 goals only after dwell, preview, cancellation, world-model, gateway, and shared-executor checks. Physical control is disabled; see [Neural Intent Research Controls](docs/NEURAL_INTENT.md).
 - 🖱️ **Gesture Cursor Control** *(off by default)*: Point to move the real OS cursor, pinch to click — opt in via Settings. Open palm always exits instantly.
 - 🎯 **Adaptive Voice & Gesture Calibration** *(on by default)*: A lightweight on-device continual-learning loop personalizes pinch/thumb thresholds and wake-word matching from implicit usage signals — no retraining, no new prompts, bounded and resettable in Settings.
 - 🌀 **Arc Reactor UI & Ambient HUD**: Animated, immersive Tauri overlays responding contextually to system actions.
@@ -382,6 +383,9 @@ persistence, all 11 layers, and the extension invariants.
 ```mermaid
 graph TD
     User(["User Input: Voice, Text, Gestures, Gaze"]) --> Gateway
+    EEG["Synthetic / Playback / BrainFlow / Local LSL"] --> Neurod["Least-privileged neurod"]
+    Neurod --> NeuralIntent["Signed, expiring neural intent"]
+    NeuralIntent --> Fusion
 
     subgraph "Frontend Gateway - Tauri + Svelte"
         Gateway["WebSocket Hub"]
@@ -506,6 +510,7 @@ These are implemented runtime paths, not a future roadmap:
 | Opt-in autonomous controls | Healing, execution narration, preview-before-action, manual supervision, and gesture cursor |
 | Voice output | Coordinated Kokoro default, selectable Pocket TTS, and automatic OS/browser fallback |
 | Extension ecosystem | Signed local plugins, a reviewed hash-verified marketplace, constrained native/WASM brokers, and explicit capability grants |
+| Neural intent research | Separate acquisition sidecar, calibrated SSVEP decoding, signed/replay-safe preview and commit, fixed Tier 0/1 goals, encrypted consented recording, and no physical authority |
 
 ### 🔧 Task Decomposition Engine
 
@@ -629,6 +634,13 @@ The desktop app requires Python 3.11+ and starts the local daemon automatically.
 On first launch it may need time to create its environment and load local models;
 the UI keeps reconnecting during that initialization. Browser-only UI development
 still requires a manually started daemon.
+
+Neural intent is an experimental accessibility/research surface, not thought
+reading or a medical feature. Normal desktop installation includes BrainFlow
+and pylsl. Synthetic mode needs no headset; live BrainFlow/LSL use requires
+compatible local hardware/runtime plus a user-specific calibration artifact.
+See [the neural guide](docs/NEURAL_INTENT.md) before enabling the SSVEP grid,
+recording EEG, or connecting a board.
 ### Windows Optional-Model Troubleshooting
 
 Kokoro TTS, Pocket TTS, and the default voice path are CPU-only; CUDA is not required. If an
@@ -726,6 +738,7 @@ npm run tauri dev
 - **Interactive Execution Companion**: reviews every proposed plan independently, can warn/revise/stop work that drifts from the request, accepts typed or spoken live corrections during planning/execution/verification, and supplies grounded next ideas only after a verified result. Optional step narration remains user-controlled.
 - **Simulate before executing (opt-in, autonomous tasks only)**: before an unattended background task commits to an action, pause and show a real screenshot with the target UI element highlighted — plus, for browser actions, a real measured before/after DOM diff from an isolated dry-run tab — and wait for you to confirm or stop; never a generated image — see [SECURITY.md](SECURITY.md#-simulate-before-executing-autonomous-background-tasks-opt-in)
 - **Natural local speech**: Kokoro is the default daemon-side voice, with selectable presets, coordinated single-channel playback, and speech-start barge-in. Pocket TTS remains selectable, and both neural engines fall back to the platform voice when unavailable.
+- **Neural input cannot approve itself**: the neural sidecar has a separate token and RPC allow-list; signed SSVEP intent can reach only dedicated UI navigation or compiled reversible Tier 0/1 goals. Preview, cancellation, world-model caution, the neural gateway profile, the shared execution lease, and normal executor verification still apply. Raw EEG is recorded only with explicit encrypted local consent, and physical neural control is disabled.
 - **Mid-flight cancellation**: a Stop button in the chat panel really kills the currently in-flight command — a mid-flight shell subprocess is genuinely killed (`proc.kill()`), and PTY sessions are interrupted on demand — instead of only stopping the next action in the plan — see [SECURITY.md](SECURITY.md#-mid-flight-cancellation)
 - **User Manual Supervision (opt-in)**: watches your own independent screen/keyboard/mouse activity — not anything Heliox executes — to offer cognitive coaching and warn about risky-looking content; the keyboard/mouse hook is a separate, starker opt-in gated behind a one-time "I understand" confirmation, and nothing typed or clicked is ever saved or sent anywhere, only the fact that a risk pattern matched — see [SECURITY.md](SECURITY.md#-user-manual-supervision-opt-in)
 - **Gesture cursor control is off by default** — the continuous gesture-to-cursor bridge drives the real OS mouse cursor and is the one feature in this app that acts without a per-action confirmation gate, so it requires an explicit opt-in in Settings and always exits instantly on an open palm, the panel's stop button, or disabling the toggle
@@ -853,6 +866,14 @@ entries on Linux. A missing or ambiguous match fails visibly instead of opening
 an unrelated program. After launch, Heliox still observes the target window and
 verifies the requested task before reporting completion.
 
+#### Q10: Does Neural Intent read thoughts or control physical equipment?
+**A:** No. It classifies a small, deliberately elicited SSVEP choice after
+calibration and can only navigate its dedicated UI or propose a compiled Tier
+0/1 desktop goal. Physical control, destructive approval, arbitrary commands,
+and provider secrets are unavailable to the neural sidecar. Synthetic tests do
+not prove biological accuracy; live hardware and human validation remain
+separate release evidence. See [the complete boundary](docs/NEURAL_INTENT.md).
+
 ## 📖 Developer Guides & Documentation
 
 To help newcomers and contributors navigate the Heliox-OS codebase, please refer to the following comprehensive documentation guides:
@@ -864,6 +885,7 @@ To help newcomers and contributors navigate the Heliox-OS codebase, please refer
 - 🎛️ **[Gesture Control Guide](GESTURES.md)** — Setup, privacy behavior, MediaPipe backends, gaze fusion, cursor control, and gesture mappings.
 - 🔒 **[Security Policy](SECURITY.md)** — Permission tiers, OS credential stores, capability boundaries, audit chains, and rollback.
 - 🔌 **[Plugin Marketplace](docs/PLUGIN_MARKETPLACE.md)** — Reviewed package format, capability grants, moderation, installation, and constrained execution.
+- 🧠 **[Neural Intent Research Controls](docs/NEURAL_INTENT.md)** — Sidecar architecture, acquisition sources, calibration, replay-safe intent gating, encrypted recording, N0-N3 evidence, and explicit hardware/physical limits.
 - ⚡ **[Model Cache](daemon/pilot/models/CACHE.md)** — Internal mechanics of model-response caching.
 
 ## 🤝 Contributing

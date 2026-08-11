@@ -6,6 +6,18 @@ coordination, hybrid world model, verified online learning, strategy/evolution
 harnesses, 21-specialist mesh, Planner/Executor/Verifier, security layers, and
 the 156-action system interface.
 
+The optional neural-intent research path runs acquisition and decoding in the
+separately authenticated `pilot-neurod` sidecar. It supports synthetic,
+playback, BrainFlow, and local LSL sources, but can emit only signed bounded
+intent for dedicated navigation or compiled reversible Tier 0/1 goals. It has
+no physical, destructive, arbitrary-command, or approval authority. See
+[Neural Intent Research Controls](../docs/NEURAL_INTENT.md).
+
+```bash
+pip install "pilot-daemon[neural]"
+pilot-neurod --source synthetic --synthetic-frequency 12
+```
+
 Typed and spoken requests enter the same observable interaction state machine.
 Interactive browser and desktop goals use a bounded observe, act, and verify
 loop with fresh screen evidence, target-window re-acquisition, and explicit
