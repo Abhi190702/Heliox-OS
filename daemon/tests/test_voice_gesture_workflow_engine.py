@@ -487,11 +487,23 @@ class TestExpiry:
 
     @pytest.mark.asyncio
     async def test_expire_if_stale_no_op_on_running_workflow(self, tmp_path):
-        engine = _engine(tmp_path, decomposer=_StubDecomposer(subtasks=["a", "b", "c"]))
-        workflow = await engine.start("multi step", InvocationSource.VOICE)
+        step_started = asyncio.Event()
+
+        class _BlockingExecutor(_StubExecutor):
+            async def execute(self, plan, **kwargs):
+                step_started.set()
+                await asyncio.Event().wait()
+
+        engine = _engine(tmp_path, executor=_BlockingExecutor())
+        workflow = await engine.start("running step", InvocationSource.VOICE)
+        await asyncio.wait_for(step_started.wait(), timeout=2)
+
         expired = await engine.expire_if_stale(workflow.workflow_id)
+
         assert expired is False
-        await _wait_until_terminal(engine, workflow.workflow_id)
+        running = await engine._workflow_store.get(workflow.workflow_id)
+        assert running.state == WorkflowState.RUNNING.value
+        assert await engine.cancel(workflow.workflow_id) is True
 
     @pytest.mark.asyncio
     async def test_expired_workflow_no_longer_matches_find_pending_for_source(self, tmp_path):
