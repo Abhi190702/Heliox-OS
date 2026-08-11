@@ -1,0 +1,201 @@
+from __future__ import annotations
+
+import uuid
+
+import pytest
+
+from pilot.neural.gate import NeuralGateError, NeuralIntentGate, NeuralIntentSigner
+from pilot.neural.protocol import (
+    ArtifactFlag,
+    NeuralIntentClass,
+    NeuralIntentV1,
+    NeuralParadigm,
+    NeuralScope,
+    NeuralStreamDescriptorV1,
+    NeuralTransport,
+    SignalQuality,
+)
+
+NOW = 10_000_000_000
+CALIBRATION = "b" * 64
+SUBJECT = "local-subject"
+
+
+def _descriptor(session_id: uuid.UUID) -> NeuralStreamDescriptorV1:
+    return NeuralStreamDescriptorV1(
+        session_id=session_id,
+        source_id="synthetic-1",
+        board_kind="brainflow-synthetic",
+        transport=NeuralTransport.SYNTHETIC,
+        sample_rate_hz=250,
+        channel_count=3,
+        channel_names=("O1", "Oz", "O2"),
+        reference="linked-mastoids",
+        sequence_start=1,
+        started_monotonic_ns=NOW - 5_000_000_000,
+    )
+
+
+def _signed_intent(
+    signer: NeuralIntentSigner,
+    *,
+    session_id: uuid.UUID,
+    revision: int,
+    sequence: int = 1,
+    intent_class: NeuralIntentClass = NeuralIntentClass.SELECT,
+    scope: NeuralScope = NeuralScope.NAVIGATE,
+    command_id: str | None = None,
+    quality: SignalQuality = SignalQuality.GOOD,
+    artifacts: tuple[ArtifactFlag, ...] = (),
+    intent_id: uuid.UUID | None = None,
+) -> NeuralIntentV1:
+    intent = NeuralIntentV1(
+        session_id=session_id,
+        intent_id=intent_id or uuid.uuid4(),
+        sequence=sequence,
+        window_start_ns=NOW - 300_000_000,
+        window_end_ns=NOW - 100_000_000,
+        expires_at_ns=NOW + 2_000_000_000,
+        paradigm=NeuralParadigm.SYNTHETIC,
+        intent_class=intent_class,
+        command_id=command_id,
+        posterior_permille=900,
+        margin_permille=300,
+        signal_quality=quality,
+        artifact_flags=artifacts,
+        dwell_windows=4,
+        decoder_version="a" * 64,
+        calibration_id=CALIBRATION,
+        subject_key=SUBJECT,
+        requested_scope=scope,
+        state_revision=revision,
+        signature="0" * 64,
+    )
+    return intent.model_copy(update={"signature": signer.sign(intent)})
+
+
+async def _armed_gate(
+    scope: NeuralScope = NeuralScope.NAVIGATE,
+) -> tuple[NeuralIntentGate, NeuralIntentSigner, uuid.UUID, int]:
+    signer = NeuralIntentSigner(b"n" * 32)
+    session_id = uuid.uuid4()
+    gate = NeuralIntentGate(
+        signer=signer,
+        safe_goals={"open-calendar": "Open the calendar and show today's events"},
+    )
+    await gate.connect(_descriptor(session_id))
+    await gate.begin_calibration(session_id)
+    await gate.finish_calibration(session_id, calibration_id=CALIBRATION, subject_key=SUBJECT)
+    status = await gate.arm(session_id, scope=scope, non_neural_authorized=True)
+    return gate, signer, session_id, int(status["state_revision"])
+
+
+@pytest.mark.asyncio
+async def test_signed_preview_and_tier_one_commit_respect_cancellation_window() -> None:
+    gate, signer, session_id, revision = await _armed_gate()
+    intent = _signed_intent(signer, session_id=session_id, revision=revision)
+    preview = await gate.preview(intent, now_ns=NOW)
+    assert preview is not None
+    assert preview.canonical_goal == "neural_ui.select"
+    with pytest.raises(NeuralGateError, match="cancellation window"):
+        await gate.commit(
+            preview.preview_id,
+            expected_revision=preview.state_revision,
+            effect_tier=1,
+            now_ns=NOW + 100_000_000,
+        )
+    commit = await gate.commit(
+        preview.preview_id,
+        expected_revision=preview.state_revision,
+        effect_tier=1,
+        now_ns=preview.eligible_at_ns,
+    )
+    assert commit.intent_id == intent.intent_id
+
+    status = await gate.status()
+    next_intent = _signed_intent(
+        signer,
+        session_id=session_id,
+        revision=int(status["state_revision"]),
+        sequence=2,
+    )
+    next_preview = await gate.preview(next_intent, now_ns=NOW + 1_900_000_000)
+    assert next_preview is not None
+
+
+@pytest.mark.asyncio
+async def test_replay_signature_and_stale_revision_fail_closed() -> None:
+    gate, signer, session_id, revision = await _armed_gate()
+    intent = _signed_intent(signer, session_id=session_id, revision=revision)
+    await gate.preview(intent, now_ns=NOW)
+    with pytest.raises(NeuralGateError, match="stale controller state|replayed"):
+        await gate.preview(intent, now_ns=NOW)
+    tampered = intent.model_copy(update={"intent_id": uuid.uuid4(), "sequence": 2, "posterior_permille": 999})
+    with pytest.raises(NeuralGateError, match="signature"):
+        await gate.preview(tampered, now_ns=NOW)
+
+
+@pytest.mark.asyncio
+async def test_artifact_abstention_consumes_sequence_and_cannot_be_replayed() -> None:
+    gate, signer, session_id, revision = await _armed_gate()
+    intent = _signed_intent(
+        signer,
+        session_id=session_id,
+        revision=revision,
+        artifacts=(ArtifactFlag.MUSCLE,),
+    )
+    with pytest.raises(NeuralGateError, match="artifact"):
+        await gate.preview(intent, now_ns=NOW)
+    with pytest.raises(NeuralGateError, match="replayed"):
+        await gate.preview(intent, now_ns=NOW)
+
+
+@pytest.mark.asyncio
+async def test_cancel_has_priority_and_disarms_controller() -> None:
+    gate, signer, session_id, revision = await _armed_gate()
+    cancel = _signed_intent(
+        signer,
+        session_id=session_id,
+        revision=revision,
+        intent_class=NeuralIntentClass.CANCEL,
+    )
+    assert await gate.preview(cancel, now_ns=NOW) is None
+    status = await gate.status()
+    assert status["state"] == "observe_only"
+    assert status["armed_scope"] == "observe"
+
+
+@pytest.mark.asyncio
+async def test_desktop_goals_require_allowlist_and_never_commit_tier_two() -> None:
+    gate, signer, session_id, revision = await _armed_gate(NeuralScope.SAFE_DESKTOP)
+    intent = _signed_intent(
+        signer,
+        session_id=session_id,
+        revision=revision,
+        intent_class=NeuralIntentClass.SAFE_GOAL,
+        scope=NeuralScope.SAFE_DESKTOP,
+        command_id="open-calendar",
+    )
+    preview = await gate.preview(intent, now_ns=NOW)
+    assert preview is not None
+    with pytest.raises(NeuralGateError, match="Tier 0/1"):
+        await gate.commit(
+            preview.preview_id,
+            expected_revision=preview.state_revision,
+            effect_tier=2,
+            now_ns=preview.eligible_at_ns,
+        )
+
+
+@pytest.mark.asyncio
+async def test_physical_scope_and_neural_arming_are_impossible() -> None:
+    signer = NeuralIntentSigner(b"n" * 32)
+    session_id = uuid.uuid4()
+    gate = NeuralIntentGate(signer=signer)
+    await gate.connect(_descriptor(session_id))
+    await gate.begin_calibration(session_id)
+    await gate.finish_calibration(session_id, calibration_id=CALIBRATION, subject_key=SUBJECT)
+    with pytest.raises(NeuralGateError, match="non-neural"):
+        await gate.arm(session_id, scope=NeuralScope.NAVIGATE, non_neural_authorized=False)
+    with pytest.raises(NeuralGateError, match="physical"):
+        await gate.arm(session_id, scope=NeuralScope.PHYSICAL_GOAL, non_neural_authorized=True)
