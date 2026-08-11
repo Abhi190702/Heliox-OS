@@ -112,9 +112,16 @@ voice = [
     "openai-whisper>=20231117",
 ]
 
+# Neural acquisition runs in the least-privileged neurod sidecar. BrainFlow
+# supplies supported-board, synthetic, and playback drivers; pylsl is optional
+# at runtime because its native liblsl availability varies by platform.
+neural = [
+    "brainflow>=5.22,<6",
+]
+
 # Everything installable from PyPI.
 all = [
-    "pilot-daemon[full,automation,vision,browser,documents,ssh,network,wasm,supervision,voice]",
+    "pilot-daemon[full,automation,vision,browser,documents,ssh,network,wasm,supervision,voice,neural]",
 ]
 
 dev = [
