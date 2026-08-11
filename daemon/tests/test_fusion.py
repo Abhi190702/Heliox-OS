@@ -253,3 +253,33 @@ class TestStats:
         assert "gesture_buffer_size" in stats
         assert "gaze_buffer_size" in stats
         assert stats["gaze_buffer_size"] == 1
+
+
+class TestControlSnapshot:
+    @pytest.mark.asyncio
+    async def test_snapshot_contains_all_recent_modalities_without_raw_media(self):
+        engine = MultimodalFusionEngine()
+        await engine.on_gaze_event(_gaze("left"))
+        await engine.on_voice_event(_voice("open settings"))
+        await engine.on_gesture_event(_gesture("point_up"))
+
+        snapshot = await engine.context_snapshot()
+        assert snapshot["modalities"] == ["voice", "gesture", "gaze"]
+        assert snapshot["voice"]["transcript"] == "open settings"
+        assert snapshot["gesture"]["name"] == "point_up"
+        assert snapshot["gaze"]["region"] == "left"
+        assert "audio" not in snapshot
+        assert "landmarks" not in snapshot
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("voice", "gesture"),
+        [("stop", ""), ("", "palm"), ("cancel that", "")],
+    )
+    async def test_snapshot_marks_voice_or_gesture_cancellation(self, voice, gesture):
+        engine = MultimodalFusionEngine()
+        if voice:
+            await engine.on_voice_event(_voice(voice))
+        if gesture:
+            await engine.on_gesture_event(_gesture(gesture))
+        assert (await engine.context_snapshot())["cancellation_present"] is True

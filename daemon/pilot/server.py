@@ -750,12 +750,15 @@ class PilotServer:
         # goals still converge on the same Executor, Agent Gateway, world
         # model, permissions, validator, and audit path as other actions.
         from pilot import config as config_module
+        from pilot.multimodal.fusion import MultimodalFusionEngine
         from pilot.neural.audit import NeuralAuditStore
         from pilot.neural.controller import NeuralController
         from pilot.neural.gate import NeuralIntentGate, NeuralIntentSigner
         from pilot.neural.goals import NeuralGoalRegistry
 
         neural_goals = NeuralGoalRegistry()
+        self._fusion = MultimodalFusionEngine()
+        self._fusion.set_broadcast(self._broadcast_notification)
         neural_signer = NeuralIntentSigner(derive_neural_signing_key(self._neural_auth_token))
         neural_gate = NeuralIntentGate(
             signer=neural_signer,
@@ -773,6 +776,7 @@ class PilotServer:
             goals=neural_goals,
             broadcast=self._broadcast_notification,
             audit_store=neural_audit,
+            fusion_snapshot=self._fusion.context_snapshot,
         )
 
         # Advanced agent components
@@ -839,10 +843,9 @@ class PilotServer:
             await self._rss_agent.start()
 
         # Multimodal Fusion Engine — voice + gesture intent fusion
-        from pilot.multimodal.fusion import MultimodalFusionEngine
-
-        self._fusion = MultimodalFusionEngine()
-        self._fusion.set_broadcast(self._broadcast_notification)
+        # The engine is initialized before the neural controller so a neural
+        # preview and commit can consume one consistent voice/gesture/gaze
+        # safety snapshot rather than racing three independent buffers.
 
         # The backend gesture listener is intentionally disabled because it
         # would contend with the frontend MediaPipe engine for the webcam.

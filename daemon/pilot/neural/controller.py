@@ -38,6 +38,7 @@ class PendingNeuralExecution:
     plan: ActionPlan | None
     world_model: PlanRiskAssessment | None
     resolved_command_id: str | None = None
+    fusion: dict[str, object] | None = None
 
 
 class NeuralController:
@@ -52,6 +53,7 @@ class NeuralController:
         goals: NeuralGoalRegistry | None = None,
         broadcast: Callable[[str, Any], Awaitable[None]] | None = None,
         audit_store: NeuralAuditStore | None = None,
+        fusion_snapshot: Callable[[], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self._config = config
         self._gate = gate
@@ -59,6 +61,7 @@ class NeuralController:
         self._goals = goals or NeuralGoalRegistry()
         self._broadcast = broadcast
         self._audit_store = audit_store
+        self._fusion_snapshot = fusion_snapshot
         self._pending: PendingNeuralExecution | None = None
         self._last_observation: dict[str, object] | None = None
         self._focus_index = 0
@@ -118,6 +121,8 @@ class NeuralController:
 
     async def preview(self, intent: NeuralIntentV1) -> dict[str, object]:
         async with self._lock:
+            fusion = await self._capture_fusion()
+            await self._enforce_fusion_safety(fusion, reason="multimodal_cancel_before_preview")
             preview = await self._gate.preview(intent)
             await self._audit(
                 stage="intent_accepted",
@@ -155,7 +160,7 @@ class NeuralController:
                 await self._gate.disarm(reason="preview_safety_failure")
                 raise
 
-            self._pending = PendingNeuralExecution(preview, plan, world_model, resolved_command_id)
+            self._pending = PendingNeuralExecution(preview, plan, world_model, resolved_command_id, fusion)
             payload = self._preview_payload(self._pending)
             await self._audit(
                 stage="preview_created",
@@ -166,6 +171,7 @@ class NeuralController:
                     "canonical_goal": preview.canonical_goal,
                     "command_id": resolved_command_id,
                     "world_model": world_model.to_dict() if world_model else None,
+                    "fusion": self._public_fusion(fusion),
                 },
             )
             await self._emit("neural_preview", payload)
@@ -182,6 +188,11 @@ class NeuralController:
             pending = self._pending
             if pending is None or pending.preview.preview_id != preview_id:
                 raise NeuralControlError("preview is missing or no longer current")
+            current_fusion = await self._capture_fusion()
+            await self._enforce_fusion_safety(
+                current_fusion,
+                reason="multimodal_cancel_during_preview",
+            )
             plan = pending.plan
             assessment = pending.world_model
             if plan is not None:
@@ -209,6 +220,7 @@ class NeuralController:
                     "canonical_goal": commit.canonical_goal,
                     "command_id": pending.resolved_command_id,
                     "effect_tier": effect_tier,
+                    "fusion": self._public_fusion(current_fusion),
                 },
             )
             if plan is None:
@@ -370,6 +382,31 @@ class NeuralController:
             "expires_at_ns": preview.expires_at_ns,
             "world_model": assessment.to_dict() if assessment else None,
             "requires_non_neural_approval": bool(assessment and assessment.requires_confirmation),
+            "fusion": NeuralController._public_fusion(pending.fusion),
+        }
+
+    async def _capture_fusion(self) -> dict[str, Any]:
+        if self._fusion_snapshot is None:
+            return {"modalities": [], "cancellation_present": False}
+        snapshot = await self._fusion_snapshot()
+        if not isinstance(snapshot, dict):
+            raise NeuralControlError("multimodal fusion snapshot is unavailable")
+        return snapshot
+
+    async def _enforce_fusion_safety(self, snapshot: dict[str, Any], *, reason: str) -> None:
+        if snapshot.get("cancellation_present") is True:
+            self._pending = None
+            await self._gate.disarm(reason=reason)
+            raise NeuralControlError("a simultaneous voice or gesture cancellation disarmed neural control")
+
+    @staticmethod
+    def _public_fusion(snapshot: dict[str, object] | None) -> dict[str, object]:
+        snapshot = snapshot or {}
+        modalities = snapshot.get("modalities")
+        return {
+            "modalities": list(modalities) if isinstance(modalities, list) else [],
+            "cancellation_present": snapshot.get("cancellation_present") is True,
+            "raw_media_excluded": True,
         }
 
     @staticmethod

@@ -46,6 +46,7 @@ async def _controller(
     scope: NeuralScope,
     *,
     audit_store: NeuralAuditStore | None = None,
+    fusion_snapshot=None,
 ) -> tuple[NeuralController, NeuralIntentSigner, uuid.UUID, AsyncMock]:
     signer = NeuralIntentSigner(b"k" * 32)
     session_id = uuid.uuid4()
@@ -62,6 +63,7 @@ async def _controller(
         executor=executor,
         goals=goals,
         audit_store=audit_store,
+        fusion_snapshot=fusion_snapshot,
     )
     descriptor = NeuralStreamDescriptorV1(
         session_id=session_id,
@@ -306,3 +308,64 @@ async def test_controller_audit_links_accepted_window_to_executed_plan(tmp_path)
     assert events[-1]["plan_id"] == result["plan_id"]
     assert events[0]["window_start_ns"] == intent.window_start_ns
     assert (await audit.verify_chain()).valid is True
+
+
+@pytest.mark.asyncio
+async def test_multimodal_context_is_visible_but_cannot_expand_neural_authority() -> None:
+    fusion = AsyncMock(
+        return_value={
+            "modalities": ["voice", "gesture", "gaze"],
+            "cancellation_present": False,
+            "voice": {"transcript": "open something else"},
+        }
+    )
+    controller, signer, session_id, executor = await _controller(
+        NeuralScope.NAVIGATE,
+        fusion_snapshot=fusion,
+    )
+    intent = await _intent(
+        controller,
+        signer,
+        session_id,
+        intent_class=NeuralIntentClass.SELECT,
+        scope=NeuralScope.NAVIGATE,
+    )
+    preview = await controller.preview(intent)
+    assert preview["fusion"] == {
+        "modalities": ["voice", "gesture", "gaze"],
+        "cancellation_present": False,
+        "raw_media_excluded": True,
+    }
+    assert "voice" not in preview["fusion"]
+    executor.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_simultaneous_cancel_after_preview_disarms_before_commit() -> None:
+    fusion = AsyncMock(
+        side_effect=[
+            {"modalities": ["gaze"], "cancellation_present": False},
+            {"modalities": ["voice", "gaze"], "cancellation_present": True},
+        ]
+    )
+    controller, signer, session_id, executor = await _controller(
+        NeuralScope.NAVIGATE,
+        fusion_snapshot=fusion,
+    )
+    intent = await _intent(
+        controller,
+        signer,
+        session_id,
+        intent_class=NeuralIntentClass.SELECT,
+        scope=NeuralScope.NAVIGATE,
+    )
+    preview = await controller.preview(intent)
+    await asyncio.sleep(0.02)
+    with pytest.raises(NeuralControlError, match="cancellation disarmed"):
+        await controller.commit(
+            uuid.UUID(str(preview["preview_id"])),
+            expected_revision=int(preview["state_revision"]),
+            world_model_approved=False,
+        )
+    assert (await controller.status())["armed_scope"] == "observe"
+    executor.execute.assert_not_awaited()

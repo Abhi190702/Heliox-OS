@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -327,6 +328,68 @@ class MultimodalFusionEngine:
         from pilot.cognitive.cognitive_engine import CognitiveEngine
 
         CognitiveEngine.get_instance().record_gaze(event.gaze_region, event.gaze_confidence)
+
+    async def context_snapshot(self) -> dict[str, Any]:
+        """Return one bounded, internally consistent multimodal control frame.
+
+        Neural control consumes this snapshot only as additional caution. It
+        never turns a voice, gesture, or gaze reading into extra authority.
+        Raw audio, camera frames, and landmarks are not retained here.
+        """
+
+        async with self._lock:
+            self._prune_buffers()
+            now = time.time()
+            voice = self._find_recent_voice(now)
+            gesture = self._find_recent_gesture(now)
+            gaze = self._find_recent_gaze(now)
+            modalities: list[str] = []
+            if voice is not None:
+                modalities.append(ModalityType.VOICE.value)
+            if gesture is not None:
+                modalities.append(ModalityType.GESTURE.value)
+            if gaze is not None:
+                modalities.append(ModalityType.GAZE.value)
+
+            voice_tokens = set(re.findall(r"[a-z0-9]+", voice.transcript.casefold())) if voice is not None else set()
+            gesture_modifier = GESTURE_MODIFIERS.get(gesture.gesture_name) if gesture is not None else None
+            cancellation_present = bool(
+                voice_tokens.intersection({"abort", "cancel", "deny", "stop"})
+                or gesture_modifier == GestureModifier.CANCEL
+            )
+            return {
+                "captured_at": now,
+                "modalities": modalities,
+                "cancellation_present": cancellation_present,
+                "voice": (
+                    {
+                        "transcript": voice.transcript[:512],
+                        "confidence": voice.voice_confidence,
+                        "timestamp": voice.timestamp,
+                    }
+                    if voice is not None
+                    else None
+                ),
+                "gesture": (
+                    {
+                        "name": gesture.gesture_name,
+                        "modifier": gesture_modifier.value if gesture_modifier else "",
+                        "confidence": gesture.gesture_confidence,
+                        "timestamp": gesture.timestamp,
+                    }
+                    if gesture is not None
+                    else None
+                ),
+                "gaze": (
+                    {
+                        "region": gaze.gaze_region,
+                        "confidence": gaze.gaze_confidence,
+                        "timestamp": gaze.timestamp,
+                    }
+                    if gaze is not None
+                    else None
+                ),
+            }
 
     # ── Fusion logic ──
 
