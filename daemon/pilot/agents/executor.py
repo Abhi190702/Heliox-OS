@@ -78,6 +78,7 @@ from pilot.system.snapshots import SnapshotManager
 
 if TYPE_CHECKING:
     from pilot.config import PilotConfig
+    from pilot.security.controller_lease import ControllerLeaseManager
     from pilot.skills.loader import SkillRegistry
     from pilot.workflows.durable_tasks import DurableTaskStore
 
@@ -158,6 +159,7 @@ class Executor:
         self._experience_ledger: ExperienceLedger | None = None
         self._world_model_outcome_recorder: Any = None
         self._durable_task_store: DurableTaskStore | None = None
+        self._controller_lease: ControllerLeaseManager | None = None
         self._last_output = ""  # For output chaining between steps
         self._largest_output = ""  # Largest output from any step in the pipeline
         self._detected_click_target: tuple[int, int, str] | None = None
@@ -552,7 +554,51 @@ class Executor:
                     logger.error("Action in batch failed: %s", result.error)
         return failed
 
+    def set_controller_lease(self, lease: ControllerLeaseManager) -> None:
+        self._controller_lease = lease
+
     async def execute(
+        self,
+        plan: ActionPlan,
+        on_action_start: typing.Callable[[Action], typing.Awaitable[None]] | None = None,
+        on_action_complete: typing.Callable[[ActionResult], typing.Awaitable[None]] | None = None,
+        cancel_event: asyncio.Event | None = None,
+        plan_id: str | None = None,
+        initial_last_output: str = "",
+        initial_largest_output: str | None = None,
+        orchestrator: Any = None,
+        invocation_source: InvocationSource = InvocationSource.INTERACTIVE,
+        scope_override: TaskScopeOverride | None = None,
+        critic_already_reviewed: bool = False,
+        user_confirmed: bool = False,
+        action_index_offset: int = 0,
+    ) -> list[ActionResult]:
+        """Acquire the shared effect lease before entering canonical execution."""
+
+        kwargs = {
+            "on_action_start": on_action_start,
+            "on_action_complete": on_action_complete,
+            "cancel_event": cancel_event,
+            "plan_id": plan_id,
+            "initial_last_output": initial_last_output,
+            "initial_largest_output": initial_largest_output,
+            "orchestrator": orchestrator,
+            "invocation_source": invocation_source,
+            "scope_override": scope_override,
+            "critic_already_reviewed": critic_already_reviewed,
+            "user_confirmed": user_confirmed,
+            "action_index_offset": action_index_offset,
+        }
+        if self._controller_lease is None:
+            return await self._execute_without_controller_lease(plan, **kwargs)
+        owner = f"{invocation_source.value}:{plan_id or uuid.uuid4()}"
+        async with self._controller_lease.claim(
+            owner,
+            wait=invocation_source != InvocationSource.NEURAL,
+        ):
+            return await self._execute_without_controller_lease(plan, **kwargs)
+
+    async def _execute_without_controller_lease(
         self,
         plan: ActionPlan,
         on_action_start: typing.Callable[[Action], typing.Awaitable[None]] | None = None,

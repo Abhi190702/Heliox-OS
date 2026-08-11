@@ -571,6 +571,7 @@ class PilotServer:
         self._client_roles: dict[ServerConnection, RpcClientRole] = {}
         self._neural_sidecar_client: ServerConnection | None = None
         self._neural_controller: Any = None
+        self._controller_lease: Any = None
         # Rotated on each daemon process start. neurod reads the separate
         # owner-only runtime file and never receives the UI token.
         self._neural_auth_token = secrets.token_urlsafe(32)
@@ -745,6 +746,11 @@ class PilotServer:
         self._executor.set_gateway(self._agent_gateway)
         self._executor.set_broadcast(self._broadcast_notification)
         self._executor.set_speech(self._speak_companion_text)
+
+        from pilot.security.controller_lease import ControllerLeaseManager
+
+        self._controller_lease = ControllerLeaseManager()
+        self._executor.set_controller_lease(self._controller_lease)
 
         # Neural input owns a separate signing/session authority. Its fixed
         # goals still converge on the same Executor, Agent Gateway, world
