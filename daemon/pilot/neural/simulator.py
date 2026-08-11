@@ -19,6 +19,7 @@ SYNTHETIC_TARGETS = (
     SSVEPTarget(target_id="select", frequency_hz=12.0, intent_class=NeuralIntentClass.SELECT),
     SSVEPTarget(target_id="cancel", frequency_hz=15.0, intent_class=NeuralIntentClass.CANCEL),
 )
+SYNTHETIC_REFERENCE = "synthetic-common-reference"
 
 
 def build_synthetic_calibration_artifact() -> SSVEPCalibrationArtifact:
@@ -52,14 +53,30 @@ def build_synthetic_calibration_artifact() -> SSVEPCalibrationArtifact:
         subject_key="synthetic-demo",
         sample_rate_hz=sample_rate_hz,
         channel_names=channel_names,
-        reference="synthetic-reference",
+        reference=SYNTHETIC_REFERENCE,
     )
 
 
 def ensure_synthetic_calibration_artifact(path: Path) -> SSVEPCalibrationArtifact:
     destination = path.expanduser().resolve()
     if destination.is_file():
-        return SSVEPCalibrationArtifact.load(destination)
+        try:
+            existing = SSVEPCalibrationArtifact.load(destination)
+            expected_targets = tuple(
+                (target.target_id, target.frequency_hz, target.intent_class) for target in SYNTHETIC_TARGETS
+            )
+            existing_targets = tuple(
+                (target.target_id, target.frequency_hz, target.intent_class) for target in existing.targets
+            )
+            if (
+                existing.sample_rate_hz == 250
+                and existing.channel_names == ("O1", "Oz", "O2")
+                and existing.reference == SYNTHETIC_REFERENCE
+                and existing_targets == expected_targets
+            ):
+                return existing
+        except (OSError, ValueError):
+            pass
     artifact = build_synthetic_calibration_artifact()
     artifact.save(destination)
     return artifact
