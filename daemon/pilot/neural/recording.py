@@ -210,6 +210,8 @@ class EncryptedNeuralRecorder:
         if not subject:
             raise NeuralRecordingError("subject key cannot form a BIDS participant label")
         root = destination.expanduser().resolve()
+        if root.exists():
+            raise NeuralRecordingError("BIDS export destination already exists; export never overwrites data")
         eeg_dir = root / f"sub-{subject}" / "eeg"
         eeg_dir.mkdir(parents=True, exist_ok=True)
         stem = f"sub-{subject}_task-heliox_eeg"
@@ -307,6 +309,53 @@ class EncryptedNeuralRecorder:
                     )
                 )
         return windows
+
+
+def prune_expired_neural_recordings(
+    directory: Path,
+    *,
+    now: datetime | None = None,
+    max_files: int = 1000,
+) -> tuple[Path, ...]:
+    """Delete expired consented ``.neeg`` files from one explicit directory.
+
+    Invalid files and symlinks are never deleted automatically. Failure to
+    honor a valid expiry is surfaced so a new recording does not silently
+    proceed while expired biosignal data remains retained.
+    """
+
+    if not 1 <= max_files <= 10_000:
+        raise ValueError("max_files must be between 1 and 10000")
+    root = directory.expanduser().resolve()
+    if not root.is_dir():
+        return ()
+    current = now or datetime.now(UTC)
+    removed: list[Path] = []
+    for candidate in sorted(root.glob("*.neeg"))[:max_files]:
+        if candidate.is_symlink():
+            continue
+        resolved = candidate.resolve()
+        if resolved.parent != root:
+            continue
+        try:
+            with resolved.open("r", encoding="utf-8") as stream:
+                header_line = stream.readline(65_537)
+            if len(header_line) > 65_536:
+                continue
+            header = json.loads(header_line)
+            if header.get("type") != "header" or header.get("cipher") != "AES-256-GCM":
+                continue
+            consent = NeuralRecordingConsentV1.model_validate(header["consent"])
+        except (OSError, KeyError, ValueError):
+            continue
+        if current < consent.expires_at:
+            continue
+        try:
+            resolved.unlink()
+        except OSError as exc:
+            raise NeuralRecordingError(f"could not remove expired neural recording: {resolved.name}") from exc
+        removed.append(resolved)
+    return tuple(removed)
 
 
 def export_main() -> None:

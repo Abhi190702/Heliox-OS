@@ -23,7 +23,11 @@ from pilot.neural.acquisition import (
 from pilot.neural.decoder import SSVEPCalibrationArtifact, SSVEPDecoder
 from pilot.neural.gate import NeuralIntentSigner
 from pilot.neural.protocol import NeuralScope
-from pilot.neural.recording import EncryptedNeuralRecorder, NeuralRecordingConsentV1
+from pilot.neural.recording import (
+    EncryptedNeuralRecorder,
+    NeuralRecordingConsentV1,
+    prune_expired_neural_recordings,
+)
 from pilot.neural.service import NeuralDecoderService
 from pilot.neural.simulator import ensure_synthetic_calibration_artifact
 from pilot.security.rpc_identity import derive_neural_signing_key
@@ -237,6 +241,7 @@ async def _run_from_args(args: argparse.Namespace) -> None:
             if args.recording_file
             else DATA_DIR / "neural" / f"{artifact.subject_key}-{granted_at:%Y%m%dT%H%M%SZ}.neeg"
         )
+        prune_expired_neural_recordings(recording_path.expanduser().resolve().parent)
 
         def recorder_factory(descriptor):
             consent = NeuralRecordingConsentV1(
