@@ -113,10 +113,12 @@ voice = [
 ]
 
 # Neural acquisition runs in the least-privileged neurod sidecar. BrainFlow
-# supplies supported-board, synthetic, and playback drivers; pylsl is optional
-# at runtime because its native liblsl availability varies by platform.
+# supplies supported-board, synthetic, and playback drivers. pylsl supplies the
+# LSL source shown by the desktop UI; a missing native liblsl still fails closed
+# at source startup rather than silently falling back to another transport.
 neural = [
     "brainflow>=5.22,<6",
+    "pylsl>=1.17,<2",
 ]
 
 # Everything installable from PyPI.
