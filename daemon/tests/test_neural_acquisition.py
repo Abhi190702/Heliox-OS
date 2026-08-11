@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -64,6 +65,7 @@ def test_synthetic_source_is_deterministic_and_frequency_tagged() -> None:
     frequencies = np.fft.rfftfreq(250, d=1 / 250)
     assert frequencies[np.argmax(spectrum[1:]) + 1] == 12.0
     assert first.read(10).sequence_start == 250
+    assert a.timestamps_ns[-1] <= time.monotonic_ns()
 
 
 def test_playback_npz_is_safe_bounded_and_deterministic(tmp_path: Path) -> None:

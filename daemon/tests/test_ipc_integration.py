@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -158,6 +159,139 @@ async def test_neural_sidecar_token_is_role_scoped_and_cannot_call_ping(daemon_s
         denied = json.loads(await ws.recv())
         assert denied["error"]["code"] == -32601
         assert "neural_sidecar" in denied["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_real_neurod_bridge_calibrates_previews_commits_and_disconnects_fail_closed(
+    daemon_server,
+):
+    """Exercise the product boundary with separate UI and sidecar sockets."""
+
+    from pilot import config as config_module
+    from pilot.neural.acquisition import SyntheticNeuralSource
+    from pilot.neural.decoder import SSVEPDecoder
+    from pilot.neural.gate import NeuralIntentSigner
+    from pilot.neural.rpc_client import NeuralRpcTransport, NeurodBridge
+    from pilot.neural.service import NeuralDecoderService
+    from pilot.neural.simulator import build_synthetic_calibration_artifact
+    from pilot.security.rpc_identity import derive_neural_signing_key
+
+    token = (config_module.RUNTIME_DIR / "neural_auth_token").read_text(encoding="utf-8")
+    artifact = build_synthetic_calibration_artifact()
+    source = SyntheticNeuralSource(
+        sample_rate_hz=artifact.sample_rate_hz,
+        channel_names=artifact.channel_names,
+        target_hz=10.0,
+        noise_uv=0.5,
+        seed=91,
+    )
+    service = NeuralDecoderService(
+        source=source,
+        decoder=SSVEPDecoder(artifact),
+        signer=NeuralIntentSigner(derive_neural_signing_key(token)),
+    )
+    stop = asyncio.Event()
+    bridge = NeurodBridge(
+        transport=NeuralRpcTransport(url=daemon_server, token=token),
+        service=service,
+        artifact=artifact,
+        poll_seconds=0.5,
+    )
+    bridge_task = asyncio.create_task(bridge.run(stop))
+    notifications: list[dict] = []
+    request_index = 0
+
+    async def rpc(ws, method: str, params: dict | None = None) -> dict:
+        nonlocal request_index
+        request_index += 1
+        request_id = f"ui-neural-{request_index}"
+        await ws.send(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "method": method,
+                    "params": params or {},
+                    "id": request_id,
+                }
+            )
+        )
+        deadline = asyncio.get_running_loop().time() + 10
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=max(0.01, deadline - asyncio.get_running_loop().time()))
+            message = json.loads(raw)
+            if message.get("id") == request_id:
+                if "error" in message:
+                    raise AssertionError(message["error"])
+                return message["result"]
+            if message.get("method"):
+                notifications.append(message)
+
+    async def wait_status(ws, predicate, timeout: float = 12.0, *, require_bridge: bool = True) -> dict:
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            if require_bridge and bridge_task.done():
+                raise AssertionError("neurod bridge stopped unexpectedly") from bridge_task.exception()
+            status = await rpc(ws, "neural_status")
+            if predicate(status):
+                return status
+            await asyncio.sleep(0.05)
+        raise AssertionError("neural status did not reach the expected state")
+
+    try:
+        async with websockets.connect(daemon_server) as ui:
+            auth = await rpc(ui, "auth", {"token": "test-token"})
+            assert auth["role"] == "ui"
+            connected = await wait_status(ui, lambda status: status.get("connected") is True)
+            session_id = connected["session_id"]
+
+            calibration = await rpc(ui, "neural_begin_calibration", {"session_id": session_id})
+            assert calibration["status"] == "ok"
+            await wait_status(ui, lambda status: status.get("state") == "observe_only")
+
+            armed = await rpc(
+                ui,
+                "neural_arm",
+                {"session_id": session_id, "scope": "navigate", "user_authorized": True},
+            )
+            assert armed["state"] == "armed_safe_ui"
+            preview_status = await wait_status(ui, lambda status: status.get("state") == "previewed")
+            preview_messages = [message for message in notifications if message.get("method") == "neural_preview"]
+            assert preview_messages
+            preview = preview_messages[-1]["params"]
+            assert preview["intent_class"] == "focus_right"
+            assert preview["fusion"]["raw_media_excluded"] is True
+
+            wait_seconds = max(
+                0.0,
+                (int(preview["eligible_at_ns"]) - time.monotonic_ns()) / 1_000_000_000,
+            )
+            await asyncio.sleep(wait_seconds + 0.05)
+            result = await rpc(
+                ui,
+                "neural_commit",
+                {
+                    "preview_id": preview["preview_id"],
+                    "expected_revision": preview_status["state_revision"],
+                    "world_model_approved": False,
+                },
+            )
+            assert result["status"] == "committed"
+            assert result["canonical_goal"] == "neural_ui.focus_right"
+            assert "retry_allowed" not in result
+
+            stop.set()
+            await asyncio.wait_for(bridge_task, timeout=5)
+            disarmed = await wait_status(
+                ui,
+                lambda status: status.get("armed_scope") == "observe",
+                require_bridge=False,
+            )
+            assert disarmed["state"] == "observe_only"
+            assert disarmed["audit"]["valid"] is True
+    finally:
+        stop.set()
+        if not bridge_task.done():
+            await asyncio.wait_for(bridge_task, timeout=5)
 
 
 @pytest.mark.asyncio

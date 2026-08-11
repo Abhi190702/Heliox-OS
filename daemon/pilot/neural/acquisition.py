@@ -321,7 +321,10 @@ class SyntheticNeuralSource:
 
     def start(self) -> None:
         self._sequence = 0
-        self._started_ns = time.monotonic_ns()
+        # The first requested block is anchored so its final sample is near
+        # the live monotonic clock. This lets a simulator fill a warm-up
+        # window immediately without manufacturing samples in the future.
+        self._started_ns = 0
         self._running = True
 
     def read(self, sample_count: int) -> NeuralSampleWindow:
@@ -338,6 +341,8 @@ class SyntheticNeuralSource:
                 [self._amplitude_uv * np.sin(2 * np.pi * self._target_hz * seconds + phase) for phase in phases]
             )
         interval_ns = 1_000_000_000 / self._sample_rate
+        if self._sequence == 0:
+            self._started_ns = time.monotonic_ns() - round((sample_count - 1) * interval_ns)
         timestamps = self._started_ns + np.rint(indexes * interval_ns).astype(np.int64)
         window = NeuralSampleWindow(samples, timestamps, self._sequence)
         self._sequence += sample_count

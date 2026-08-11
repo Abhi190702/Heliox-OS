@@ -125,6 +125,22 @@ def test_sidecar_emits_only_signed_derived_intent_and_tracks_dwell() -> None:
     assert "samples_uv" not in wire and "timestamps_ns" not in wire
 
 
+def test_sidecar_dwell_saturates_at_the_wire_contract_limit() -> None:
+    artifact = _artifact()
+    service = NeuralDecoderService(
+        source=SyntheticNeuralSource(target_hz=15, noise_uv=1.0, seed=100),
+        decoder=SSVEPDecoder(artifact),
+        signer=NeuralIntentSigner(b"d" * 32),
+    )
+    service.start()
+    try:
+        observations = [service.observe_once(state_revision=7, requested_scope=NeuralScope.NAVIGATE) for _ in range(70)]
+    finally:
+        service.stop()
+    assert observations[-1].intent is not None
+    assert observations[-1].intent.dwell_windows == 64
+
+
 def test_sidecar_records_every_acquired_chunk_only_when_factory_is_supplied() -> None:
     artifact = _artifact()
     source = SyntheticNeuralSource(target_hz=15, noise_uv=1.0, seed=101)

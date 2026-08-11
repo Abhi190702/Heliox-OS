@@ -111,7 +111,11 @@ class NeuralDecoderService:
             while self._buffer.health.buffered_samples < self._window_samples:
                 needed = self._window_samples - self._buffer.health.buffered_samples
                 try:
-                    self._buffer.append(self._read_source(min(needed, self._step_samples)))
+                    # Request the complete missing warm-up span. Synthetic and
+                    # playback sources can fill it immediately with a window
+                    # ending at the current clock; live adapters wait/fail
+                    # closed until that many real samples are buffered.
+                    self._buffer.append(self._read_source(needed))
                 except NeuralAcquisitionError as exc:
                     # A live board may need a short warm-up before its first
                     # complete chunk. Never spin forever or hide other errors.
@@ -165,7 +169,7 @@ class NeuralDecoderService:
             self._dwell = 0
             return NeuralObservation(quality, candidate, None, "decoder_uncertain")
         if candidate.target_id == self._last_target:
-            self._dwell += 1
+            self._dwell = min(self._dwell + 1, 64)
         else:
             self._last_target = candidate.target_id
             self._dwell = 1
