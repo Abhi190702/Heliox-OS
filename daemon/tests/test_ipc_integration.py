@@ -237,6 +237,26 @@ async def test_real_neurod_bridge_calibrates_previews_commits_and_disconnects_fa
             await asyncio.sleep(0.05)
         raise AssertionError("neural status did not reach the expected state")
 
+    async def wait_notification(ws, method: str, timeout: float = 5.0) -> dict:
+        for message in notifications:
+            if message.get("method") == method:
+                return message
+
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            if bridge_task.done():
+                raise AssertionError("neurod bridge stopped unexpectedly") from bridge_task.exception()
+            raw = await asyncio.wait_for(
+                ws.recv(),
+                timeout=max(0.01, deadline - asyncio.get_running_loop().time()),
+            )
+            message = json.loads(raw)
+            if message.get("method"):
+                notifications.append(message)
+                if message["method"] == method:
+                    return message
+        raise AssertionError(f"notification {method!r} was not received")
+
     try:
         async with websockets.connect(daemon_server) as ui:
             auth = await rpc(ui, "auth", {"token": "test-token"})
@@ -255,9 +275,8 @@ async def test_real_neurod_bridge_calibrates_previews_commits_and_disconnects_fa
             )
             assert armed["state"] == "armed_safe_ui"
             preview_status = await wait_status(ui, lambda status: status.get("state") == "previewed")
-            preview_messages = [message for message in notifications if message.get("method") == "neural_preview"]
-            assert preview_messages
-            preview = preview_messages[-1]["params"]
+            preview_message = await wait_notification(ui, "neural_preview")
+            preview = preview_message["params"]
             assert preview["intent_class"] == "focus_right"
             assert preview["fusion"]["raw_media_excluded"] is True
 
