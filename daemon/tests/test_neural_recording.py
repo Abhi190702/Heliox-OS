@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
 
 from pilot.neural.acquisition import NeuralSampleWindow, SyntheticNeuralSource
+from pilot.neural.protocol import NeuralStimulusEvent, NeuralStimulusMarkerV1
 from pilot.neural.recording import (
     EncryptedNeuralRecorder,
     NeuralRecordingConsentV1,
@@ -40,8 +42,19 @@ def test_encrypted_recording_contains_no_plain_samples_and_exports_brainvision(t
         key=b"k" * 32,
     )
     recorder.append(window)
+    recorder.append_marker(
+        NeuralStimulusMarkerV1(
+            session_id=source.descriptor.session_id,
+            sequence=0,
+            target_id="select",
+            event=NeuralStimulusEvent.TARGET_ON,
+            received_monotonic_ns=time.monotonic_ns(),
+            client_performance_ms=10.0,
+        )
+    )
     text = recorder.destination.read_text(encoding="utf-8")
     assert "samples_uv" not in text and "timestamps_ns" not in text
+    assert "select" not in text and "target_on" not in text
     assert json.loads(text.splitlines()[1])["ciphertext"]
 
     exported = recorder.export_bids_brainvision(tmp_path / "bids")
@@ -49,6 +62,8 @@ def test_encrypted_recording_contains_no_plain_samples_and_exports_brainvision(t
     assert (exported / "dataset_description.json").is_file()
     assert (eeg_dir / "sub-localsubject_task-heliox_eeg.vhdr").is_file()
     assert (eeg_dir / "sub-localsubject_task-heliox_eeg.eeg").stat().st_size == 50 * 3 * 4
+    assert "select" in (eeg_dir / "sub-localsubject_task-heliox_eeg_events.tsv").read_text(encoding="utf-8")
+    assert "select:target_on" in (eeg_dir / "sub-localsubject_task-heliox_eeg.vmrk").read_text(encoding="utf-8")
     reopened = EncryptedNeuralRecorder.open_existing(recorder.destination, key=b"k" * 32)
     assert reopened.export_bids_brainvision(tmp_path / "bids-reopened").is_dir()
 

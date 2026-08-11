@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from pilot.neural.acquisition import NeuralSampleWindow
-from pilot.neural.protocol import Identifier, NeuralStreamDescriptorV1
+from pilot.neural.protocol import Identifier, NeuralStimulusMarkerV1, NeuralStreamDescriptorV1
 
 Purpose = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=256)]
 
@@ -117,6 +117,7 @@ class EncryptedNeuralRecorder:
         if len(self._key) != 32:
             raise NeuralRecordingError("recording encryption key must be 256 bits")
         self._last_sequence = -1
+        self._last_marker_sequence = -1
         self._destination.parent.mkdir(parents=True, exist_ok=True)
         header = {
             "type": "header",
@@ -159,6 +160,7 @@ class EncryptedNeuralRecorder:
         instance._consent = consent
         instance._key = key or (key_store or NeuralRecordingKeyStore()).get_or_create(consent.subject_key)
         instance._last_sequence = -1
+        instance._last_marker_sequence = -1
         return instance
 
     def append(self, window: NeuralSampleWindow) -> None:
@@ -198,14 +200,45 @@ class EncryptedNeuralRecorder:
             os.fsync(stream.fileno())
         self._last_sequence = window.sequence_end
 
+    def append_marker(self, marker: NeuralStimulusMarkerV1) -> None:
+        self._consent.require_active()
+        if marker.session_id != self._descriptor.session_id:
+            raise NeuralRecordingError("stimulus marker does not match the recording session")
+        if marker.sequence <= self._last_marker_sequence:
+            raise NeuralRecordingError("recording rejected a replayed stimulus marker")
+        plaintext = marker.model_dump_json().encode("utf-8")
+        aad = json.dumps(
+            {
+                "session_id": str(self._descriptor.session_id),
+                "marker_sequence": marker.sequence,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        nonce = secrets.token_bytes(12)
+        ciphertext = AESGCM(self._key).encrypt(nonce, plaintext, aad)
+        record = {
+            "type": "marker",
+            "marker_sequence": marker.sequence,
+            "nonce": base64.b64encode(nonce).decode("ascii"),
+            "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
+            "plaintext_sha256": hashlib.sha256(plaintext).hexdigest(),
+        }
+        with self._destination.open("a", encoding="utf-8", newline="\n") as stream:
+            stream.write(json.dumps(record, sort_keys=True) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        self._last_marker_sequence = marker.sequence
+
     def export_bids_brainvision(self, destination: Path) -> Path:
         if not self._consent.allow_bids_export:
             raise NeuralRecordingError("BIDS export was not included in this recording consent")
         self._consent.require_active()
-        windows = self._decrypt_windows()
+        windows, markers = self._decrypt_records()
         if not windows:
             raise NeuralRecordingError("recording has no sample chunks to export")
         samples = np.concatenate([window.samples_uv for window in windows], axis=1)
+        timestamps = np.concatenate([window.timestamps_ns for window in windows])
         subject = "".join(character for character in self._consent.subject_key if character.isalnum())
         if not subject:
             raise NeuralRecordingError("subject key cannot form a BIDS participant label")
@@ -233,10 +266,21 @@ class EncryptedNeuralRecorder:
             encoding="utf-8",
             newline="\n",
         )
+        marker_lines = ["Mk1=New Segment,,1,1,0"]
+        event_lines = ["onset\tduration\ttrial_type\tvalue"]
+        first_timestamp = int(timestamps[0])
+        for index, marker in enumerate(markers, start=2):
+            label = f"{marker.target_id or 'grid'}:{marker.event.value}"
+            sample_position = int(np.searchsorted(timestamps, marker.received_monotonic_ns, side="left")) + 1
+            sample_position = min(max(1, sample_position), len(timestamps))
+            onset = max(0.0, (marker.received_monotonic_ns - first_timestamp) / 1_000_000_000)
+            marker_lines.append(f"Mk{index}=Stimulus,{label},{sample_position},1,0")
+            event_lines.append(f"{onset:.9f}\t0\t{marker.event.value}\t{marker.target_id or 'grid'}")
+        marker_text = "\n".join(marker_lines)
         (eeg_dir / marker_name).write_text(
             "Brain Vision Data Exchange Marker File, Version 1.0\n"
             f"[Common Infos]\nDataFile={data_name}\n"
-            "[Marker Infos]\nMk1=New Segment,,1,1,0\n",
+            f"[Marker Infos]\n{marker_text}\n",
             encoding="utf-8",
             newline="\n",
         )
@@ -271,13 +315,34 @@ class EncryptedNeuralRecorder:
             for name in self._descriptor.channel_names
         )
         (eeg_dir / f"{stem}_channels.tsv").write_text(channels, encoding="utf-8", newline="\n")
+        (eeg_dir / f"{stem}_events.tsv").write_text(
+            "\n".join(event_lines) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
         return root
 
-    def _decrypt_windows(self) -> list[NeuralSampleWindow]:
+    def _decrypt_records(self) -> tuple[list[NeuralSampleWindow], list[NeuralStimulusMarkerV1]]:
         lines = self._destination.read_text(encoding="utf-8").splitlines()
         windows: list[NeuralSampleWindow] = []
+        markers: list[NeuralStimulusMarkerV1] = []
         for line in lines[1:]:
             record = json.loads(line)
+            if record.get("type") == "marker":
+                aad = json.dumps(
+                    {
+                        "session_id": str(self._descriptor.session_id),
+                        "marker_sequence": record["marker_sequence"],
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                plaintext = self._decrypt_payload(record, aad)
+                try:
+                    markers.append(NeuralStimulusMarkerV1.model_validate_json(plaintext))
+                except ValueError as exc:
+                    raise NeuralRecordingError("encrypted stimulus marker is invalid") from exc
+                continue
             if record.get("type") != "chunk":
                 raise NeuralRecordingError("unknown encrypted recording record")
             aad = json.dumps(
@@ -289,16 +354,7 @@ class EncryptedNeuralRecorder:
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
-            try:
-                plaintext = AESGCM(self._key).decrypt(
-                    base64.b64decode(record["nonce"], validate=True),
-                    base64.b64decode(record["ciphertext"], validate=True),
-                    aad,
-                )
-            except Exception as exc:
-                raise NeuralRecordingError("encrypted neural chunk failed authentication") from exc
-            if hashlib.sha256(plaintext).hexdigest() != record["plaintext_sha256"]:
-                raise NeuralRecordingError("encrypted neural chunk hash mismatch")
+            plaintext = self._decrypt_payload(record, aad)
             with np.load(io.BytesIO(plaintext), allow_pickle=False) as chunk:
                 windows.append(
                     NeuralSampleWindow(
@@ -308,7 +364,20 @@ class EncryptedNeuralRecorder:
                         int(chunk["dropped_before"].item()),
                     )
                 )
-        return windows
+        return windows, markers
+
+    def _decrypt_payload(self, record: dict[str, object], aad: bytes) -> bytes:
+        try:
+            plaintext = AESGCM(self._key).decrypt(
+                base64.b64decode(str(record["nonce"]), validate=True),
+                base64.b64decode(str(record["ciphertext"]), validate=True),
+                aad,
+            )
+        except Exception as exc:
+            raise NeuralRecordingError("encrypted neural record failed authentication") from exc
+        if hashlib.sha256(plaintext).hexdigest() != record.get("plaintext_sha256"):
+            raise NeuralRecordingError("encrypted neural record hash mismatch")
+        return plaintext
 
 
 def prune_expired_neural_recordings(
