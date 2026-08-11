@@ -128,9 +128,14 @@ _RAW_MEDIA_KEYS = {
     "image",
     "image_bytes",
     "image_data",
+    "electrode_data",
+    "eeg",
+    "eeg_samples",
+    "neural_samples",
     "raw_audio",
     "raw_camera",
     "raw_screen",
+    "raw_eeg",
     "screen_capture",
     "screenshot",
     "video",
@@ -162,7 +167,9 @@ def redact_for_persistence(value: Any) -> Any:
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             normalized = _normalized_key(key)
-            if normalized in _RAW_MEDIA_KEYS or normalized.startswith(("raw_audio", "raw_camera", "raw_screen")):
+            if normalized in _RAW_MEDIA_KEYS or normalized.startswith(
+                ("raw_audio", "raw_camera", "raw_screen", "raw_eeg", "raw_neural")
+            ):
                 redacted[str(key)] = "[EXCLUDED_RAW_MEDIA]"
             elif normalized in _SECRET_KEY_PARTS or any(normalized.endswith(f"_{part}") for part in _SECRET_KEY_PARTS):
                 redacted[str(key)] = "[REDACTED]"

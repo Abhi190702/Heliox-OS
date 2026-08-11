@@ -134,6 +134,7 @@ async def test_redacts_credentials_binary_and_raw_sensor_media(ledger):
             "camera_frame": b"camera bytes",
             "audio_data": [1, 2, 3],
             "screenshot": "base64 pixels",
+            "raw_eeg": [[1.0, 2.0]],
             "transcript": "use sk_abcdefghijklmnopqrstuvwxyz now",
             "binary": b"other bytes",
             "region": "left",
@@ -145,6 +146,7 @@ async def test_redacts_credentials_binary_and_raw_sensor_media(ledger):
     assert event.payload["camera_frame"] == "[EXCLUDED_RAW_MEDIA]"
     assert event.payload["audio_data"] == "[EXCLUDED_RAW_MEDIA]"
     assert event.payload["screenshot"] == "[EXCLUDED_RAW_MEDIA]"
+    assert event.payload["raw_eeg"] == "[EXCLUDED_RAW_MEDIA]"
     assert "[REDACTED]" in event.payload["transcript"]
     assert event.payload["binary"] == "[EXCLUDED_BINARY]"
     assert event.payload["region"] == "left"

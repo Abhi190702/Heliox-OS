@@ -10,8 +10,10 @@ import pytest
 from pilot.neural.acquisition import (
     BoundedNeuralBuffer,
     BrainFlowNeuralSource,
+    FaultInjectingNeuralSource,
     LSLNeuralSource,
     NeuralAcquisitionError,
+    NeuralFaultPlan,
     NeuralSampleWindow,
     PlaybackNeuralSource,
     SyntheticNeuralSource,
@@ -205,3 +207,22 @@ def test_lsl_adapter_accumulates_partial_chunks_without_dropping_samples(
     assert window.samples_uv.tolist() == [[1.0, 3.0, 5.0], [2.0, 4.0, 6.0]]
     assert window.sequence_start == 0
     assert [max_samples for _, max_samples in calls] == [3, 1]
+
+
+def test_fault_injection_replays_and_saturates_deterministically() -> None:
+    replay = FaultInjectingNeuralSource(
+        SyntheticNeuralSource(seed=8),
+        NeuralFaultPlan(every_nth_read=2, mode="replay"),
+    )
+    replay.start()
+    first = replay.read(20)
+    assert replay.read(20).sequence_start == first.sequence_start
+    replay.stop()
+
+    saturated = FaultInjectingNeuralSource(
+        SyntheticNeuralSource(seed=9),
+        NeuralFaultPlan(every_nth_read=1, mode="saturate"),
+    )
+    saturated.start()
+    assert np.all(saturated.read(20).samples_uv[0] == 1_000.0)
+    saturated.stop()

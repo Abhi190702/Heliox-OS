@@ -187,6 +187,87 @@ class NeuralSource(Protocol):
     def stop(self) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class NeuralFaultPlan:
+    """Deterministic source faults for crash, race, and recovery tests."""
+
+    every_nth_read: int
+    mode: str
+    drop_samples: int = 1
+    stale_by_ns: int = 10_000_000_000
+    saturation_uv: float = 1_000.0
+
+    def __post_init__(self) -> None:
+        if self.every_nth_read < 1:
+            raise ValueError("fault cadence must be positive")
+        if self.mode not in {"crash", "drop", "stale", "saturate", "replay"}:
+            raise ValueError("unsupported neural fault mode")
+        if self.drop_samples < 1 or self.stale_by_ns < 1 or self.saturation_uv < 1:
+            raise ValueError("fault parameters must be positive")
+
+
+class FaultInjectingNeuralSource:
+    """Wrap a source with registered, reproducible faults; never use in live mode."""
+
+    def __init__(self, source: NeuralSource, plan: NeuralFaultPlan) -> None:
+        self._source = source
+        self._plan = plan
+        self._read_count = 0
+        self._previous: NeuralSampleWindow | None = None
+
+    @property
+    def descriptor(self) -> NeuralStreamDescriptorV1:
+        return self._source.descriptor
+
+    def start(self) -> None:
+        self._read_count = 0
+        self._previous = None
+        self._source.start()
+
+    def read(self, sample_count: int) -> NeuralSampleWindow:
+        self._read_count += 1
+        window = self._source.read(sample_count)
+        if self._read_count % self._plan.every_nth_read:
+            self._previous = window
+            return window
+        if self._plan.mode == "crash":
+            raise NeuralAcquisitionError("injected neural source crash")
+        if self._plan.mode == "replay" and self._previous is not None:
+            return self._previous
+        if self._plan.mode == "drop":
+            dropped = min(self._plan.drop_samples, window.sample_count - 1)
+            return NeuralSampleWindow(
+                window.samples_uv[:, dropped:],
+                window.timestamps_ns[dropped:],
+                window.sequence_start + dropped,
+                window.dropped_before + dropped,
+            )
+        if self._plan.mode == "stale":
+            timestamps = window.timestamps_ns - self._plan.stale_by_ns
+            if timestamps[0] <= 0:
+                raise NeuralAcquisitionError("injected stale timestamp left the monotonic domain")
+            return NeuralSampleWindow(
+                window.samples_uv,
+                timestamps,
+                window.sequence_start,
+                window.dropped_before,
+            )
+        if self._plan.mode == "saturate":
+            samples = np.array(window.samples_uv, copy=True)
+            samples[0, :] = self._plan.saturation_uv
+            return NeuralSampleWindow(
+                samples,
+                window.timestamps_ns,
+                window.sequence_start,
+                window.dropped_before,
+            )
+        self._previous = window
+        return window
+
+    def stop(self) -> None:
+        self._source.stop()
+
+
 class SyntheticNeuralSource:
     """Deterministic SSVEP-like fixture for CI, soak, and fault injection."""
 
