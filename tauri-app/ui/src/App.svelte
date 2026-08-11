@@ -26,7 +26,7 @@
   import type { Message } from "./lib/stores/session";
   import { settings } from "./lib/stores/settings";
   import { tick, onDestroy } from "svelte";
-  import { Copy } from "lucide-svelte";
+  import { Copy } from "@lucide/svelte";
   import ScrollToBottom from "./lib/components/ScrollToBottom.svelte";
   import { shouldFollowLatest } from "./lib/utils/scrollPolicy";
   import ConnectionBadge from "./lib/components/ConnectionBadge.svelte";

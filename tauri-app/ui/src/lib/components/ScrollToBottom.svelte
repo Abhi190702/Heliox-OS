@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown } from "lucide-svelte";
+  import { ArrowDown } from "@lucide/svelte";
 
   interface Props {
     show: boolean;

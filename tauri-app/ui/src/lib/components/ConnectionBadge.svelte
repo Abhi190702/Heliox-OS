@@ -1,7 +1,7 @@
 <script lang="ts">
   import { session } from "../stores/session";
   import { _ } from "svelte-i18n";
-  import { Wifi, Loader2 } from "lucide-svelte";
+  import { Wifi, Loader2 } from "@lucide/svelte";
 
   let wasConnected = $state(false);
 

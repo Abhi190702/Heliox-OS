@@ -19,7 +19,6 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/svelte": "^5.4.2",
     "@tsconfig/svelte": "^5.0.0",
-    "@types/dompurify": "^3.2.0",
     "jsdom": "^29.1.1",
     "postcss": "8.5.26",
     "prettier": "3.9.6",
@@ -32,6 +31,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@lucide/svelte": "1.31.0",
     "@mediapipe/hands": "0.4.1675469240",
     "@mediapipe/tasks-vision": "^0.10.35",
     "@tauri-apps/api": "^2.11.0",
@@ -40,7 +40,6 @@
     "chart.js": "^4.5.1",
     "dompurify": "3.4.13",
     "highlight.js": "^11.11.1",
-    "lucide-svelte": "^1.0.1",
     "marked": "^18.0.3",
     "svelte-chartjs": "^4.0.1",
     "svelte-i18n": "^4.0.1"

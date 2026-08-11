@@ -2,7 +2,7 @@
   import { session } from "../stores/session";
   import { fade, slide } from "svelte/transition";
   import { flip } from "svelte/animate";
-  import { Shield, Play, CheckCircle2, XCircle, Clock, Terminal } from "lucide-svelte";
+  import { Shield, Play, CheckCircle2, XCircle, Clock, Terminal } from "@lucide/svelte";
 </script>
 
 {#if $session.liveActions.length > 0}

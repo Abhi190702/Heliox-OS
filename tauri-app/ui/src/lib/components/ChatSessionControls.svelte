@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { History, MessageSquarePlus, X } from "lucide-svelte";
+  import { History, MessageSquarePlus, X } from "@lucide/svelte";
   import { session } from "../stores/session";
   import type { ChatSessionSummary } from "../utils/chatSessions";
 
