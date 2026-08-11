@@ -134,7 +134,7 @@ npm run tauri dev
 - Type hints are encouraged for all public functions
 
 ### Svelte/TypeScript (tauri-app/ui/)
-- Formatter: **Prettier** (`npx prettier --write .`)
+- Formatter: **Prettier** (`npx prettier --write "src/**/*.{svelte,ts,js,css}" "vite.config.ts"`)
 - Type and component check: **svelte-check** (`npm run check`)
 - Tests: **Vitest** (`npm run test:unit -- --run`) and **Playwright** (`npm run test:visual`)
 - Use Svelte 5 runes (`$state`, `$derived`, `$effect`)
@@ -245,7 +245,7 @@ python -m ruff format --check pilot tests
 python -m pytest
 
 cd ../tauri-app/ui
-npx prettier --check .
+npx prettier --check "src/**/*.{svelte,ts,js,css}" "vite.config.ts"
 npm run check
 npm run test:static
 npm run test:unit -- --run
