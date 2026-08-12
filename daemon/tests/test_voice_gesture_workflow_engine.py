@@ -249,7 +249,11 @@ class TestLiveCorrection:
         executor = _CorrectableExecutor()
         engine = _engine(tmp_path, executor=executor)
         workflow = await engine.start("complete the record in Hermes", InvocationSource.VOICE)
-        await asyncio.wait_for(first_round_started.wait(), timeout=2)
+        # A full Windows CI matrix can take several seconds to schedule a new
+        # background task near the end of this 1,600+ test suite. The contract
+        # under test is cancellation after execution starts, not a two-second
+        # wall-clock performance budget.
+        await asyncio.wait_for(first_round_started.wait(), timeout=10)
 
         consumed = await engine.handle_running_instruction("voice", "use the July record instead")
 
@@ -271,7 +275,7 @@ class TestLiveCorrection:
 
         engine = _engine(tmp_path, executor=_BlockingExecutor())
         workflow = await engine.start("complete the record", InvocationSource.VOICE)
-        await asyncio.wait_for(first_round_started.wait(), timeout=2)
+        await asyncio.wait_for(first_round_started.wait(), timeout=10)
 
         consumed = await engine.handle_running_instruction("voice", "stop")
 
