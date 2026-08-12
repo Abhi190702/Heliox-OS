@@ -91,6 +91,21 @@ async def test_cpu_usage_uses_short_sample_interval(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.asyncio
+async def test_system_probe_preparation_primes_cpu_stack(monkeypatch: pytest.MonkeyPatch) -> None:
+    primed = False
+
+    def prime() -> None:
+        nonlocal primed
+        primed = True
+
+    monkeypatch.setattr(sysinfo, "_prime_psutil_cpu", prime)
+
+    await sysinfo.prepare_system_probes()
+
+    assert primed is True
+
+
+@pytest.mark.asyncio
 async def test_full_latency_benchmark_completes_without_model_or_thread_leak() -> None:
     timings, model_calls = await asyncio.wait_for(benchmark(1), timeout=10)
 

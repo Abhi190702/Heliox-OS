@@ -26,6 +26,29 @@ SYSTEM_INFO_CPU_SAMPLE_SECONDS = 0.05
 CPU_USAGE_SAMPLE_SECONDS = 0.02
 
 
+def _prime_psutil_cpu() -> None:
+    """Load and prime CPU probes before the daemon advertises readiness."""
+    import psutil
+
+    psutil.cpu_count()
+    psutil.cpu_count(logical=True)
+    try:
+        psutil.cpu_freq()
+    except (AttributeError, NotImplementedError):
+        pass
+    # The non-blocking call initializes psutil's per-thread CPU baseline. The
+    # interactive action still performs its own fresh interval sample.
+    psutil.cpu_percent(interval=None, percpu=True)
+
+
+async def prepare_system_probes() -> None:
+    """Warm common psutil/thread-pool paths during daemon setup."""
+    try:
+        await asyncio.to_thread(_prime_psutil_cpu)
+    except ImportError:
+        logger.debug("psutil is unavailable; system probes will use platform fallbacks")
+
+
 async def system_info(categories: list[str] | None = None) -> str:
     """Get comprehensive system information."""
     if not categories:

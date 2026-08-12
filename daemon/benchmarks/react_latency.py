@@ -114,6 +114,7 @@ async def build_harness() -> BenchmarkHarness:
     from pilot.security.risk_gate import get_risk_gate
     from pilot.security.validator import ActionValidator
     from pilot.server import PilotServer
+    from pilot.system.sysinfo import prepare_system_probes
 
     config = PilotConfig()
     model = StubModelRouter()
@@ -137,6 +138,7 @@ async def build_harness() -> BenchmarkHarness:
     # lifecycle keeps the first measured request from including setup imports.
     server._destructive_critic = DestructiveCriticAgent(model)  # type: ignore[arg-type]  # noqa: SLF001
     get_risk_gate()
+    await prepare_system_probes()
     server._permission_checker = permissions  # noqa: SLF001
     server._reflector = NoopReflector()  # noqa: SLF001
     server._multi_agent = MultiAgentRouter(model)  # type: ignore[arg-type]  # noqa: SLF001

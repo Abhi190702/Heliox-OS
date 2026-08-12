@@ -719,6 +719,11 @@ class PilotServer:
         from pilot.security.risk_gate import get_risk_gate
 
         self._executor.set_world_model_outcome_recorder(get_risk_gate().record_outcome)
+        # Import and warm the local system probe stack before readiness so the
+        # first harmless status request does not pay lazy import/thread startup.
+        from pilot.system.sysinfo import prepare_system_probes
+
+        await prepare_system_probes()
         self._executor.set_durable_task_store(self._durable_tasks)
         self._verifier = Verifier(model_router)
 
