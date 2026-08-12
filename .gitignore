@@ -76,6 +76,7 @@ ui/build/
 docs/RELEASING.md
 /report.md
 /funding.md
+/seo.md
 
 daemon/benchmarks/.bench-state/
 daemon/neuralset*
