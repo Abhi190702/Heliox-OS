@@ -55,6 +55,7 @@ Current release: **v0.11.1** · Python **3.11+** · Windows is the primary hardw
 | Action schema        | 156 declared action types                                                                     | Availability depends on OS, dependencies, permissions, credentials, and policy                 |
 | Specialist mesh      | 21 executable specialists with providers for 156/156 declared actions                         | Provider coverage is not universal environment compatibility                                   |
 | Outcome verification | 11 actions have an independent observed post-condition verifier                               | The other 145 currently rely on the executor result                                            |
+| Guarded fast path    | 37.08 ms mean and 30.59 ms median across 25 non-LLM CPU-usage iterations                      | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
 | Plugins              | 6 manifests in the generated public catalog                                                   | Marketplace and local plugins remain capability-constrained                                    |
 | CI                   | Python, frontend, visual, Rust, marketplace, and installer gates                              | CI does not prove camera, microphone, speaker, EEG, or human accuracy                          |
 | Windows signing      | SignPath test-policy workflow signs and verifies EXE, MSI, and embedded application artifacts | The production certificate is pending; current public installers are not yet production-signed |
@@ -65,6 +66,7 @@ Current release: **v0.11.1** · Python **3.11+** · Windows is the primary hardw
 - [Human-readable evidence and limitations](https://www.helioxos.dev/proof.html)
 - [Detailed Markdown evidence](proof.md)
 - [Machine-readable capability catalog](capabilities.json)
+- [Raw guarded fast-path benchmark](docs/evidence/react-latency-2026-08-12.json)
 - [Live CI history](https://github.com/VyomKulshrestha/Heliox-OS/actions)
 - [Release changelog](changelog.md) and [JSON release feed](releases.feed.json)
 
@@ -293,6 +295,18 @@ Open a [bug report](https://github.com/VyomKulshrestha/Heliox-OS/issues/new/choo
 - [Contributing](CONTRIBUTING.md)
 - [Website agent index](https://www.helioxos.dev/llms.txt) and [repository agent index](llms.txt)
 - [CodeMeta](codemeta.json), [citation metadata](CITATION.cff), and [machine-readable releases](releases.json)
+
+### Agent and search discovery
+
+Heliox publishes public, read-only discovery surfaces so search engines and assistants can inspect current capabilities and limitations instead of inferring them from marketing copy:
+
+- [Agent index](https://www.helioxos.dev/llms.txt) and [machine-readable capabilities](https://www.helioxos.dev/capabilities.json)
+- [Public OpenAPI document](https://www.helioxos.dev/openapi.json) and [API catalog](https://www.helioxos.dev/.well-known/api-catalog)
+- [Read-only documentation MCP manifest](https://www.helioxos.dev/.well-known/mcp.json)
+- [Agent skills index](https://www.helioxos.dev/.well-known/agent-skills/index.json)
+- [Human evidence center](https://www.helioxos.dev/proof.html), [Markdown evidence](https://www.helioxos.dev/proof.md), and [release feed](https://www.helioxos.dev/releases.json)
+
+These surfaces improve technical discoverability; they do not guarantee search ranking, citations, sponsorship, or funding. External visibility is measured separately through a recurring prompt and index audit.
 
 ## Support Heliox
 
