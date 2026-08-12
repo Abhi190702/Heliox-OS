@@ -20,6 +20,10 @@
   let exportRecording = $state("");
   let exportDestination = $state("");
   let exportMessage = $state("");
+  let benchmarkBusy = $state(false);
+  let benchmarkError = $state("");
+  let benchmarkResult = $state<Record<string, unknown> | null>(null);
+  let eegbciSubject = $state(1);
 
   onMount(() => {
     void neural.refresh();
@@ -56,6 +60,30 @@
 
   function percent(value: number | undefined): string {
     return `${Math.round((value ?? 0) * 100)}%`;
+  }
+
+  async function runBenchmark(benchmark: "brainflow-synthetic" | "eegbci") {
+    benchmarkBusy = true;
+    benchmarkError = "";
+    benchmarkResult = null;
+    try {
+      benchmarkResult = await invoke<Record<string, unknown>>("run_neural_benchmark", {
+        benchmark,
+        subject: benchmark === "eegbci" ? eegbciSubject : null,
+        runs: benchmark === "eegbci" ? [6, 10, 14] : null,
+      });
+    } catch (cause) {
+      benchmarkError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      benchmarkBusy = false;
+    }
+  }
+
+  function evidenceLabel(kind: string): string {
+    if (kind === "live_eeg") return $_("neural.live_eeg");
+    if (kind === "recorded_eeg") return $_("neural.recorded_eeg");
+    if (kind === "synthetic") return $_("neural.synthetic_evidence");
+    return kind || $_("neural.waiting_evidence");
   }
 </script>
 
@@ -174,6 +202,51 @@
     </details>
   </div>
 
+  <div class="benchmark-controls">
+    <div class="goal-header">
+      <div>
+        <strong>{$_("neural.no_hardware_title")}</strong>
+        <span>{$_("neural.no_hardware_body")}</span>
+      </div>
+      <span class="evidence-badge">{$_("neural.recorded_not_live")}</span>
+    </div>
+    <div class="benchmark-actions">
+      <button onclick={() => runBenchmark("brainflow-synthetic")} disabled={benchmarkBusy}>
+        {$_("neural.run_brainflow_synthetic")}
+      </button>
+      <label>
+        <span>{$_("neural.eegbci_subject")}</span>
+        <input type="number" min="1" max="109" bind:value={eegbciSubject} disabled={benchmarkBusy} />
+      </label>
+      <button
+        onclick={() => runBenchmark("eegbci")}
+        disabled={benchmarkBusy || eegbciSubject < 1 || eegbciSubject > 109}
+      >
+        {benchmarkBusy ? $_("neural.benchmark_running") : $_("neural.run_eegbci")}
+      </button>
+    </div>
+    {#if benchmarkResult}
+      <div class="benchmark-result" aria-live="polite">
+        <strong>{evidenceLabel(String(benchmarkResult.evidence_kind ?? ""))}</strong>
+        {#if benchmarkResult.dataset}<span>{String(benchmarkResult.dataset)}</span>{/if}
+        {#if benchmarkResult.balanced_accuracy !== undefined}
+          <span>
+            {$_("neural.benchmark_accuracy")}: {percent(Number(benchmarkResult.balanced_accuracy))} ·
+            {$_("neural.benchmark_chance")}: {percent(Number(benchmarkResult.chance_level))} ·
+            {String(benchmarkResult.fold_count)}
+            {$_("neural.held_runs")}
+          </span>
+        {:else}
+          <span>
+            {String(benchmarkResult.sample_count)} samples · {String(benchmarkResult.sample_rate_hz)} Hz ·
+            {String(benchmarkResult.signal_quality)}
+          </span>
+        {/if}
+      </div>
+    {/if}
+    {#if benchmarkError}<div class="error" role="alert">{benchmarkError}</div>{/if}
+  </div>
+
   <div class="actions">
     {#if !$neural.sidecarRunning}
       <button class="primary" onclick={start} disabled={!warningAccepted || $neural.busy}>
@@ -201,6 +274,12 @@
 
   <div class="status-grid">
     <div><span>{$_("neural.state")}</span><strong>{$neural.state.replaceAll("_", " ")}</strong></div>
+    <div>
+      <span>{$_("neural.evidence")}</span>
+      <strong class="evidence-badge" class:live={$neural.evidenceKind === "live_eeg"}>
+        {evidenceLabel($neural.evidenceKind)}
+      </strong>
+    </div>
     <div><span>{$_("neural.transport")}</span><strong>{$neural.transport || "—"}</strong></div>
     <div>
       <span>{$_("neural.signal")}</span>
@@ -316,6 +395,43 @@
     padding: 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
+  }
+  .benchmark-controls {
+    display: grid;
+    gap: 10px;
+    margin: 0 14px 12px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent) 4%, transparent);
+  }
+  .benchmark-controls .goal-header > div,
+  .benchmark-result {
+    display: grid;
+    gap: 4px;
+  }
+  .benchmark-actions {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .benchmark-actions input {
+    width: 76px;
+  }
+  .benchmark-result {
+    padding: 9px;
+    color: var(--text-secondary);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+  }
+  .evidence-badge {
+    color: var(--warning);
+  }
+  .evidence-badge.live {
+    color: var(--success);
   }
   details summary {
     color: var(--text-secondary);

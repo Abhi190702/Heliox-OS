@@ -370,6 +370,73 @@ pub fn export_neural_recording(recording: String, destination: String) -> Result
     Ok(())
 }
 
+fn neural_benchmark_args(
+    benchmark: &str,
+    subject: Option<u16>,
+    runs: Option<Vec<u8>>,
+) -> Result<Vec<String>, String> {
+    let mut args = vec!["-m".to_string(), "pilot.neural.benchmark".to_string()];
+    match benchmark {
+        "brainflow-synthetic" => {
+            args.extend([
+                benchmark.to_string(),
+                "--seconds".to_string(),
+                "2".to_string(),
+            ]);
+        }
+        "eegbci" => {
+            let subject = subject.unwrap_or(1);
+            if !(1..=109).contains(&subject) {
+                return Err("EEGBCI subject must be between 1 and 109".to_string());
+            }
+            let runs = runs.unwrap_or_else(|| vec![6, 10, 14]);
+            if runs.len() < 2
+                || runs.len() > 6
+                || runs
+                    .iter()
+                    .any(|run| !matches!(run, 4 | 6 | 8 | 10 | 12 | 14))
+            {
+                return Err("Use 2-6 registered EEGBCI motor-imagery runs".to_string());
+            }
+            args.extend([
+                benchmark.to_string(),
+                "--subject".to_string(),
+                subject.to_string(),
+                "--runs".to_string(),
+            ]);
+            args.extend(runs.into_iter().map(|run| run.to_string()));
+        }
+        _ => return Err("Unsupported neural benchmark".to_string()),
+    }
+    Ok(args)
+}
+
+#[tauri::command]
+pub async fn run_neural_benchmark(
+    benchmark: String,
+    subject: Option<u16>,
+    runs: Option<Vec<u8>>,
+) -> Result<serde_json::Value, String> {
+    let args = neural_benchmark_args(&benchmark, subject, runs)?;
+    tokio::task::spawn_blocking(move || {
+        let output = hidden_python_command()
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|error| format!("Could not start neural benchmark: {error}"))?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr);
+            let summary = detail.lines().last().unwrap_or("benchmark failed");
+            return Err(format!("Neural benchmark failed: {summary}"));
+        }
+        serde_json::from_slice(&output.stdout)
+            .map_err(|error| format!("Neural benchmark returned invalid JSON: {error}"))
+    })
+    .await
+    .map_err(|error| format!("Neural benchmark worker failed: {error}"))?
+}
+
 #[tauri::command]
 pub fn stop_neural_sidecar(
     state: tauri::State<NeuralProcess>,
@@ -957,5 +1024,21 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["--retention-days", "14"]));
+    }
+
+    #[test]
+    fn neural_benchmarks_accept_only_fixed_no_hardware_workflows() {
+        let synthetic = neural_benchmark_args("brainflow-synthetic", None, None).unwrap();
+        assert!(synthetic.iter().any(|value| value == "brainflow-synthetic"));
+
+        let recorded = neural_benchmark_args("eegbci", Some(2), Some(vec![6, 10])).unwrap();
+        assert!(recorded.windows(2).any(|pair| pair == ["--subject", "2"]));
+        assert!(recorded
+            .windows(3)
+            .any(|values| values == ["--runs", "6", "10"]));
+
+        assert!(neural_benchmark_args("shell", None, None).is_err());
+        assert!(neural_benchmark_args("eegbci", Some(0), None).is_err());
+        assert!(neural_benchmark_args("eegbci", Some(1), Some(vec![1, 2])).is_err());
     }
 }

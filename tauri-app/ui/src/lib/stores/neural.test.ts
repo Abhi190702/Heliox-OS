@@ -79,4 +79,20 @@ describe("neural control store", () => {
     neural.setStimulusEnabled(true);
     expect(get(neural).stimulusEnabled).toBe(true);
   });
+
+  it("preserves explicit recorded-versus-live evidence provenance", async () => {
+    const { neural } = await import("./neural");
+    call.mockResolvedValue({
+      state: "observe_only",
+      connected: true,
+      source_id: "playback-session",
+      board_kind: "local-npz-playback",
+      transport: "playback",
+      evidence_kind: "recorded_eeg",
+    });
+    invoke.mockResolvedValue({ running: false, pid: null });
+    await neural.refresh();
+    expect(get(neural).evidenceKind).toBe("recorded_eeg");
+    expect(get(neural).boardKind).toBe("local-npz-playback");
+  });
 });

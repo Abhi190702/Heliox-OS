@@ -56,7 +56,9 @@ export interface NeuralState {
   stimulusEnabled: boolean;
   sessionId: string;
   sourceId: string;
+  boardKind: string;
   transport: string;
+  evidenceKind: string;
   calibrated: boolean;
   calibrationId: string;
   decoderVersion: string;
@@ -88,7 +90,9 @@ const DEFAULT_STATE: NeuralState = {
   stimulusEnabled: false,
   sessionId: "",
   sourceId: "",
+  boardKind: "",
   transport: "",
+  evidenceKind: "",
   calibrated: false,
   calibrationId: "",
   decoderVersion: "",
@@ -126,7 +130,9 @@ function createNeuralControl() {
       connected: Boolean(payload.connected ?? current.connected),
       sessionId: String(payload.session_id ?? current.sessionId),
       sourceId: String(payload.source_id ?? current.sourceId),
+      boardKind: String(payload.board_kind ?? current.boardKind),
       transport: String(payload.transport ?? current.transport),
+      evidenceKind: String(payload.evidence_kind ?? current.evidenceKind),
       calibrated: Boolean(payload.calibrated ?? current.calibrated),
       calibrationId: String(payload.calibration_id ?? current.calibrationId),
       decoderVersion: String(payload.decoder_version ?? current.decoderVersion),
