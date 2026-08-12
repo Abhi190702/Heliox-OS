@@ -12,6 +12,7 @@ from pilot.neural.gate import (
 )
 from pilot.neural.protocol import (
     ArtifactFlag,
+    NeuralEvidenceKind,
     NeuralIntentClass,
     NeuralIntentV1,
     NeuralParadigm,
@@ -32,6 +33,7 @@ def _descriptor(session_id: uuid.UUID) -> NeuralStreamDescriptorV1:
         source_id="synthetic-1",
         board_kind="brainflow-synthetic",
         transport=NeuralTransport.SYNTHETIC,
+        evidence_kind=NeuralEvidenceKind.SYNTHETIC,
         sample_rate_hz=250,
         channel_count=3,
         channel_names=("O1", "Oz", "O2"),

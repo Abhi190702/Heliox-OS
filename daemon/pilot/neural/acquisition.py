@@ -18,7 +18,7 @@ from uuid import UUID, uuid4
 import numpy as np
 from numpy.typing import NDArray
 
-from pilot.neural.protocol import NeuralStreamDescriptorV1, NeuralTransport
+from pilot.neural.protocol import NeuralEvidenceKind, NeuralStreamDescriptorV1, NeuralTransport
 
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
@@ -302,6 +302,7 @@ class SyntheticNeuralSource:
             source_id=f"synthetic-{seed}",
             board_kind="brainflow-synthetic",
             transport=NeuralTransport.SYNTHETIC,
+            evidence_kind=NeuralEvidenceKind.SYNTHETIC,
             sample_rate_hz=sample_rate_hz,
             channel_count=len(channel_names),
             channel_names=channel_names,
@@ -390,6 +391,7 @@ class PlaybackNeuralSource:
             source_id=source_id,
             board_kind="local-npz-playback",
             transport=NeuralTransport.PLAYBACK,
+            evidence_kind=NeuralEvidenceKind.RECORDED_EEG,
             sample_rate_hz=sample_rate_hz,
             channel_count=len(channel_names),
             channel_names=channel_names,
@@ -538,6 +540,7 @@ class BrainFlowNeuralSource:
             source_id=self._source_id,
             board_kind=f"brainflow-{self._board_id}",
             transport=NeuralTransport.BRAINFLOW,
+            evidence_kind=(NeuralEvidenceKind.SYNTHETIC if self._board_id == -1 else NeuralEvidenceKind.LIVE_EEG),
             sample_rate_hz=sample_rate,
             channel_count=len(eeg_channels),
             channel_names=self._channel_names,
@@ -638,6 +641,7 @@ class LSLNeuralSource:
             source_id=self._source_id,
             board_kind="lsl-local-stream",
             transport=NeuralTransport.LSL,
+            evidence_kind=NeuralEvidenceKind.LIVE_EEG,
             sample_rate_hz=self._sample_rate,
             channel_count=len(self._channel_names),
             channel_names=self._channel_names,

@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from pilot.neural.protocol import (
+    NeuralEvidenceKind,
     NeuralIntentClass,
     NeuralIntentV1,
     NeuralParadigm,
@@ -22,6 +23,7 @@ def _descriptor(**updates: object) -> NeuralStreamDescriptorV1:
         "source_id": "synthetic-1",
         "board_kind": "brainflow-synthetic",
         "transport": NeuralTransport.SYNTHETIC,
+        "evidence_kind": NeuralEvidenceKind.SYNTHETIC,
         "sample_rate_hz": 250,
         "channel_count": 3,
         "channel_names": ("O1", "Oz", "O2"),
@@ -71,6 +73,18 @@ def test_contracts_reject_unknown_fields_and_coercion() -> None:
         _descriptor(raw_eeg=[[1.0]])
     with pytest.raises(ValidationError):
         _descriptor(sample_rate_hz="250")
+
+
+def test_stream_descriptor_prevents_false_live_labels() -> None:
+    with pytest.raises(ValidationError, match="synthetic transport"):
+        _descriptor(evidence_kind=NeuralEvidenceKind.LIVE_EEG)
+    with pytest.raises(ValidationError, match="playback transport"):
+        _descriptor(transport=NeuralTransport.PLAYBACK, evidence_kind=NeuralEvidenceKind.LIVE_EEG)
+    recorded = _descriptor(
+        transport=NeuralTransport.PLAYBACK,
+        evidence_kind=NeuralEvidenceKind.RECORDED_EEG,
+    )
+    assert recorded.evidence_kind == NeuralEvidenceKind.RECORDED_EEG
 
 
 def test_intent_requires_safe_goal_identifier_only_for_safe_goal() -> None:

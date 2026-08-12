@@ -26,6 +26,15 @@ class NeuralTransport(StrEnum):
     SYNTHETIC = "synthetic"
 
 
+class NeuralEvidenceKind(StrEnum):
+    """Kind of evidence carried by a neural stream, independent of transport."""
+
+    LIVE_EEG = "live_eeg"
+    RECORDED_EEG = "recorded_eeg"
+    SYNTHETIC = "synthetic"
+    UNKNOWN = "unknown"
+
+
 class NeuralParadigm(StrEnum):
     SSVEP = "ssvep"
     P300 = "p300"
@@ -88,6 +97,7 @@ class NeuralStreamDescriptorV1(BaseModel):
     source_id: Identifier
     board_kind: Identifier
     transport: NeuralTransport
+    evidence_kind: NeuralEvidenceKind = NeuralEvidenceKind.UNKNOWN
     sample_rate_hz: Annotated[int, Field(strict=True, ge=1, le=4096)]
     channel_count: Annotated[int, Field(strict=True, ge=1, le=64)]
     channel_names: tuple[Identifier, ...] = Field(min_length=1, max_length=64)
@@ -104,6 +114,16 @@ class NeuralStreamDescriptorV1(BaseModel):
         normalized = [name.casefold() for name in self.channel_names]
         if len(set(normalized)) != len(normalized):
             raise ValueError("channel_names must be unique")
+        if self.transport == NeuralTransport.SYNTHETIC and self.evidence_kind != NeuralEvidenceKind.SYNTHETIC:
+            raise ValueError("synthetic transport must be labelled synthetic evidence")
+        if self.transport == NeuralTransport.PLAYBACK and self.evidence_kind != NeuralEvidenceKind.RECORDED_EEG:
+            raise ValueError("playback transport must be labelled recorded EEG")
+        if self.transport == NeuralTransport.BRAINFLOW and self.board_kind in {
+            "brainflow--1",
+            "brainflow-synthetic",
+        }:
+            if self.evidence_kind != NeuralEvidenceKind.SYNTHETIC:
+                raise ValueError("BrainFlow synthetic board must be labelled synthetic evidence")
         return self
 
 

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pilot.neural.protocol import NeuralStreamDescriptorV1, NeuralTransport
+from pilot.neural.protocol import NeuralEvidenceKind, NeuralStreamDescriptorV1, NeuralTransport
 from pilot.neural.rpc_client import NeurodBridge
 
 
@@ -52,6 +52,7 @@ class FakeService:
             source_id="synthetic-test",
             board_kind="synthetic",
             transport=NeuralTransport.SYNTHETIC,
+            evidence_kind=NeuralEvidenceKind.SYNTHETIC,
             sample_rate_hz=250,
             channel_count=2,
             channel_names=("O1", "Oz"),

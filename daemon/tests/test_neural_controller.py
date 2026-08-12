@@ -15,6 +15,7 @@ from pilot.neural.controller import NeuralControlError, NeuralController
 from pilot.neural.gate import NeuralIntentGate, NeuralIntentGateConfig, NeuralIntentSigner
 from pilot.neural.goals import NeuralGoalDefinition, NeuralGoalError, NeuralGoalRegistry
 from pilot.neural.protocol import (
+    NeuralEvidenceKind,
     NeuralIntentClass,
     NeuralIntentV1,
     NeuralParadigm,
@@ -71,6 +72,7 @@ async def _controller(
         source_id="synthetic-test",
         board_kind="synthetic",
         transport=NeuralTransport.SYNTHETIC,
+        evidence_kind=NeuralEvidenceKind.SYNTHETIC,
         sample_rate_hz=250,
         channel_count=3,
         channel_names=("O1", "Oz", "O2"),
