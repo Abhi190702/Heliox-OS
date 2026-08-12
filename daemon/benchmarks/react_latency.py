@@ -10,7 +10,9 @@ import argparse
 import asyncio
 import cProfile
 import io
+import json
 import os
+import platform
 import pstats
 import statistics
 import time
@@ -99,6 +101,7 @@ class BenchmarkHarness:
 
 
 async def build_harness() -> BenchmarkHarness:
+    from pilot.agents.destructive_critic import DestructiveCriticAgent
     from pilot.agents.executor import Executor
     from pilot.agents.multi_agent import MultiAgentRouter
     from pilot.agents.orchestrator import AgentOrchestrator
@@ -108,6 +111,7 @@ async def build_harness() -> BenchmarkHarness:
     from pilot.config import PilotConfig
     from pilot.security.audit import AuditLogger
     from pilot.security.permissions import PermissionChecker
+    from pilot.security.risk_gate import get_risk_gate
     from pilot.security.validator import ActionValidator
     from pilot.server import PilotServer
 
@@ -128,6 +132,11 @@ async def build_harness() -> BenchmarkHarness:
     server._planner = Planner(model, memory)  # noqa: SLF001
     server._executor = executor  # noqa: SLF001
     server._verifier = verifier  # noqa: SLF001
+    # Production setup imports and constructs the critic (and therefore the
+    # risk/world-model stack) before the daemon reports ready. Mirroring that
+    # lifecycle keeps the first measured request from including setup imports.
+    server._destructive_critic = DestructiveCriticAgent(model)  # type: ignore[arg-type]  # noqa: SLF001
+    get_risk_gate()
     server._permission_checker = permissions  # noqa: SLF001
     server._reflector = NoopReflector()  # noqa: SLF001
     server._multi_agent = MultiAgentRouter(model)  # type: ignore[arg-type]  # noqa: SLF001
@@ -187,9 +196,79 @@ def print_summary(timings: list[float], generate_calls: int) -> None:
     print(f"max_ms: {max(timings):.2f}")
 
 
+def _percentile(values: list[float], percentile: float) -> float:
+    """Return a linearly interpolated percentile without optional dependencies."""
+    ordered = sorted(values)
+    if not ordered:
+        raise ValueError("at least one timing is required")
+    index = (len(ordered) - 1) * percentile
+    lower = int(index)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = index - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+
+def summarize(timings: list[float]) -> dict[str, float | int]:
+    """Build distribution statistics suitable for checked-in evidence."""
+    if not timings:
+        raise ValueError("at least one timing is required")
+    return {
+        "iterations": len(timings),
+        "mean_ms": round(statistics.mean(timings), 3),
+        "median_ms": round(statistics.median(timings), 3),
+        "p95_ms": round(_percentile(timings, 0.95), 3),
+        "p99_ms": round(_percentile(timings, 0.99), 3),
+        "min_ms": round(min(timings), 3),
+        "max_ms": round(max(timings), 3),
+        "stdev_ms": round(statistics.stdev(timings), 3) if len(timings) > 1 else 0.0,
+    }
+
+
+async def benchmark_report(iterations: int, warmup: int) -> dict[str, Any]:
+    """Measure ready-daemon cold and steady-state latency separately."""
+    if iterations < 1:
+        raise ValueError("iterations must be at least one")
+    if warmup < 0:
+        raise ValueError("warmup cannot be negative")
+
+    harness = await build_harness()
+    try:
+        cold_ms = await run_once(harness)
+        for _ in range(warmup):
+            await run_once(harness)
+        timings, measured_model_calls = await benchmark_with_harness(harness, iterations)
+        return {
+            "schema_version": "2.0.0",
+            "benchmark": "guarded_local_cpu_usage",
+            "scope": (
+                "Ready-daemon guarded CPU usage request: local planning, routing, "
+                "risk assessment, execution, postcondition verification, and response shaping"
+            ),
+            "environment": {
+                "operating_system": platform.system(),
+                "operating_system_release": platform.release(),
+                "python": platform.python_version(),
+                "warmup_iterations": warmup,
+            },
+            "cold_ready_request_ms": round(cold_ms, 3),
+            "steady_state": summarize(timings),
+            "model_generate_calls": measured_model_calls,
+            "total_model_generate_calls": harness.model.generate_calls,
+            "limitations": [
+                "Uses real local planner, policy, executor, verifier, and response code with in-memory transport.",
+                "Excludes daemon process startup, UI rendering, cloud models, networks, browsers, voice, cameras, TTS, and neural hardware.",
+                "A local reproducibility snapshot is not a universal performance guarantee.",
+            ],
+        }
+    finally:
+        await harness.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--iterations", type=int, default=10)
+    parser.add_argument("--warmup", type=int, default=3)
+    parser.add_argument("--json", action="store_true")
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--profile-limit", type=int, default=20)
     args = parser.parse_args()
@@ -206,8 +285,15 @@ def main() -> None:
         print("\n## cProfile cumulative time")
         print(output.getvalue())
     else:
-        timings, generate_calls = asyncio.run(benchmark(args.iterations))
-        print_summary(timings, generate_calls)
+        report = asyncio.run(benchmark_report(args.iterations, args.warmup))
+        if args.json:
+            print(json.dumps(report, indent=2))
+        else:
+            print(f"cold_ready_request_ms: {report['cold_ready_request_ms']:.2f}")
+            steady = report["steady_state"]
+            for key, value in steady.items():
+                print(f"{key}: {value}")
+            print(f"model_generate_calls: {report['model_generate_calls']}")
 
 
 if __name__ == "__main__":

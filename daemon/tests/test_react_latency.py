@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from benchmarks.react_latency import benchmark
+from benchmarks.react_latency import benchmark, benchmark_report, summarize
 from pilot.actions import ActionType
 from pilot.agents.planner import Planner
 from pilot.system import sysinfo
@@ -97,6 +97,27 @@ async def test_full_latency_benchmark_completes_without_model_or_thread_leak() -
     assert len(timings) == 1
     assert timings[0] > 0
     assert model_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_latency_report_separates_ready_cold_and_steady_state() -> None:
+    report = await asyncio.wait_for(benchmark_report(3, warmup=1), timeout=10)
+
+    assert report["cold_ready_request_ms"] > 0
+    assert report["steady_state"]["iterations"] == 3
+    assert report["steady_state"]["p95_ms"] >= report["steady_state"]["median_ms"]
+    assert report["model_generate_calls"] == 0
+    assert report["total_model_generate_calls"] == 0
+
+
+def test_latency_summary_reports_tail_and_variance() -> None:
+    summary = summarize([1.0, 2.0, 3.0, 4.0, 20.0])
+
+    assert summary["iterations"] == 5
+    assert summary["median_ms"] == 3.0
+    assert summary["p95_ms"] > summary["median_ms"]
+    assert summary["p99_ms"] >= summary["p95_ms"]
+    assert summary["stdev_ms"] > 0
 
 
 @pytest.mark.asyncio
