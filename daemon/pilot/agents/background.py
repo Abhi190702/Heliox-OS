@@ -175,7 +175,10 @@ class BackgroundTaskManager:
         """Check CPU usage."""
         import psutil
 
-        cpu = psutil.cpu_percent(interval=1)
+        # psutil implements interval sampling with time.sleep(). Keep that
+        # blocking wait off the daemon event loop so voice, camera, approvals,
+        # and WebSocket traffic remain responsive while monitors run.
+        cpu = await asyncio.to_thread(psutil.cpu_percent, interval=1)
         return {
             "cpu_percent": cpu,
             "triggered": cpu > 80,

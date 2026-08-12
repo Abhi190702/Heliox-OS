@@ -4784,7 +4784,9 @@ class PilotServer:
 
         disk = shutil.disk_usage(os.path.abspath("/" if os.name != "nt" else "C:\\"))
         mem = psutil.virtual_memory()
-        cpu = psutil.cpu_percent(interval=0.1)
+        # HUD polling must not stall the shared event loop. psutil's interval
+        # mode is intentionally blocking, so isolate the sample in a worker.
+        cpu = await asyncio.to_thread(psutil.cpu_percent, interval=0.1)
         uptime = (
             int(time.time() - psutil.boot_time())
             if hasattr(psutil, "boot_time")

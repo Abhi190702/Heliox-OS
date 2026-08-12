@@ -198,7 +198,10 @@ class TriggerEngine:
             import psutil
 
             threshold = condition.get("threshold", 90)
-            cpu = psutil.cpu_percent(interval=1)
+            # Threshold sampling sleeps for the requested interval inside
+            # psutil; running it in a worker prevents a trigger check from
+            # freezing every other asyncio service for one second.
+            cpu = await asyncio.to_thread(psutil.cpu_percent, interval=1)
             return cpu > threshold
         except ImportError:
             return False
