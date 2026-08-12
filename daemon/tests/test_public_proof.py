@@ -33,6 +33,10 @@ def test_public_proof_exposes_evidence_boundaries(tmp_path: Path) -> None:
     assert "not proven live brain control" in text
     assert "result is intentionally linked rather than copied as “green”" in text
     assert "f2df192" in text
+    assert "59/59 cases" in text
+    assert "36,000 training" in text
+    assert "Event-loop responsiveness" in text
+    assert "software-benchmarks-2026-08-13.json" in text
 
 
 def test_committed_public_proof_is_current(tmp_path: Path) -> None:

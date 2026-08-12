@@ -29,8 +29,11 @@ def _percent_reduction(before: float, after: float) -> float:
 
 def build_proof() -> str:
     capabilities = _load_json(REPO_ROOT / "capabilities.json")
-    latency = _load_json(
+    legacy_latency = _load_json(
         REPO_ROOT / "docs" / "evidence" / "react-latency-2026-08-12.json"
+    )
+    benchmarks = _load_json(
+        REPO_ROOT / "docs" / "evidence" / "software-benchmarks-2026-08-13.json"
     )
     ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
         encoding="utf-8"
@@ -42,16 +45,24 @@ def build_proof() -> str:
     action_total = summary["action_types"]
     independent_total = summary["independent_postcondition_verifiers"]
     executor_only = action_total - independent_total
-    before = latency["before"]
-    after = latency["after"]
+    before = legacy_latency["before"]
+    after = legacy_latency["after"]
     mean_reduction = _percent_reduction(before["mean_ms"], after["mean_ms"])
     median_reduction = _percent_reduction(before["median_ms"], after["median_ms"])
+    guarded = benchmarks["guarded_cpu_request"]
+    steady = guarded["steady_state"]
+    status_scenarios = benchmarks["local_status_suite"]["scenarios"]
+    responsiveness = benchmarks["event_loop_responsiveness"]
+    intents = benchmarks["intent_dispatch"]
+    world_model = benchmarks["learned_risk_world_model"]
+    world_validation = world_model["validation"]
 
     return f"""# Heliox OS Evidence and Limitations
 
 > This page separates reproducible software evidence, live CI status, developer-run hardware observations, and claims that have not yet been established. It is an evidence index, not a promise that every feature works on every computer.
 
-Evidence snapshot date: **{latency["captured_on"]}**  
+Evidence snapshot date: **{benchmarks["captured_on"]}**
+
 Product version: **{capabilities["product"]["version"]}**
 
 ## Capability and routing evidence
@@ -81,16 +92,64 @@ The committed CI workflow currently defines:
 
 The result is intentionally linked rather than copied as “green”: CI status can change after this file is generated.
 
-## Measured local request latency
+## Reproducible software benchmarks
 
 Command:
 
 ```text
 cd daemon
-python benchmarks/react_latency.py --iterations {latency["environment"]["iterations"]}
+python ../scripts/generate_benchmark_evidence.py
 ```
 
-Scope: {latency["scope"]}. Environment: {latency["environment"]["operating_system"]}, Python {latency["environment"]["python"]}.
+Bundle environment: {guarded["environment"]["operating_system"]} {guarded["environment"]["operating_system_release"]}, Python {guarded["environment"]["python"]}. Source commit: `{benchmarks["source_commit"][:12]}`.
+
+### Guarded local request latency
+
+Scope: {guarded["scope"]}.
+
+| Metric | Ready-cold | Warm steady state |
+| --- | ---: | ---: |
+| Median | — | {steady["median_ms"]:.3f} ms |
+| p95 | — | {steady["p95_ms"]:.3f} ms |
+| p99 | — | {steady["p99_ms"]:.3f} ms |
+| Minimum | — | {steady["min_ms"]:.3f} ms |
+| Maximum | {guarded["cold_ready_request_ms"]:.3f} ms | {steady["max_ms"]:.3f} ms |
+
+- The harness executes local planning, routing, risk assessment, execution, post-condition verification, and response shaping.
+- All {steady["iterations"]} measured steady-state iterations made **{guarded["model_generate_calls"]} model calls**.
+- Ready-cold starts after production-equivalent risk and system probes are initialized; daemon process startup is excluded.
+
+### Local status action suite
+
+| Real guarded action | Iterations | Median | p95 | p99 |
+| --- | ---: | ---: | ---: | ---: |
+| CPU usage | {status_scenarios["cpu_usage"]["iterations"]} | {status_scenarios["cpu_usage"]["median_ms"]:.3f} ms | {status_scenarios["cpu_usage"]["p95_ms"]:.3f} ms | {status_scenarios["cpu_usage"]["p99_ms"]:.3f} ms |
+| Memory usage | {status_scenarios["memory_usage"]["iterations"]} | {status_scenarios["memory_usage"]["median_ms"]:.3f} ms | {status_scenarios["memory_usage"]["p95_ms"]:.3f} ms | {status_scenarios["memory_usage"]["p99_ms"]:.3f} ms |
+| Disk usage | {status_scenarios["disk_usage"]["iterations"]} | {status_scenarios["disk_usage"]["median_ms"]:.3f} ms | {status_scenarios["disk_usage"]["p95_ms"]:.3f} ms | {status_scenarios["disk_usage"]["p99_ms"]:.3f} ms |
+| Comprehensive system information | {status_scenarios["system_information"]["iterations"]} | {status_scenarios["system_information"]["median_ms"]:.3f} ms | {status_scenarios["system_information"]["p95_ms"]:.3f} ms | {status_scenarios["system_information"]["p99_ms"]:.3f} ms |
+
+Each case validates the exact selected action, executes the real read-only host probe, and makes zero model calls.
+
+### Event-loop responsiveness
+
+During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **{responsiveness["heartbeat_ticks"]} ticks**, with **{responsiveness["heartbeat_median_ms"]:.3f} ms median**, **{responsiveness["heartbeat_p95_ms"]:.3f} ms p95**, and **{responsiveness["heartbeat_max_ms"]:.3f} ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
+
+### Deterministic intent dispatch
+
+The curated routing regression set passed **{intents["passed"]}/{intents["case_count"]} cases** with **{intents["latency"]["median_ms"]:.3f} ms median** dispatch latency. It covers bounded positive intents and ambiguous controls that must fall through to model planning. It is not a population-level language-understanding benchmark, and application routing does not prove an application is installed.
+
+### Learned-risk world model
+
+The shipped `{world_model["model_version"]}` artifact records **{world_model["training_samples"]:,} training** and **{world_model["validation_samples"]:,} stratified temporal validation samples** across **{world_model["learned_action_types"]} action types**.
+
+| Held-out metric | Learned model | Zero predictor | Improvement |
+| --- | ---: | ---: | ---: |
+| Disk-delta MAE | {world_validation["disk_delta_mae"]:.10f} | {world_validation["disk_zero_baseline_mae"]:.10f} | {world_validation["disk_improvement_percent"]:.4f}% |
+| Process-delta MAE | {world_validation["process_delta_mae"]:.10f} | {world_validation["process_zero_baseline_mae"]:.10f} | {world_validation["process_improvement_percent"]:.4f}% |
+
+The audit passed **{world_model["direction_checks_passed"]}/{len(world_model["direction_checks"])} direction invariants** and measured **{world_model["inference"]["median_ms"]:.3f} ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
+
+### Historical CPU-path improvement
 
 | Metric | Before | After `f2df192` | Change |
 | --- | ---: | ---: | ---: |
@@ -99,12 +158,11 @@ Scope: {latency["scope"]}. Environment: {latency["environment"]["operating_syste
 | Minimum | {before["min_ms"]:.2f} ms | {after["min_ms"]:.2f} ms | — |
 | Maximum | {before["max_ms"]:.2f} ms | {after["max_ms"]:.2f} ms | — |
 
-- The maximum retains the real first-use thread-pool cold start.
-- The benchmark makes zero model calls and therefore does not measure provider or network latency.
-- It does not measure VLM analysis, browser page loading, microphone capture, TTS playback, camera inference, or neural hardware.
-- This is a local reproducibility snapshot, not a universal performance guarantee.
+- This historical table explains the original blocking-sample fix; the current distribution tables above supersede it for present performance.
+- None of these software benchmarks measures model-provider, network, browser page-load, UI-rendering, microphone, TTS, camera, gaze, gesture, EEG, or human latency/accuracy.
+- Local snapshots are reproducibility evidence, not universal performance guarantees.
 
-Raw evidence: [`react-latency-2026-08-12.json`]({REPOSITORY_URL}/blob/main/docs/evidence/react-latency-2026-08-12.json).
+Raw evidence: [`software-benchmarks-2026-08-13.json`]({REPOSITORY_URL}/blob/main/docs/evidence/software-benchmarks-2026-08-13.json) and the [historical CPU artifact]({REPOSITORY_URL}/blob/main/docs/evidence/react-latency-2026-08-12.json).
 
 ## Platform and hardware evidence
 
@@ -138,6 +196,8 @@ This is not a claim that no defects remain. It records representative failures t
 | Date | Observed failure | Resolution |
 | --- | --- | --- |
 | 2026-08-12 | The latency benchmark used an obsolete memory/permission harness contract and leaked worker threads after failure, appearing to hang. | [`f2df192`]({REPOSITORY_URL}/commit/f2df192) repaired teardown and reduced blocking CPU sampling latency. |
+| 2026-08-13 | Background CPU samples blocked the shared asyncio loop for up to one second. | `bf6ac9c` moved interval sampling to workers; the evidence bundle records concurrent heartbeat responsiveness. |
+| 2026-08-13 | Ambiguous tasks such as “run the tests” were misrouted as application launches. | `cae908d` tightened the bounded app fast path; the 59-case dispatch suite now passes all controls. |
 | 2026-07-30 | Face-like frames could produce false gesture events. | [`6d4025b`]({REPOSITORY_URL}/commit/6d4025b) added false-positive rejection and [`1d810b7`]({REPOSITORY_URL}/commit/1d810b7) added temporal verification. Physical validation remains required. |
 | 2026-07-30 | An approval could be accepted yet denied by a later cognitive action gate. | [`3e034d4`]({REPOSITORY_URL}/commit/3e034d4) carried approval authority across the guarded flow. |
 | 2026-07-26 | Marketplace package hashes differed across operating-system line endings. | [`f39648e`]({REPOSITORY_URL}/commit/f39648e) normalized verified marketplace hashing. |
@@ -152,9 +212,15 @@ For all current failures, use the [live CI history]({REPOSITORY_URL}/actions) an
 python scripts/generate_capability_catalog.py --output capabilities.json
 python -m pytest daemon/tests/test_capability_catalog.py daemon/tests/test_specialist_expansion.py -q
 
-# Local non-LLM latency
-cd daemon
-python benchmarks/react_latency.py --iterations 25
+# Full local software benchmark bundle
+python scripts/generate_benchmark_evidence.py
+
+# Individual benchmark entry points (run from daemon)
+python benchmarks/react_latency.py --iterations 100 --warmup 10 --json
+python benchmarks/local_status_suite.py --iterations 50 --warmup 5 --json
+python benchmarks/event_loop_responsiveness.py --json
+python benchmarks/intent_dispatch_suite.py --json
+python benchmarks/world_model_suite.py --iterations 1000 --json
 
 # Neural no-hardware paths; these do not validate live brain control
 pilot-neurod-benchmark brainflow-synthetic --seconds 2

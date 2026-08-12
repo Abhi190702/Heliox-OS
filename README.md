@@ -55,7 +55,10 @@ Current release: **v0.11.1** · Python **3.11+** · Windows is the primary hardw
 | Action schema        | 156 declared action types                                                                     | Availability depends on OS, dependencies, permissions, credentials, and policy                 |
 | Specialist mesh      | 21 executable specialists with providers for 156/156 declared actions                         | Provider coverage is not universal environment compatibility                                   |
 | Outcome verification | 11 actions have an independent observed post-condition verifier                               | The other 145 currently rely on the executor result                                            |
-| Guarded fast path    | 37.08 ms mean and 30.59 ms median across 25 non-LLM CPU-usage iterations                      | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
+| Guarded fast path    | 28.640 ms median, 30.490 ms p95 across 100 non-LLM CPU-usage iterations; zero model calls     | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
+| Intent dispatch      | 59/59 curated bounded-intent and ambiguous-fall-through regression cases                     | Fixed corpus; not population-level language-understanding accuracy                            |
+| Learned risk model   | 36,000 training and 5,400 temporal-validation samples; 5/5 direction invariants              | Covers 12 coarse disk/process action transitions; deterministic policy remains authoritative  |
+| Async responsiveness | 65 heartbeats during a real one-second CPU monitor; 16.296 ms maximum scheduler gap           | Windows timer granularity applies; this is not UI or hardware-input latency                    |
 | Plugins              | 6 manifests in the generated public catalog                                                   | Marketplace and local plugins remain capability-constrained                                    |
 | CI                   | Python, frontend, visual, Rust, marketplace, and installer gates                              | CI does not prove camera, microphone, speaker, EEG, or human accuracy                          |
 | Windows signing      | SignPath test-policy workflow signs and verifies EXE, MSI, and embedded application artifacts | The production certificate is pending; current public installers are not yet production-signed |
@@ -66,7 +69,8 @@ Current release: **v0.11.1** · Python **3.11+** · Windows is the primary hardw
 - [Human-readable evidence and limitations](https://www.helioxos.dev/proof.html)
 - [Detailed Markdown evidence](proof.md)
 - [Machine-readable capability catalog](capabilities.json)
-- [Raw guarded fast-path benchmark](docs/evidence/react-latency-2026-08-12.json)
+- [Raw multi-benchmark evidence bundle](docs/evidence/software-benchmarks-2026-08-13.json)
+- [Historical guarded fast-path benchmark](docs/evidence/react-latency-2026-08-12.json)
 - [Live CI history](https://github.com/VyomKulshrestha/Heliox-OS/actions)
 - [Release changelog](changelog.md) and [JSON release feed](releases.feed.json)
 

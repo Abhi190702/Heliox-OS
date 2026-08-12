@@ -2,7 +2,8 @@
 
 > This page separates reproducible software evidence, live CI status, developer-run hardware observations, and claims that have not yet been established. It is an evidence index, not a promise that every feature works on every computer.
 
-Evidence snapshot date: **2026-08-12**  
+Evidence snapshot date: **2026-08-13**
+
 Product version: **0.11.1**
 
 ## Capability and routing evidence
@@ -32,16 +33,64 @@ The committed CI workflow currently defines:
 
 The result is intentionally linked rather than copied as “green”: CI status can change after this file is generated.
 
-## Measured local request latency
+## Reproducible software benchmarks
 
 Command:
 
 ```text
 cd daemon
-python benchmarks/react_latency.py --iterations 25
+python ../scripts/generate_benchmark_evidence.py
 ```
 
-Scope: Full guarded non-LLM CPU usage request path with a local planner fast path and zero model calls. Environment: Windows, Python 3.12.
+Bundle environment: Windows 11, Python 3.12.6. Source commit: `4828cb2a24a0`.
+
+### Guarded local request latency
+
+Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk assessment, execution, postcondition verification, and response shaping.
+
+| Metric | Ready-cold | Warm steady state |
+| --- | ---: | ---: |
+| Median | — | 28.640 ms |
+| p95 | — | 30.490 ms |
+| p99 | — | 31.411 ms |
+| Minimum | — | 26.854 ms |
+| Maximum | 33.290 ms | 35.589 ms |
+
+- The harness executes local planning, routing, risk assessment, execution, post-condition verification, and response shaping.
+- All 100 measured steady-state iterations made **0 model calls**.
+- Ready-cold starts after production-equivalent risk and system probes are initialized; daemon process startup is excluded.
+
+### Local status action suite
+
+| Real guarded action | Iterations | Median | p95 | p99 |
+| --- | ---: | ---: | ---: | ---: |
+| CPU usage | 50 | 28.739 ms | 30.229 ms | 31.560 ms |
+| Memory usage | 50 | 6.958 ms | 8.274 ms | 8.512 ms |
+| Disk usage | 50 | 6.062 ms | 6.744 ms | 6.985 ms |
+| Comprehensive system information | 50 | 59.878 ms | 81.150 ms | 81.814 ms |
+
+Each case validates the exact selected action, executes the real read-only host probe, and makes zero model calls.
+
+### Event-loop responsiveness
+
+During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **65 ticks**, with **15.684 ms median**, **16.247 ms p95**, and **16.296 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
+
+### Deterministic intent dispatch
+
+The curated routing regression set passed **59/59 cases** with **0.026 ms median** dispatch latency. It covers bounded positive intents and ambiguous controls that must fall through to model planning. It is not a population-level language-understanding benchmark, and application routing does not prove an application is installed.
+
+### Learned-risk world model
+
+The shipped `risk-mlp-v3-calibrated` artifact records **36,000 training** and **5,400 stratified temporal validation samples** across **12 action types**.
+
+| Held-out metric | Learned model | Zero predictor | Improvement |
+| --- | ---: | ---: | ---: |
+| Disk-delta MAE | 0.0000000330 | 0.0000000718 | 54.0154% |
+| Process-delta MAE | 0.0000130251 | 0.0022166655 | 99.4124% |
+
+The audit passed **5/5 direction invariants** and measured **0.024 ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
+
+### Historical CPU-path improvement
 
 | Metric | Before | After `f2df192` | Change |
 | --- | ---: | ---: | ---: |
@@ -50,12 +99,11 @@ Scope: Full guarded non-LLM CPU usage request path with a local planner fast pat
 | Minimum | 108.97 ms | 29.24 ms | — |
 | Maximum | 285.49 ms | 194.21 ms | — |
 
-- The maximum retains the real first-use thread-pool cold start.
-- The benchmark makes zero model calls and therefore does not measure provider or network latency.
-- It does not measure VLM analysis, browser page loading, microphone capture, TTS playback, camera inference, or neural hardware.
-- This is a local reproducibility snapshot, not a universal performance guarantee.
+- This historical table explains the original blocking-sample fix; the current distribution tables above supersede it for present performance.
+- None of these software benchmarks measures model-provider, network, browser page-load, UI-rendering, microphone, TTS, camera, gaze, gesture, EEG, or human latency/accuracy.
+- Local snapshots are reproducibility evidence, not universal performance guarantees.
 
-Raw evidence: [`react-latency-2026-08-12.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/react-latency-2026-08-12.json).
+Raw evidence: [`software-benchmarks-2026-08-13.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/software-benchmarks-2026-08-13.json) and the [historical CPU artifact](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/react-latency-2026-08-12.json).
 
 ## Platform and hardware evidence
 
@@ -89,6 +137,8 @@ This is not a claim that no defects remain. It records representative failures t
 | Date | Observed failure | Resolution |
 | --- | --- | --- |
 | 2026-08-12 | The latency benchmark used an obsolete memory/permission harness contract and leaked worker threads after failure, appearing to hang. | [`f2df192`](https://github.com/VyomKulshrestha/Heliox-OS/commit/f2df192) repaired teardown and reduced blocking CPU sampling latency. |
+| 2026-08-13 | Background CPU samples blocked the shared asyncio loop for up to one second. | `bf6ac9c` moved interval sampling to workers; the evidence bundle records concurrent heartbeat responsiveness. |
+| 2026-08-13 | Ambiguous tasks such as “run the tests” were misrouted as application launches. | `cae908d` tightened the bounded app fast path; the 59-case dispatch suite now passes all controls. |
 | 2026-07-30 | Face-like frames could produce false gesture events. | [`6d4025b`](https://github.com/VyomKulshrestha/Heliox-OS/commit/6d4025b) added false-positive rejection and [`1d810b7`](https://github.com/VyomKulshrestha/Heliox-OS/commit/1d810b7) added temporal verification. Physical validation remains required. |
 | 2026-07-30 | An approval could be accepted yet denied by a later cognitive action gate. | [`3e034d4`](https://github.com/VyomKulshrestha/Heliox-OS/commit/3e034d4) carried approval authority across the guarded flow. |
 | 2026-07-26 | Marketplace package hashes differed across operating-system line endings. | [`f39648e`](https://github.com/VyomKulshrestha/Heliox-OS/commit/f39648e) normalized verified marketplace hashing. |
@@ -103,9 +153,15 @@ For all current failures, use the [live CI history](https://github.com/VyomKulsh
 python scripts/generate_capability_catalog.py --output capabilities.json
 python -m pytest daemon/tests/test_capability_catalog.py daemon/tests/test_specialist_expansion.py -q
 
-# Local non-LLM latency
-cd daemon
-python benchmarks/react_latency.py --iterations 25
+# Full local software benchmark bundle
+python scripts/generate_benchmark_evidence.py
+
+# Individual benchmark entry points (run from daemon)
+python benchmarks/react_latency.py --iterations 100 --warmup 10 --json
+python benchmarks/local_status_suite.py --iterations 50 --warmup 5 --json
+python benchmarks/event_loop_responsiveness.py --json
+python benchmarks/intent_dispatch_suite.py --json
+python benchmarks/world_model_suite.py --iterations 1000 --json
 
 # Neural no-hardware paths; these do not validate live brain control
 pilot-neurod-benchmark brainflow-synthetic --seconds 2
