@@ -18,6 +18,7 @@ Important interpretation notes:
 
 ## Runtime and Extension Contracts
 
+- [Machine-readable Capability Catalog](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/capabilities.json): Generated actions, platform declarations, permission and approval requirements, specialist providers, verifier coverage, and plugin manifests.
 - [IPC Message Formats](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/IPC_MESSAGE_FORMATS.md): Desktop-to-daemon request, event, approval, and result contracts.
 - [Agent Development Guide](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/AGENT_DEVELOPMENT_GUIDE.md): Specialist-agent conventions and extension workflow.
 - [Action Catalog Source](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/daemon/pilot/actions.py): Canonical typed action declarations used by the runtime.

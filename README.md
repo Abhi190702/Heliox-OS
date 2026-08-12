@@ -27,7 +27,8 @@
 
 <p align="center">
   <a href="https://www.helioxos.dev/llms.txt">Website Agent Index</a> •
-  <a href="llms.txt">Repository Agent Index</a>
+  <a href="llms.txt">Repository Agent Index</a> •
+  <a href="capabilities.json">Capability Catalog</a>
 </p>
 
 <p align="center">

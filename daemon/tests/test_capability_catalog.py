@@ -1,0 +1,55 @@
+"""The public capability catalog must remain derived from runtime authorities."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+from pilot.actions import ActionType
+
+
+def test_generated_capability_catalog_matches_runtime(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    output = tmp_path / "capabilities.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "generate_capability_catalog.py"),
+            "--output",
+            str(output),
+        ],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    generated = json.loads(output.read_text(encoding="utf-8"))
+
+    assert generated["summary"]["action_types"] == len(ActionType) == 156
+    assert generated["summary"]["mesh"]["coverage_complete"] is True
+    assert generated["summary"]["mesh"]["uncovered_action_types"] == []
+    assert {entry["id"] for entry in generated["actions"]} == {action_type.value for action_type in ActionType}
+    assert all(entry["providers"] for entry in generated["actions"])
+    assert all(entry["platform_support"]["platforms"] for entry in generated["actions"])
+    assert generated["summary"]["independent_postcondition_verifiers"] > 0
+    assert generated["plugins"]
+
+
+def test_committed_capability_catalog_is_current(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    generated_path = tmp_path / "capabilities.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "generate_capability_catalog.py"),
+            "--output",
+            str(generated_path),
+        ],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert generated_path.read_bytes() == (repo_root / "capabilities.json").read_bytes()

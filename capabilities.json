@@ -1,0 +1,6184 @@
+{
+  "schema_version": "1.0.0",
+  "product": {
+    "name": "Heliox OS",
+    "version": "0.10.1",
+    "kind": "desktop AI system-control agent",
+    "license": "MIT",
+    "declared_platforms": [
+      "windows",
+      "macos",
+      "linux"
+    ]
+  },
+  "interpretation": {
+    "platforms": "Declared platform targets are not a guarantee that every action is available on every host.",
+    "verification": "Executor success and independent post-condition verification are reported separately.",
+    "neural": "Synthetic or recorded-EEG validation does not establish live brain control or clinical use."
+  },
+  "sources": {
+    "action_registry": {
+      "path": "daemon/pilot/actions.py",
+      "sha256": "c1d580b339dfde444f0d4cc78ab430083b65f75b64c2eb54cdb6658315b4fd2a"
+    },
+    "plugin_manifests": [
+      {
+        "path": "daemon/pilot/plugins/developer/manifest.json",
+        "sha256": "caf5baedfa7487ea4e88b6de9f4c17c3d50c744f3043f25baddc0e072f7008e1"
+      },
+      {
+        "path": "daemon/pilot/plugins/homeassistant/manifest.json",
+        "sha256": "73a1a759346cd7b416d06f1cc3d0e188d46f580862ed2dbce14938818aaaadbf"
+      },
+      {
+        "path": "daemon/pilot/plugins/marketplace_catalog/home-assistant/manifest.json",
+        "sha256": "6169a778c556b9238ab92c2f729b7101753aaf217dc97d9465132b5d84c65dca"
+      },
+      {
+        "path": "daemon/pilot/plugins/marketplace_catalog/spotify-control/manifest.json",
+        "sha256": "55da1b15e972df7362ae5efbb3697cc57813b27c251f3006c389e1a13c841016"
+      },
+      {
+        "path": "daemon/pilot/plugins/marketplace_catalog/weather/manifest.json",
+        "sha256": "88b64fbe04d712a4060711ab501f30725f15e14756711946e20be9477ee22943"
+      },
+      {
+        "path": "daemon/pilot/plugins/media/manifest.json",
+        "sha256": "b9d1ce6321e9094c35baccfc309c3f1866e48080898ca9cff020773ec933b1a3"
+      }
+    ]
+  },
+  "summary": {
+    "action_types": 156,
+    "families": {
+      "browser": 23,
+      "calendar": 7,
+      "clipboard": 2,
+      "code": 5,
+      "desktop": 3,
+      "disk": 4,
+      "email": 3,
+      "extension": 3,
+      "file": 12,
+      "git": 8,
+      "integration": 7,
+      "keyboard": 4,
+      "mouse": 7,
+      "package": 4,
+      "power": 5,
+      "process": 3,
+      "registry": 2,
+      "schedule": 3,
+      "screen": 5,
+      "service": 6,
+      "ssh": 2,
+      "system": 18,
+      "trigger": 5,
+      "user": 2,
+      "volume": 3,
+      "wifi": 3,
+      "window": 5,
+      "workspace": 2
+    },
+    "permission_tiers": {
+      "destructive": 11,
+      "read_only": 49,
+      "system_modify": 35,
+      "user_write": 61
+    },
+    "independent_postcondition_verifiers": 11,
+    "plugins": 6,
+    "mesh": {
+      "specialists": 21,
+      "registered_action_types": 156,
+      "available_action_types": 156,
+      "coverage_complete": true,
+      "uncovered_action_types": []
+    }
+  },
+  "permission_tiers": [
+    {
+      "value": 0,
+      "name": "read_only"
+    },
+    {
+      "value": 1,
+      "name": "user_write"
+    },
+    {
+      "value": 2,
+      "name": "system_modify"
+    },
+    {
+      "value": 3,
+      "name": "destructive"
+    },
+    {
+      "value": 4,
+      "name": "root_critical"
+    }
+  ],
+  "actions": [
+    {
+      "id": "file_read",
+      "family": "file",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "file_write",
+      "family": "file",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "file_content_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "file_delete",
+      "family": "file",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "file_absence_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "file_move",
+      "family": "file",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "move_source_and_destination_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "file_copy",
+      "family": "file",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "copy_destination_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "file_list",
+      "family": "file",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "file_search",
+      "family": "file",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "directory_summary",
+      "family": "system",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "directory_size",
+      "family": "system",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "file_hash",
+      "family": "file",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "file_compare",
+      "family": "file",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "file_permissions",
+      "family": "file",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "git_resolve",
+      "family": "git",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.git_agent.GitAgent",
+          "name": "GitAgent",
+          "role": "git_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "git_status",
+      "family": "git",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.git_agent.GitAgent",
+          "name": "GitAgent",
+          "role": "git_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "git_diff",
+      "family": "git",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.git_agent.GitAgent",
+          "name": "GitAgent",
+          "role": "git_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "git_log",
+      "family": "git",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.git_agent.GitAgent",
+          "name": "GitAgent",
+          "role": "git_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "git_branch",
+      "family": "git",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.git_agent.GitAgent",
+          "name": "GitAgent",
+          "role": "git_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "git_stage",
+      "family": "git",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.git_agent.GitAgent",
+          "name": "GitAgent",
+          "role": "git_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "git_commit",
+      "family": "git",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.git_agent.GitAgent",
+          "name": "GitAgent",
+          "role": "git_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "git_push",
+      "family": "git",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.git_agent.GitAgent",
+          "name": "GitAgent",
+          "role": "git_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "package_install",
+      "family": "package",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.PackageManagementAgent",
+          "name": "PackageManagementAgent",
+          "role": "package_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "package_installed_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "package_remove",
+      "family": "package",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.PackageManagementAgent",
+          "name": "PackageManagementAgent",
+          "role": "package_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "package_removed_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "package_update",
+      "family": "package",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.PackageManagementAgent",
+          "name": "PackageManagementAgent",
+          "role": "package_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "package_search",
+      "family": "package",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.PackageManagementAgent",
+          "name": "PackageManagementAgent",
+          "role": "package_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "service_start",
+      "family": "service",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.ServiceManagementAgent",
+          "name": "ServiceManagementAgent",
+          "role": "service_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "service_active_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "service_stop",
+      "family": "service",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.ServiceManagementAgent",
+          "name": "ServiceManagementAgent",
+          "role": "service_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "service_inactive_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "service_restart",
+      "family": "service",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.ServiceManagementAgent",
+          "name": "ServiceManagementAgent",
+          "role": "service_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "service_active_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "service_enable",
+      "family": "service",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.ServiceManagementAgent",
+          "name": "ServiceManagementAgent",
+          "role": "service_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "service_disable",
+      "family": "service",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.ServiceManagementAgent",
+          "name": "ServiceManagementAgent",
+          "role": "service_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "service_status",
+      "family": "service",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.ServiceManagementAgent",
+          "name": "ServiceManagementAgent",
+          "role": "service_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "gnome_setting_read",
+      "family": "desktop",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "linux"
+        ],
+        "basis": "explicit_platform_adapter",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "gnome_setting_write",
+      "family": "desktop",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "linux"
+        ],
+        "basis": "explicit_platform_adapter",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "setting_value_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "dbus_call",
+      "family": "desktop",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "linux"
+        ],
+        "basis": "explicit_platform_adapter",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "shell_command",
+      "family": "code",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.code_agent.CodeAgent",
+          "name": "CodeAgent",
+          "role": "code_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "shell_script",
+      "family": "code",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.code_agent.CodeAgent",
+          "name": "CodeAgent",
+          "role": "code_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "pty_exec",
+      "family": "code",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.code_agent.CodeAgent",
+          "name": "CodeAgent",
+          "role": "code_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "open_url",
+      "family": "system",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "open_application",
+      "family": "system",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "notify",
+      "family": "system",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.comm_agent.CommunicationAgent",
+          "name": "CommunicationAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "process_list",
+      "family": "process",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "process_kill",
+      "family": "process",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "process_info",
+      "family": "process",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "clipboard_read",
+      "family": "clipboard",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "clipboard_write",
+      "family": "clipboard",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "system_info",
+      "family": "system",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "disk_usage",
+      "family": "disk",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.monitor_agent.MonitorAgent",
+          "name": "MonitorAgent",
+          "role": "monitor_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "memory_usage",
+      "family": "system",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.monitor_agent.MonitorAgent",
+          "name": "MonitorAgent",
+          "role": "monitor_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "cpu_usage",
+      "family": "system",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.monitor_agent.MonitorAgent",
+          "name": "MonitorAgent",
+          "role": "monitor_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "network_info",
+      "family": "system",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.monitor_agent.MonitorAgent",
+          "name": "MonitorAgent",
+          "role": "monitor_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.NetworkAgent",
+          "name": "NetworkAgent",
+          "role": "network_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "battery_info",
+      "family": "system",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.monitor_agent.MonitorAgent",
+          "name": "MonitorAgent",
+          "role": "monitor_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "power_shutdown",
+      "family": "power",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "power_restart",
+      "family": "power",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "power_sleep",
+      "family": "power",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "power_lock",
+      "family": "power",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "power_logout",
+      "family": "power",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "schedule_create",
+      "family": "schedule",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.WorkflowAutomationAgent",
+          "name": "WorkflowAutomationAgent",
+          "role": "automation_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "schedule_list",
+      "family": "schedule",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.WorkflowAutomationAgent",
+          "name": "WorkflowAutomationAgent",
+          "role": "automation_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "schedule_delete",
+      "family": "schedule",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.WorkflowAutomationAgent",
+          "name": "WorkflowAutomationAgent",
+          "role": "automation_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "env_get",
+      "family": "system",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "env_set",
+      "family": "system",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "env_list",
+      "family": "system",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "window_list",
+      "family": "window",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "window_focus",
+      "family": "window",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "window_close",
+      "family": "window",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "window_minimize",
+      "family": "window",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "window_maximize",
+      "family": "window",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "volume_get",
+      "family": "volume",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "volume_set",
+      "family": "volume",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "volume_mute",
+      "family": "volume",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "brightness_get",
+      "family": "system",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "brightness_set",
+      "family": "system",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "screenshot",
+      "family": "system",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.VisionAgent",
+          "name": "VisionAgent",
+          "role": "vision_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "wifi_list",
+      "family": "wifi",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.NetworkAgent",
+          "name": "NetworkAgent",
+          "role": "network_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "wifi_connect",
+      "family": "wifi",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.NetworkAgent",
+          "name": "NetworkAgent",
+          "role": "network_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "wifi_disconnect",
+      "family": "wifi",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.NetworkAgent",
+          "name": "NetworkAgent",
+          "role": "network_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "disk_list",
+      "family": "disk",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "disk_mount",
+      "family": "disk",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "disk_unmount",
+      "family": "disk",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "user_list",
+      "family": "user",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "user_info",
+      "family": "user",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "download_file",
+      "family": "system",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.NetworkAgent",
+          "name": "NetworkAgent",
+          "role": "network_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "download_file_exists_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
+      }
+    },
+    {
+      "id": "registry_read",
+      "family": "registry",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows"
+        ],
+        "basis": "explicit_runtime_guard",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "registry_write",
+      "family": "registry",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows"
+        ],
+        "basis": "explicit_runtime_guard",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "log_analyze",
+      "family": "system",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.forensics_agent.ForensicsAgent",
+          "name": "ForensicsAgent",
+          "role": "forensics_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "mouse_click",
+      "family": "mouse",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "mouse_double_click",
+      "family": "mouse",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "mouse_right_click",
+      "family": "mouse",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "mouse_move",
+      "family": "mouse",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "mouse_drag",
+      "family": "mouse",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "mouse_scroll",
+      "family": "mouse",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "mouse_position",
+      "family": "mouse",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "keyboard_type",
+      "family": "keyboard",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "keyboard_press",
+      "family": "keyboard",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "keyboard_hotkey",
+      "family": "keyboard",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "keyboard_hold",
+      "family": "keyboard",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.DesktopAutomationAgent",
+          "name": "DesktopAutomationAgent",
+          "role": "desktop_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "screen_ocr",
+      "family": "screen",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.VisionAgent",
+          "name": "VisionAgent",
+          "role": "vision_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "screen_find_text",
+      "family": "screen",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.VisionAgent",
+          "name": "VisionAgent",
+          "role": "vision_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "screen_analyze",
+      "family": "screen",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.VisionAgent",
+          "name": "VisionAgent",
+          "role": "vision_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "screen_element_map",
+      "family": "screen",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.VisionAgent",
+          "name": "VisionAgent",
+          "role": "vision_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_navigate",
+      "family": "browser",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_click",
+      "family": "browser",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_click_text",
+      "family": "browser",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_type",
+      "family": "browser",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_select",
+      "family": "browser",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_hover",
+      "family": "browser",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_scroll",
+      "family": "browser",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_extract",
+      "family": "browser",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_extract_table",
+      "family": "browser",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_extract_links",
+      "family": "browser",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_execute_js",
+      "family": "browser",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_screenshot",
+      "family": "browser",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_fill_form",
+      "family": "browser",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_new_tab",
+      "family": "browser",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_close_tab",
+      "family": "browser",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_list_tabs",
+      "family": "browser",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_switch_tab",
+      "family": "browser",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_back",
+      "family": "browser",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_forward",
+      "family": "browser",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_refresh",
+      "family": "browser",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_wait",
+      "family": "browser",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_close",
+      "family": "browser",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "browser_page_info",
+      "family": "browser",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "trigger_create",
+      "family": "trigger",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.WorkflowAutomationAgent",
+          "name": "WorkflowAutomationAgent",
+          "role": "automation_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "trigger_list",
+      "family": "trigger",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.WorkflowAutomationAgent",
+          "name": "WorkflowAutomationAgent",
+          "role": "automation_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "trigger_delete",
+      "family": "trigger",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.WorkflowAutomationAgent",
+          "name": "WorkflowAutomationAgent",
+          "role": "automation_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "trigger_start",
+      "family": "trigger",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.WorkflowAutomationAgent",
+          "name": "WorkflowAutomationAgent",
+          "role": "automation_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "trigger_stop",
+      "family": "trigger",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.WorkflowAutomationAgent",
+          "name": "WorkflowAutomationAgent",
+          "role": "automation_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "code_execute",
+      "family": "code",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.code_agent.CodeAgent",
+          "name": "CodeAgent",
+          "role": "code_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "code_generate_and_run",
+      "family": "code",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.code_agent.CodeAgent",
+          "name": "CodeAgent",
+          "role": "code_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "calendar_parse",
+      "family": "calendar",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.calendar_agent.CalendarAgent",
+          "name": "CalendarAgent",
+          "role": "calendar_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "calendar_sync",
+      "family": "calendar",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.calendar_agent.CalendarAgent",
+          "name": "CalendarAgent",
+          "role": "calendar_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "calendar_create_event",
+      "family": "calendar",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.calendar_agent.CalendarAgent",
+          "name": "CalendarAgent",
+          "role": "calendar_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "calendar_list_events",
+      "family": "calendar",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.calendar_agent.CalendarAgent",
+          "name": "CalendarAgent",
+          "role": "calendar_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "calendar_delete_event",
+      "family": "calendar",
+      "permission": {
+        "tier": 3,
+        "name": "destructive",
+        "approval_required": true,
+        "snapshot_required": true,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.calendar_agent.CalendarAgent",
+          "name": "CalendarAgent",
+          "role": "calendar_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "file_parse",
+      "family": "file",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "file_search_content",
+      "family": "file",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.FileOperationsAgent",
+          "name": "FileOperationsAgent",
+          "role": "file_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.system_agent.SystemAgent",
+          "name": "SystemAgent",
+          "role": "system_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "api_request",
+      "family": "integration",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.IntegrationAgent",
+          "name": "IntegrationAgent",
+          "role": "integration_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.rss_agent.RssAgent",
+          "name": "RssAgent",
+          "role": "rss_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "api_github",
+      "family": "integration",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.IntegrationAgent",
+          "name": "IntegrationAgent",
+          "role": "integration_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "api_send_email",
+      "family": "integration",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.comm_agent.CommunicationAgent",
+          "name": "CommunicationAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.email_agent.EmailAgent",
+          "name": "EmailAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.IntegrationAgent",
+          "name": "IntegrationAgent",
+          "role": "integration_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "api_webhook",
+      "family": "integration",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.comm_agent.CommunicationAgent",
+          "name": "CommunicationAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.IntegrationAgent",
+          "name": "IntegrationAgent",
+          "role": "integration_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "api_slack",
+      "family": "integration",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.comm_agent.CommunicationAgent",
+          "name": "CommunicationAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.IntegrationAgent",
+          "name": "IntegrationAgent",
+          "role": "integration_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "api_discord",
+      "family": "integration",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.comm_agent.CommunicationAgent",
+          "name": "CommunicationAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.IntegrationAgent",
+          "name": "IntegrationAgent",
+          "role": "integration_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "api_scrape",
+      "family": "integration",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.IntegrationAgent",
+          "name": "IntegrationAgent",
+          "role": "integration_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.web_agent.WebAgent",
+          "name": "WebAgent",
+          "role": "web_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "workspace_index",
+      "family": "workspace",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.semantic_search_agent.SemanticSearchAgent",
+          "name": "SemanticSearchAgent",
+          "role": "semantic_search_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "workspace_search",
+      "family": "workspace",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.semantic_search_agent.SemanticSearchAgent",
+          "name": "SemanticSearchAgent",
+          "role": "semantic_search_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "email_fetch",
+      "family": "email",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.email_agent.EmailAgent",
+          "name": "EmailAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "email_summarize",
+      "family": "email",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.email_agent.EmailAgent",
+          "name": "EmailAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "email_reply",
+      "family": "email",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.email_agent.EmailAgent",
+          "name": "EmailAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "calendar_fetch",
+      "family": "calendar",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.email_agent.EmailAgent",
+          "name": "EmailAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "calendar_reconcile",
+      "family": "calendar",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.email_agent.EmailAgent",
+          "name": "EmailAgent",
+          "role": "comm_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "ssh_command",
+      "family": "ssh",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.ssh_agent.SshAgent",
+          "name": "SshAgent",
+          "role": "ssh_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "ssh_script",
+      "family": "ssh",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": true
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.ssh_agent.SshAgent",
+          "name": "SshAgent",
+          "role": "ssh_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "screen_detect_elements",
+      "family": "screen",
+      "permission": {
+        "tier": 0,
+        "name": "read_only",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.VisionAgent",
+          "name": "VisionAgent",
+          "role": "vision_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "wasm_call",
+      "family": "extension",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.PluginRuntimeAgent",
+          "name": "PluginRuntimeAgent",
+          "role": "plugin_runtime_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "plugin_call",
+      "family": "extension",
+      "permission": {
+        "tier": 2,
+        "name": "system_modify",
+        "approval_required": true,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.domain_agents.PluginRuntimeAgent",
+          "name": "PluginRuntimeAgent",
+          "role": "plugin_runtime_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    },
+    {
+      "id": "skill_run",
+      "family": "extension",
+      "permission": {
+        "tier": 1,
+        "name": "user_write",
+        "approval_required": false,
+        "snapshot_required": false,
+        "irreversible": false
+      },
+      "platform_support": {
+        "platforms": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "basis": "declared_product_target",
+        "note": "Availability can still depend on host tools, permissions, hardware, and configured integrations."
+      },
+      "providers": [
+        {
+          "id": "builtin:pilot.agents.code_agent.CodeAgent",
+          "name": "CodeAgent",
+          "role": "code_agent",
+          "source": "builtin"
+        },
+        {
+          "id": "builtin:pilot.agents.domain_agents.PluginRuntimeAgent",
+          "name": "PluginRuntimeAgent",
+          "role": "plugin_runtime_agent",
+          "source": "builtin"
+        }
+      ],
+      "verification": {
+        "method": "executor_result_only",
+        "independent_postcondition": false,
+        "note": "No independent post-condition check is currently registered."
+      }
+    }
+  ],
+  "plugins": [
+    {
+      "name": "developer-tools",
+      "version": "1.0.0",
+      "description": "Developer workflow automation — Jira, Git, code generation, and PR management",
+      "author": "heliox-core",
+      "catalog": "builtin",
+      "runtime_type": "python",
+      "source_manifest": "daemon/pilot/plugins/developer/manifest.json",
+      "tools": [
+        {
+          "name": "jira_read_ticket",
+          "description": "Read a Jira ticket by ID and return its summary, description, and status",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "git_clone_repo",
+          "description": "Clone a Git repository to a local directory",
+          "action_type": "shell_command",
+          "permission_tier": 2
+        },
+        {
+          "name": "git_create_branch",
+          "description": "Create and checkout a new Git branch in a repository",
+          "action_type": "shell_command",
+          "permission_tier": 2
+        },
+        {
+          "name": "code_generate",
+          "description": "Generate code files from a natural language specification using the LLM planner",
+          "action_type": "code_execution",
+          "permission_tier": 2
+        },
+        {
+          "name": "git_commit_push",
+          "description": "Stage all changes, create a commit with a message, and push to remote",
+          "action_type": "shell_command",
+          "permission_tier": 2
+        },
+        {
+          "name": "github_open_pr",
+          "description": "Open a pull request on GitHub using the gh CLI",
+          "action_type": "shell_command",
+          "permission_tier": 2
+        }
+      ],
+      "capabilities": {
+        "filesystem": {
+          "read": [],
+          "write": []
+        },
+        "network_domains": [
+          "api.github.com",
+          "github.com"
+        ],
+        "processes": [
+          "git",
+          "gh"
+        ],
+        "credentials": [],
+        "clipboard": {
+          "read": false,
+          "write": false
+        },
+        "media": {
+          "camera": false,
+          "microphone": false
+        },
+        "data_retention": {
+          "mode": "none",
+          "max_days": 0
+        },
+        "destructive_actions": true
+      }
+    },
+    {
+      "name": "home-assistant",
+      "version": "1.0.0",
+      "description": "Home Assistant IoT control — smart lights, switches, climate, and device state",
+      "author": "heliox-core",
+      "catalog": "builtin",
+      "runtime_type": "python",
+      "source_manifest": "daemon/pilot/plugins/homeassistant/manifest.json",
+      "tools": [
+        {
+          "name": "ha_light_toggle",
+          "description": "Toggle a smart light on or off by entity ID",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "ha_light_brightness",
+          "description": "Set brightness of a smart light (0-255)",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "ha_light_color",
+          "description": "Set the color of a smart light using RGB values",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "ha_switch_toggle",
+          "description": "Toggle a smart switch/plug on or off",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "ha_climate_set",
+          "description": "Set target temperature on a thermostat or climate device",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "ha_get_state",
+          "description": "Get the current state of any Home Assistant entity",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "ha_scene_activate",
+          "description": "Activate a pre-defined Home Assistant scene (e.g., 'Movie Night', 'Good Morning')",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "ha_list_devices",
+          "description": "List all available devices and entities in the Home Assistant instance",
+          "action_type": "api_call",
+          "permission_tier": 1
+        }
+      ],
+      "capabilities": {
+        "filesystem": {
+          "read": [],
+          "write": []
+        },
+        "network_domains": [
+          "homeassistant.local"
+        ],
+        "processes": [],
+        "credentials": [],
+        "clipboard": {
+          "read": false,
+          "write": false
+        },
+        "media": {
+          "camera": false,
+          "microphone": false
+        },
+        "data_retention": {
+          "mode": "none",
+          "max_days": 0
+        },
+        "destructive_actions": true
+      }
+    },
+    {
+      "name": "home-assistant",
+      "version": "1.0.0",
+      "description": "Control smart home devices via Home Assistant API",
+      "author": "VyomKulshrestha",
+      "catalog": "marketplace",
+      "runtime_type": "python",
+      "source_manifest": "daemon/pilot/plugins/marketplace_catalog/home-assistant/manifest.json",
+      "tools": [
+        {
+          "name": "ha_lights",
+          "description": "List all lights in Home Assistant",
+          "action_type": "api_call",
+          "permission_tier": 2
+        },
+        {
+          "name": "ha_set_light",
+          "description": "Turn a light on or off",
+          "action_type": "api_call",
+          "permission_tier": 2
+        }
+      ],
+      "capabilities": {
+        "filesystem": {
+          "read": [],
+          "write": []
+        },
+        "network_domains": [
+          "homeassistant.local"
+        ],
+        "processes": [],
+        "credentials": [
+          "HA_URL",
+          "HA_TOKEN"
+        ],
+        "clipboard": {
+          "read": false,
+          "write": false
+        },
+        "media": {
+          "camera": false,
+          "microphone": false
+        },
+        "data_retention": {
+          "mode": "none",
+          "max_days": 0
+        },
+        "destructive_actions": true
+      }
+    },
+    {
+      "name": "spotify-control",
+      "version": "1.0.0",
+      "description": "Control Spotify playback through the Spotify Web API",
+      "author": "community",
+      "catalog": "marketplace",
+      "runtime_type": "python",
+      "source_manifest": "daemon/pilot/plugins/marketplace_catalog/spotify-control/manifest.json",
+      "tools": [
+        {
+          "name": "spotify_play",
+          "description": "Start or resume Spotify playback",
+          "action_type": "api_call",
+          "permission_tier": 2
+        },
+        {
+          "name": "spotify_pause",
+          "description": "Pause Spotify playback",
+          "action_type": "api_call",
+          "permission_tier": 2
+        },
+        {
+          "name": "spotify_now_playing",
+          "description": "Get currently playing track info",
+          "action_type": "api_call",
+          "permission_tier": 1
+        }
+      ],
+      "capabilities": {
+        "filesystem": {
+          "read": [],
+          "write": []
+        },
+        "network_domains": [
+          "api.spotify.com"
+        ],
+        "processes": [],
+        "credentials": [
+          "SPOTIFY_ACCESS_TOKEN"
+        ],
+        "clipboard": {
+          "read": false,
+          "write": false
+        },
+        "media": {
+          "camera": false,
+          "microphone": false
+        },
+        "data_retention": {
+          "mode": "none",
+          "max_days": 0
+        },
+        "destructive_actions": false
+      }
+    },
+    {
+      "name": "weather",
+      "version": "1.0.0",
+      "description": "Get live current weather and forecasts from wttr.in",
+      "author": "community",
+      "catalog": "marketplace",
+      "runtime_type": "python",
+      "source_manifest": "daemon/pilot/plugins/marketplace_catalog/weather/manifest.json",
+      "tools": [
+        {
+          "name": "get_weather",
+          "description": "Get current weather for a city",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "get_forecast",
+          "description": "Get 5-day weather forecast",
+          "action_type": "api_call",
+          "permission_tier": 1
+        }
+      ],
+      "capabilities": {
+        "filesystem": {
+          "read": [],
+          "write": []
+        },
+        "network_domains": [
+          "wttr.in"
+        ],
+        "processes": [],
+        "credentials": [],
+        "clipboard": {
+          "read": false,
+          "write": false
+        },
+        "media": {
+          "camera": false,
+          "microphone": false
+        },
+        "data_retention": {
+          "mode": "none",
+          "max_days": 0
+        },
+        "destructive_actions": false
+      }
+    },
+    {
+      "name": "media-control",
+      "version": "1.0.0",
+      "description": "Media playback control — Spotify, system volume, YouTube, and media keys",
+      "author": "heliox-core",
+      "catalog": "builtin",
+      "runtime_type": "python",
+      "source_manifest": "daemon/pilot/plugins/media/manifest.json",
+      "tools": [
+        {
+          "name": "spotify_play",
+          "description": "Play a song, artist, or playlist on Spotify",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "spotify_pause",
+          "description": "Pause the currently playing Spotify track",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "spotify_next",
+          "description": "Skip to the next track on Spotify",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "spotify_now_playing",
+          "description": "Get information about the currently playing Spotify track",
+          "action_type": "api_call",
+          "permission_tier": 1
+        },
+        {
+          "name": "volume_set",
+          "description": "Set the system volume to a specific percentage (0-100)",
+          "action_type": "shell_command",
+          "permission_tier": 1
+        },
+        {
+          "name": "volume_mute",
+          "description": "Toggle system mute on/off",
+          "action_type": "shell_command",
+          "permission_tier": 1
+        },
+        {
+          "name": "youtube_open",
+          "description": "Open a YouTube video or search query in the default browser",
+          "action_type": "shell_command",
+          "permission_tier": 1
+        },
+        {
+          "name": "media_key",
+          "description": "Simulate a media key press (play_pause, next_track, prev_track, volume_up, volume_down)",
+          "action_type": "shell_command",
+          "permission_tier": 1
+        }
+      ],
+      "capabilities": {
+        "filesystem": {
+          "read": [],
+          "write": []
+        },
+        "network_domains": [
+          "api.spotify.com",
+          "www.youtube.com"
+        ],
+        "processes": [
+          "powershell",
+          "amixer",
+          "osascript",
+          "xdotool"
+        ],
+        "credentials": [],
+        "clipboard": {
+          "read": false,
+          "write": false
+        },
+        "media": {
+          "camera": false,
+          "microphone": false
+        },
+        "data_retention": {
+          "mode": "none",
+          "max_days": 0
+        },
+        "destructive_actions": false
+      }
+    }
+  ]
+}
