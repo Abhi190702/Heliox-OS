@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from benchmarks.react_latency import benchmark
 from pilot.actions import ActionType
 from pilot.agents.planner import Planner
 from pilot.system import sysinfo
@@ -84,7 +86,17 @@ async def test_cpu_usage_uses_short_sample_interval(monkeypatch: pytest.MonkeyPa
     output = await sysinfo.cpu_usage()
 
     assert "Average usage" in output
-    assert intervals == [0.1]
+    assert intervals == [sysinfo.CPU_USAGE_SAMPLE_SECONDS]
+    assert sysinfo.CPU_USAGE_SAMPLE_SECONDS <= 0.02
+
+
+@pytest.mark.asyncio
+async def test_full_latency_benchmark_completes_without_model_or_thread_leak() -> None:
+    timings, model_calls = await asyncio.wait_for(benchmark(1), timeout=10)
+
+    assert len(timings) == 1
+    assert timings[0] > 0
+    assert model_calls == 0
 
 
 @pytest.mark.asyncio

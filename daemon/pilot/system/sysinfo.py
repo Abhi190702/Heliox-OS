@@ -18,6 +18,13 @@ from pilot.system.platform_detect import (
 
 logger = logging.getLogger("pilot.system.sysinfo")
 
+# A half-second blocking sample made simple status requests feel like model
+# latency. These short windows retain a fresh psutil reading while keeping the
+# interactive path responsive; comprehensive system info uses the steadier
+# window and the dedicated CPU action uses the faster one.
+SYSTEM_INFO_CPU_SAMPLE_SECONDS = 0.05
+CPU_USAGE_SAMPLE_SECONDS = 0.02
+
 
 async def system_info(categories: list[str] | None = None) -> str:
     """Get comprehensive system information."""
@@ -61,7 +68,7 @@ async def _time_info() -> str:
     return f"=== System Time ===\n  Current Local Time: {now.strftime('%A, %B %d, %Y %I:%M:%S %p')}\n  Timezone: {now.astimezone().tzname()}"
 
 
-def _collect_cpu_info(sample_interval: float | None = 0.5) -> str:
+def _collect_cpu_info(sample_interval: float | None = SYSTEM_INFO_CPU_SAMPLE_SECONDS) -> str:
     import psutil
 
     count = psutil.cpu_count()
@@ -87,7 +94,7 @@ def _collect_cpu_info(sample_interval: float | None = 0.5) -> str:
     return "\n".join(lines)
 
 
-async def _cpu_info(sample_interval: float | None = 0.5) -> str:
+async def _cpu_info(sample_interval: float | None = SYSTEM_INFO_CPU_SAMPLE_SECONDS) -> str:
     try:
         return await asyncio.to_thread(_collect_cpu_info, sample_interval)
     except ImportError:
@@ -140,7 +147,7 @@ async def memory_usage() -> str:
 
 
 async def cpu_usage() -> str:
-    return await _cpu_info(sample_interval=0.1)
+    return await _cpu_info(sample_interval=CPU_USAGE_SAMPLE_SECONDS)
 
 
 async def _disk_info() -> str:

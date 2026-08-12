@@ -74,6 +74,15 @@ class NoopReflector:
 
 
 class NoopMemory:
+    async def get_context(self, *args: Any, **kwargs: Any) -> str:  # noqa: ARG002
+        return ""
+
+    async def get_history(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:  # noqa: ARG002
+        return []
+
+    async def put_working(self, *args: Any, **kwargs: Any) -> None:  # noqa: ARG002
+        return None
+
     async def record(self, *args: Any, **kwargs: Any) -> None:  # noqa: ARG002
         return None
 
@@ -82,6 +91,11 @@ class NoopMemory:
 class BenchmarkHarness:
     server: Any
     model: StubModelRouter
+
+    async def close(self) -> None:
+        orchestrator = getattr(self.server, "_orchestrator", None)
+        if orchestrator is not None:
+            await orchestrator.stop()
 
 
 async def build_harness() -> BenchmarkHarness:
@@ -92,7 +106,6 @@ async def build_harness() -> BenchmarkHarness:
     from pilot.agents.system_agent import SystemAgent
     from pilot.agents.verifier import Verifier
     from pilot.config import PilotConfig
-    from pilot.memory.store import MemoryStore
     from pilot.security.audit import AuditLogger
     from pilot.security.permissions import PermissionChecker
     from pilot.security.validator import ActionValidator
@@ -100,8 +113,7 @@ async def build_harness() -> BenchmarkHarness:
 
     config = PilotConfig()
     model = StubModelRouter()
-    memory = MemoryStore()
-    await memory.initialize()
+    memory = NoopMemory()
 
     validator = ActionValidator(config)
     permissions = PermissionChecker(config)
@@ -116,12 +128,13 @@ async def build_harness() -> BenchmarkHarness:
     server._planner = Planner(model, memory)  # noqa: SLF001
     server._executor = executor  # noqa: SLF001
     server._verifier = verifier  # noqa: SLF001
+    server._permission_checker = permissions  # noqa: SLF001
     server._reflector = NoopReflector()  # noqa: SLF001
     server._multi_agent = MultiAgentRouter(model)  # type: ignore[arg-type]  # noqa: SLF001
     server._orchestrator = orchestrator  # noqa: SLF001
     server._reasoning = None  # noqa: SLF001
     server._screen_vision = None  # noqa: SLF001
-    server._memory = NoopMemory()  # noqa: SLF001
+    server._memory = memory  # noqa: SLF001
     return BenchmarkHarness(server=server, model=model)
 
 
@@ -140,10 +153,13 @@ async def run_once(harness: BenchmarkHarness) -> float:
 
 async def benchmark(iterations: int) -> tuple[list[float], int]:
     harness = await build_harness()
-    timings = []
-    for _ in range(iterations):
-        timings.append(await run_once(harness))
-    return timings, harness.model.generate_calls
+    try:
+        timings = []
+        for _ in range(iterations):
+            timings.append(await run_once(harness))
+        return timings, harness.model.generate_calls
+    finally:
+        await harness.close()
 
 
 async def benchmark_with_harness(harness: BenchmarkHarness, iterations: int) -> tuple[list[float], int]:
@@ -152,6 +168,14 @@ async def benchmark_with_harness(harness: BenchmarkHarness, iterations: int) -> 
     for _ in range(iterations):
         timings.append(await run_once(harness))
     return timings, harness.model.generate_calls - generate_calls_before
+
+
+async def profiled_benchmark(iterations: int) -> tuple[list[float], int]:
+    harness = await build_harness()
+    try:
+        return await benchmark_with_harness(harness, iterations)
+    finally:
+        await harness.close()
 
 
 def print_summary(timings: list[float], generate_calls: int) -> None:
@@ -171,10 +195,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.profile:
-        harness = asyncio.run(build_harness())
         profiler = cProfile.Profile()
         profiler.enable()
-        timings, generate_calls = asyncio.run(benchmark_with_harness(harness, args.iterations))
+        timings, generate_calls = asyncio.run(profiled_benchmark(args.iterations))
         profiler.disable()
         print_summary(timings, generate_calls)
         output = io.StringIO()
