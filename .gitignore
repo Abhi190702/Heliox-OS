@@ -75,6 +75,7 @@ ui/build/
 # Local maintainer release material
 docs/RELEASING.md
 /report.md
+/funding.md
 
 daemon/benchmarks/.bench-state/
 daemon/neuralset*
