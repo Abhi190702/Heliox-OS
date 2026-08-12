@@ -118,6 +118,7 @@ voice = [
 # at source startup rather than silently falling back to another transport.
 neural = [
     "brainflow>=5.22,<6",
+    "mne>=1.10,<2",
     "pylsl>=1.17,<2",
 ]
 
