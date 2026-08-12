@@ -6,6 +6,10 @@
 /docs/PLUGIN_MARKETPLACE.md @VyomKulshrestha
 /.github/workflows/marketplace.yml @VyomKulshrestha
 
+# Windows release-signing policy and workflow changes require maintainer review.
+/.github/workflows/signpath-test.yml @VyomKulshrestha
+/docs/WINDOWS_SIGNING.md @VyomKulshrestha
+
 # Sponsorship destinations and public funding promises must not be redirected
 # or changed without the project owner's review.
 /.github/FUNDING.yml @VyomKulshrestha

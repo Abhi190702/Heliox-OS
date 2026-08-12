@@ -287,6 +287,8 @@ See the [v0.11.1 release notes](docs/releases/v0.11.1.md) for the feature summar
 
 Public releases use a draft-first workflow. PyPI publication and stable
 promotion happen only after package and clean-machine acceptance.
+The [Windows code-signing guide](docs/WINDOWS_SIGNING.md) documents the
+SignPath test workflow and the production-certificate cutover gate.
 
 ## 🖥️ Cross-Platform Support
 

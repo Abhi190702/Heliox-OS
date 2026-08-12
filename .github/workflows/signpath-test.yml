@@ -1,0 +1,141 @@
+name: "SignPath Windows test signing"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  sign-windows-test-artifacts:
+    name: Build and test-sign Windows installers
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "tauri-app/src-tauri -> target"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: tauri-app/ui/package-lock.json
+
+      - name: Install frontend dependencies reproducibly
+        working-directory: tauri-app/ui
+        run: npm ci
+
+      - name: Prefetch verified WiX toolset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "wix314-binaries.zip"
+          $wixTools = Join-Path $env:LOCALAPPDATA "tauri\WixTools314"
+          $expectedSha256 = "6AC824E1642D6F7277D0ED7EA09411A508F6116BA6FAE0AA5F2C7DAA2FF43D31"
+
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            gh release download wix3141rtm `
+              --repo wixtoolset/wix3 `
+              --pattern wix314-binaries.zip `
+              --dir $env:RUNNER_TEMP `
+              --clobber
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) { throw "Could not download WiX after $attempt attempts." }
+            Start-Sleep -Seconds (5 * $attempt)
+          }
+
+          $actualSha256 = (Get-FileHash -Algorithm SHA256 $archive).Hash
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "WiX archive checksum mismatch: $actualSha256"
+          }
+          New-Item -ItemType Directory -Path $wixTools -Force | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $wixTools -Force
+          foreach ($tool in @("candle.exe", "light.exe", "WixUIExtension.dll", "WixUtilExtension.dll")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $wixTools $tool))) {
+              throw "Verified WiX archive is missing $tool."
+            }
+          }
+
+      - name: Build unsigned Windows installers
+        working-directory: tauri-app
+        run: npm run tauri -- build --bundles nsis,msi
+
+      - name: Stage exactly one EXE and one MSI
+        shell: pwsh
+        run: |
+          $bundleRoot = Join-Path $env:GITHUB_WORKSPACE "tauri-app\src-tauri\target\release\bundle"
+          $stage = Join-Path $env:RUNNER_TEMP "signpath-unsigned"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+          $installers = Get-ChildItem -Path $bundleRoot -Recurse -File |
+            Where-Object { $_.Extension -in @(".exe", ".msi") }
+          $exe = @($installers | Where-Object Extension -EQ ".exe")
+          $msi = @($installers | Where-Object Extension -EQ ".msi")
+          if ($exe.Count -ne 1 -or $msi.Count -ne 1) {
+            throw "Expected one EXE and one MSI; found $($exe.Count) EXE and $($msi.Count) MSI."
+          }
+
+          Copy-Item -LiteralPath $exe[0].FullName -Destination $stage
+          Copy-Item -LiteralPath $msi[0].FullName -Destination $stage
+
+      - name: Upload unsigned installers for SignPath
+        id: upload-unsigned
+        uses: actions/upload-artifact@v7
+        with:
+          name: heliox-windows-unsigned-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/signpath-unsigned/*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign with the SignPath test certificate
+        id: signpath
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: 15be8529-09d1-4159-a99c-00e90c0d6c65
+          project-slug: Heliox-OS
+          signing-policy-slug: test-signing
+          artifact-configuration-slug: windows-installers
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 900
+          output-artifact-directory: ${{ runner.temp }}/signpath-signed
+
+      - name: Verify both installers contain Authenticode signatures
+        shell: pwsh
+        run: |
+          $signedRoot = Join-Path $env:RUNNER_TEMP "signpath-signed"
+          $installers = Get-ChildItem -Path $signedRoot -Recurse -File |
+            Where-Object { $_.Extension -in @(".exe", ".msi") }
+          $exe = @($installers | Where-Object Extension -EQ ".exe")
+          $msi = @($installers | Where-Object Extension -EQ ".msi")
+          if ($exe.Count -ne 1 -or $msi.Count -ne 1) {
+            throw "Expected one signed EXE and one signed MSI; found $($exe.Count) EXE and $($msi.Count) MSI."
+          }
+
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+            if ($null -eq $signature.SignerCertificate -or $signature.Status -eq "NotSigned") {
+              throw "SignPath returned an unsigned artifact: $($installer.Name)"
+            }
+            Write-Host "$($installer.Name): signature present; trust status $($signature.Status)"
+          }
+
+      - name: Upload signed test installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: heliox-windows-signpath-test-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/signpath-signed/*
+          if-no-files-found: error
+          retention-days: 7
