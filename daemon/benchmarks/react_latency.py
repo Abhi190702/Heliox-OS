@@ -149,16 +149,25 @@ async def build_harness() -> BenchmarkHarness:
     return BenchmarkHarness(server=server, model=model)
 
 
-async def run_once(harness: BenchmarkHarness) -> float:
+async def run_once(
+    harness: BenchmarkHarness,
+    query: str = "What's my CPU usage?",
+    expected_action: str = "cpu_usage",
+) -> float:
     ws = FakeWebSocket()
     start = time.perf_counter()
     result = await harness.server._handle_execute(  # noqa: SLF001
-        {"input": "What's my CPU usage?", "dry_run": False},
+        {"input": query, "dry_run": False},
         ws,  # type: ignore[arg-type]
     )
     elapsed_ms = (time.perf_counter() - start) * 1000
     if result.get("status") != "success":
         raise RuntimeError(f"Unexpected benchmark result: {result}")
+    result_actions = [
+        item.get("action", {}).get("action_type") for item in result.get("results", []) if isinstance(item, dict)
+    ]
+    if result_actions != [expected_action]:
+        raise RuntimeError(f"Expected {expected_action!r}, got actions {result_actions!r}")
     return elapsed_ms
 
 

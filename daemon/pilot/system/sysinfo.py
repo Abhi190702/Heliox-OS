@@ -54,34 +54,29 @@ async def system_info(categories: list[str] | None = None) -> str:
     if not categories:
         categories = ["os", "cpu", "memory", "disk", "network", "time"]
 
-    sections: list[str] = []
-
-    if "time" in categories:
-        sections.append(await _time_info())
-
+    section_values: dict[str, str] = {}
     if "os" in categories:
         info = get_platform_info()
         lines = ["=== Operating System ==="]
         for k, v in info.items():
             lines.append(f"  {k}: {v}")
-        sections.append("\n".join(lines))
+        section_values["os"] = "\n".join(lines)
 
-    if "cpu" in categories:
-        sections.append(await _cpu_info())
+    probes = {
+        "time": _time_info,
+        "cpu": _cpu_info,
+        "memory": _memory_info,
+        "disk": _disk_info,
+        "network": _network_info,
+        "battery": _battery_info,
+    }
+    requested = [(name, probe()) for name, probe in probes.items() if name in categories]
+    if requested:
+        results = await asyncio.gather(*(coroutine for _, coroutine in requested))
+        section_values.update({name: result for (name, _), result in zip(requested, results, strict=True)})
 
-    if "memory" in categories:
-        sections.append(await _memory_info())
-
-    if "disk" in categories:
-        sections.append(await _disk_info())
-
-    if "network" in categories:
-        sections.append(await _network_info())
-
-    if "battery" in categories:
-        sections.append(await _battery_info())
-
-    return "\n\n".join(sections)
+    display_order = ("time", "os", "cpu", "memory", "disk", "network", "battery")
+    return "\n\n".join(section_values[name] for name in display_order if name in section_values)
 
 
 async def _time_info() -> str:

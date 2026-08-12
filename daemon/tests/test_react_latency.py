@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from benchmarks.local_status_suite import benchmark_suite
 from benchmarks.react_latency import benchmark, benchmark_report, summarize
 from pilot.actions import ActionType
 from pilot.agents.planner import Planner
@@ -106,6 +107,35 @@ async def test_system_probe_preparation_primes_cpu_stack(monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio
+async def test_comprehensive_system_probes_run_concurrently(monkeypatch: pytest.MonkeyPatch) -> None:
+    started: set[str] = set()
+    all_started = asyncio.Event()
+
+    def probe(name: str):
+        async def run() -> str:
+            started.add(name)
+            if len(started) == 4:
+                all_started.set()
+            await all_started.wait()
+            return f"=== {name} ==="
+
+        return run
+
+    monkeypatch.setattr(sysinfo, "_cpu_info", probe("cpu"))
+    monkeypatch.setattr(sysinfo, "_memory_info", probe("memory"))
+    monkeypatch.setattr(sysinfo, "_disk_info", probe("disk"))
+    monkeypatch.setattr(sysinfo, "_network_info", probe("network"))
+
+    output = await asyncio.wait_for(
+        sysinfo.system_info(["cpu", "memory", "disk", "network"]),
+        timeout=0.2,
+    )
+
+    assert started == {"cpu", "memory", "disk", "network"}
+    assert output.index("cpu") < output.index("memory") < output.index("disk") < output.index("network")
+
+
+@pytest.mark.asyncio
 async def test_full_latency_benchmark_completes_without_model_or_thread_leak() -> None:
     timings, model_calls = await asyncio.wait_for(benchmark(1), timeout=10)
 
@@ -133,6 +163,20 @@ def test_latency_summary_reports_tail_and_variance() -> None:
     assert summary["p95_ms"] > summary["median_ms"]
     assert summary["p99_ms"] >= summary["p95_ms"]
     assert summary["stdev_ms"] > 0
+
+
+@pytest.mark.asyncio
+async def test_local_status_suite_executes_real_fast_paths_without_model() -> None:
+    report = await asyncio.wait_for(benchmark_suite(2, warmup=1), timeout=10)
+
+    assert set(report["scenarios"]) == {
+        "cpu_usage",
+        "memory_usage",
+        "disk_usage",
+        "system_information",
+    }
+    assert report["model_generate_calls"] == 0
+    assert all(scenario["iterations"] == 2 for scenario in report["scenarios"].values())
 
 
 @pytest.mark.asyncio
