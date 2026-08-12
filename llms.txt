@@ -34,6 +34,10 @@ Important interpretation notes:
 ## Releases and Support
 
 - [Releases](https://github.com/VyomKulshrestha/Heliox-OS/releases): Published desktop installers and release notes.
+- [Generated Changelog](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/changelog.md): Release milestones generated from the changelog shipped by the daemon.
+- [Machine-readable Releases](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/releases.json): Current version and structured release features.
+- [JSON Feed](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/releases.feed.json): JSON Feed 1.1 release updates.
+- [RSS Feed](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/releases.xml): RSS 2.0 release updates.
 - [Issues](https://github.com/VyomKulshrestha/Heliox-OS/issues): Bugs, feature requests, and contributor tasks.
 - [Sponsoring](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/SPONSORING.md): Funding goals and sponsorship information.
 

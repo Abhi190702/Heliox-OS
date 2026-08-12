@@ -29,7 +29,8 @@
   <a href="https://www.helioxos.dev/llms.txt">Website Agent Index</a> •
   <a href="llms.txt">Repository Agent Index</a> •
   <a href="capabilities.json">Capability Catalog</a> •
-  <a href="proof.md">Evidence &amp; Limits</a>
+  <a href="proof.md">Evidence &amp; Limits</a> •
+  <a href="changelog.md">Changelog</a>
 </p>
 
 <p align="center">

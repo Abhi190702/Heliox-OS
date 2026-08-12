@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "current_version": "0.10.1",
+  "generated_from": "daemon/pilot/changelog.py",
+  "releases": [
+    {
+      "version": "0.10.1",
+      "title": "Reliable Interactive Sessions",
+      "date": "2026-07-30",
+      "summary": "Persistent sessions, faster browser control, and coordinated companion reliability",
+      "features": [
+        {
+          "name": "Persistent Private Sessions",
+          "description": "Start isolated chats, reopen prior sessions, and retain adaptive memory without leaking one conversation's transcript into another."
+        },
+        {
+          "name": "Faster Semantic Browser Control",
+          "description": "Common browser tasks use bounded planning, resolve controls by meaning, and serialize shared-page actions to avoid slow or conflicting execution."
+        },
+        {
+          "name": "Coordinated Companion Services",
+          "description": "Narration, learned-risk interruption, voice, and verified follow-up suggestions remain available together while approvals pass through every action gate."
+        },
+        {
+          "name": "Safer, Truthful Task Results",
+          "description": "Cancelled work, cloud-provider failures, destructive file changes, and exact findings now produce bounded, redacted, recoverable results."
+        }
+      ],
+      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.10.1"
+    },
+    {
+      "version": "0.10.0",
+      "title": "Interactive Companion and Reliability",
+      "date": "2026-07-29",
+      "summary": "Companion intelligence, learned safety, multimodal control, and reliable execution",
+      "features": [
+        {
+          "name": "Interactive Companion",
+          "description": "Opt-in narration, risk interruption, spoken follow-up, and suggestions now share one coordinated conversation loop."
+        },
+        {
+          "name": "Learned Risk World Model",
+          "description": "On-device learned predictions now advise the deterministic safety gate and can add caution or pause risky actions."
+        },
+        {
+          "name": "Unified Camera Intelligence",
+          "description": "Gaze, hand gestures, and cursor control can run together from one camera stream without suppressing enabled inputs."
+        },
+        {
+          "name": "Moderated Plugin Marketplace",
+          "description": "Reviewed packages are verified by manifest and SHA-256 before installation, and merged catalog entries appear without a desktop release."
+        },
+        {
+          "name": "Reliable Approvals and Results",
+          "description": "Approval responses remain live on the active connection, while cancelled, blocked, and failed actions now finish with truthful terminal results."
+        },
+        {
+          "name": "Durable Voice and Gesture Workflows",
+          "description": "Multi-step workflows can be submitted, paused, resumed, and inspected while autonomous healing remains separately permission-gated."
+        }
+      ],
+      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.10.0"
+    },
+    {
+      "version": "0.9.0",
+      "title": "JARVIS Autonomy",
+      "date": "2026-07-22",
+      "summary": "Background autonomy and local multimodal control",
+      "features": [
+        {
+          "name": "Autonomous Background Tasks",
+          "description": "Run permission-gated multi-step tasks while continuing to use the app."
+        },
+        {
+          "name": "Live Execution Narrator",
+          "description": "Optionally hear short progress descriptions and risk interruptions."
+        },
+        {
+          "name": "Local Voice, Gesture, and Gaze Inputs",
+          "description": "Use on-device multimodal controls without sending camera frames."
+        }
+      ],
+      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.9.0"
+    }
+  ]
+}
