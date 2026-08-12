@@ -10,11 +10,26 @@ from typing import Any
 
 logger = logging.getLogger("pilot.changelog")
 
-VERSION = "0.11.0"
-PUBLIC_RELEASE_VERSION = "0.11.0"
-PUBLISHED_RELEASE_VERSIONS = ("0.11.0", "0.9.0")
+VERSION = "0.11.1"
+PUBLIC_RELEASE_VERSION = "0.11.1"
+PUBLISHED_RELEASE_VERSIONS = ("0.11.1", "0.9.0")
 
 CHANGELOG = {
+    "0.11.1": {
+        "title": "Adaptive Companion Release",
+        "date": "2026-08-12",
+        "features": [
+            {
+                "name": "Reliable Windows Release Delivery",
+                "description": (
+                    "The Windows release pipeline now prefetches and checksum-verifies WiX with "
+                    "explicit retries before building MSI and NSIS installers."
+                ),
+                "jarvis_announce": "Windows release packaging is now deterministic and verified.",
+            },
+        ],
+        "summary": "The complete v0.11 companion feature set with deterministic Windows packaging",
+    },
     "0.11.0": {
         "title": "Adaptive Multimodal Companion",
         "date": "2026-08-12",

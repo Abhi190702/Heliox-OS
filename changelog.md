@@ -8,11 +8,23 @@ last_updated: 2026-08-12
 
 This page is generated from the changelog shipped by the Heliox daemon. It distinguishes published installers from draft and source-only milestones; current limitations remain in the proof center.
 
-## 0.11.0 — Adaptive Multimodal Companion
+## 0.11.1 — Adaptive Companion Release
 
 Status: **Published**
 
 Released: **2026-08-12**
+
+The complete v0.11 companion feature set with deterministic Windows packaging
+
+- **Reliable Windows Release Delivery** — The Windows release pipeline now prefetches and checksum-verifies WiX with explicit retries before building MSI and NSIS installers.
+
+[Release artifacts](https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.11.1)
+
+## 0.11.0 — Adaptive Multimodal Companion
+
+Status: **Source Milestone**
+
+Source milestone: **2026-08-12**
 
 Adaptive learning, coordinated multimodal control, expanded specialists, and guarded neural research
 
@@ -23,7 +35,7 @@ Adaptive learning, coordinated multimodal control, expanded specialists, and gua
 - **Guarded Neural Research Pipeline** — Synthetic BrainFlow and recorded EEGBCI paths now exercise calibrated, signed, consent-bounded neural intents without claiming live brain control.
 - **Truthful Execution and Delivery** — Application launch, browser targeting, approvals, cancellations, result reporting, first-run Chromium setup, and cross-platform packaging are more deterministic.
 
-[Release artifacts](https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.11.0)
+This milestone is included in source and has no separate public installer.
 
 ## 0.10.1 — Reliable Interactive Sessions
 

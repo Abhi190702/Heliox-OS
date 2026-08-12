@@ -1,10 +1,25 @@
 {
   "schema_version": 2,
-  "current_version": "0.11.0",
-  "current_source_version": "0.11.0",
-  "latest_published_version": "0.11.0",
+  "current_version": "0.11.1",
+  "current_source_version": "0.11.1",
+  "latest_published_version": "0.11.1",
   "generated_from": "daemon/pilot/changelog.py",
   "releases": [
+    {
+      "version": "0.11.1",
+      "title": "Adaptive Companion Release",
+      "date": "2026-08-12",
+      "summary": "The complete v0.11 companion feature set with deterministic Windows packaging",
+      "features": [
+        {
+          "name": "Reliable Windows Release Delivery",
+          "description": "The Windows release pipeline now prefetches and checksum-verifies WiX with explicit retries before building MSI and NSIS installers."
+        }
+      ],
+      "status": "published",
+      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.11.1",
+      "source_url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main"
+    },
     {
       "version": "0.11.0",
       "title": "Adaptive Multimodal Companion",
@@ -36,8 +51,8 @@
           "description": "Application launch, browser targeting, approvals, cancellations, result reporting, first-run Chromium setup, and cross-platform packaging are more deterministic."
         }
       ],
-      "status": "published",
-      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.11.0",
+      "status": "source-milestone",
+      "release_url": null,
       "source_url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main"
     },
     {

@@ -3,7 +3,7 @@
 > This page separates reproducible software evidence, live CI status, developer-run hardware observations, and claims that have not yet been established. It is an evidence index, not a promise that every feature works on every computer.
 
 Evidence snapshot date: **2026-08-12**  
-Product version: **0.11.0**
+Product version: **0.11.1**
 
 ## Capability and routing evidence
 

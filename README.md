@@ -95,7 +95,7 @@ and spoken requests share the same guarded plan, act, verify, and recovery path:
 7. **Security** — Five-tier permission system with confirmation gates and rollback support.
 
 <a id="jarvis-autonomy"></a>
-## 🤖 JARVIS Autonomy (v0.11.0)
+## 🤖 JARVIS Autonomy (v0.11.1)
 
 Heliox OS combines reactive commands with opt-in proactive and background capabilities that run through the same permission and verification pipeline:
 
@@ -271,7 +271,7 @@ The planner produces a validated action plan, the orchestrator selects a capable
 
 ## Release Verification
 
-The release gate is reproducible; it does not rely on an informal task-pass percentage. The v0.11.0 release is validated through:
+The release gate is reproducible; it does not rely on an informal task-pass percentage. The v0.11.1 release is validated through:
 
 | Surface | Verification |
 |---------|--------------|
@@ -283,7 +283,7 @@ The release gate is reproducible; it does not rely on an informal task-pass perc
 
 GitHub Actions repeats Python tests on Windows, Ubuntu, and macOS with Python 3.11 and 3.12, runs the frontend gate, compares per-OS visual baselines, and checks the Rust bridge on Linux. Camera, microphone, desktop permissions, model downloads, and OS-specific integrations still require real-device validation; CI cannot prove hardware behavior.
 
-See the [v0.11.0 release notes](docs/releases/v0.11.0.md) for the feature summary, upgrade guidance, and evidence boundaries.
+See the [v0.11.1 release notes](docs/releases/v0.11.1.md) for the feature summary, upgrade guidance, and evidence boundaries.
 
 Public releases use a draft-first workflow. PyPI publication and stable
 promotion happen only after package and clean-machine acceptance.
