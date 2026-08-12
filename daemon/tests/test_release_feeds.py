@@ -26,6 +26,33 @@ def test_release_outputs_are_fresh(tmp_path: Path):
         assert (tmp_path / name).read_bytes() == (ROOT / name).read_bytes(), name
 
 
+def test_markdown_last_updated_uses_newest_release_date():
+    module = _module()
+    markdown = module.render_markdown(
+        [
+            {
+                "version": "0.1.0",
+                "title": "Older",
+                "date": "2026-01-01",
+                "summary": "Older release",
+                "features": [],
+                "status": "source-milestone",
+                "release_url": None,
+            },
+            {
+                "version": "0.2.0",
+                "title": "Newer",
+                "date": "2026-02-03",
+                "summary": "Newer release",
+                "features": [],
+                "status": "published",
+                "release_url": "https://example.com/release",
+            },
+        ]
+    )
+    assert "last_updated: 2026-02-03" in markdown
+
+
 def test_release_feeds_match_shipped_version():
     from pilot.changelog import (
         CHANGELOG,

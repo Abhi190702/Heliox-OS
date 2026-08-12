@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -59,11 +59,14 @@ def releases() -> list[dict[str, object]]:
 
 
 def render_markdown(items: list[dict[str, object]]) -> str:
+    if not items:
+        raise ValueError("at least one release is required")
+    last_updated = max(str(item["date"]) for item in items)
     lines = [
         "---",
         "title: Heliox OS changelog",
         f"canonical_url: {SITE}/changelog.md",
-        f"last_updated: {date.today().isoformat()}",
+        f"last_updated: {last_updated}",
         "---",
         "",
         "# Heliox OS changelog",

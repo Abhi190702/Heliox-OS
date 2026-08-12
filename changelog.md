@@ -1,7 +1,7 @@
 ---
 title: Heliox OS changelog
 canonical_url: https://www.helioxos.dev/changelog.md
-last_updated: 2026-08-13
+last_updated: 2026-08-12
 ---
 
 # Heliox OS changelog
