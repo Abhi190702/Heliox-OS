@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "captured_on": "2026-08-12",
+  "benchmark": "daemon/benchmarks/react_latency.py",
+  "scope": "Full guarded non-LLM CPU usage request path with a local planner fast path and zero model calls",
+  "environment": {
+    "operating_system": "Windows",
+    "python": "3.12",
+    "iterations": 25
+  },
+  "before": {
+    "commit": "82fe4c2",
+    "mean_ms": 117.68,
+    "median_ms": 110.71,
+    "min_ms": 108.97,
+    "max_ms": 285.49
+  },
+  "after": {
+    "commit": "f2df192",
+    "mean_ms": 37.08,
+    "median_ms": 30.59,
+    "min_ms": 29.24,
+    "max_ms": 194.21
+  },
+  "interpretation": [
+    "The maximum includes a real first-use thread-pool cold start.",
+    "This does not measure cloud model, network, VLM, browser page-load, voice capture, or hardware latency.",
+    "Results are a local reproducibility snapshot, not a universal performance guarantee."
+  ]
+}
