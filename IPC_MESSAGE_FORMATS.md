@@ -701,6 +701,7 @@ Role violations return method-not-available before a handler runs.
 | `neural_stimulus_markers` | Sidecar | Read new markers after a sequence for local recording/epoching |
 
 `neural_connect` params contain `descriptor` with schema version, UUID,
+`evidence_kind` (`synthetic`, `recorded_eeg`, `live_eeg`, or legacy `unknown`),
 pseudonymous source, transport, sample rate, channel metadata, reference,
 optional calibration hash, sequence start, and monotonic start. Unknown fields,
 invalid ranges, inconsistent channels, and unsupported versions reject.

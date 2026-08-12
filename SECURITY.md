@@ -493,6 +493,12 @@ arm, commit, approve, execute, store credentials, change configuration, or
 call ordinary Heliox methods. Disconnecting it immediately disarms the active
 neural session.
 
+Transport is not accepted as evidence provenance. Every new neural descriptor
+also carries `evidence_kind`. Playback is required to identify as recorded EEG,
+and both Heliox's generator and BrainFlow board `-1` are required to identify
+as synthetic. These constraints prevent a successful simulator, dataset, or
+driver test from being surfaced as live brain control.
+
 **Strict, expiring evidence.** `NeuralStreamDescriptorV1` and
 `NeuralIntentV1` reject unknown fields, unsupported versions, unbounded values,
 NaN/Inf, invalid enums, duplicated artifacts, and inconsistent channel/session

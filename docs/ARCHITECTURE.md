@@ -287,6 +287,13 @@ Voice or gesture cancellation dominates selection. The resolved canonical
 goal—not raw EEG—is evaluated by the OS world model before preview and again
 before execution.
 
+`NeuralStreamDescriptorV1.evidence_kind` separates transport from evidence:
+`synthetic`, `recorded_eeg`, `live_eeg`, or legacy `unknown`. Validation forbids
+playback from claiming live EEG and forbids BrainFlow board `-1` from claiming
+live evidence. The separate no-hardware benchmark harness exercises the real
+BrainFlow synthetic board and MNE CSP/LDA on PhysioNet EEGBCI recordings; its
+held-run predictions reach only the bounded navigation-preview vocabulary.
+
 Dedicated neural UI navigation has no OS side effect. Safe desktop mode maps
 only through `NeuralGoalRegistry`, whose shipped entries are reversible Tier
 0/1 status, calculator, and local-notification actions. The `neural` gateway

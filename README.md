@@ -638,9 +638,12 @@ the UI keeps reconnecting during that initialization. Browser-only UI developmen
 still requires a manually started daemon.
 
 Neural intent is an experimental accessibility/research surface, not thought
-reading or a medical feature. Normal desktop installation includes BrainFlow
-and pylsl. Synthetic mode needs no headset; live BrainFlow/LSL use requires
-compatible local hardware/runtime plus a user-specific calibration artifact.
+reading or a medical feature. Normal desktop installation includes BrainFlow,
+MNE, and pylsl. Synthetic mode needs no headset; Settings can also run the real
+BrainFlow synthetic board and a CSP/LDA benchmark on public recorded PhysioNet
+EEGBCI data. The UI and protocol label those results synthetic or recorded EEG,
+never live brain control. Live BrainFlow/LSL use requires compatible local
+hardware/runtime plus a user-specific calibration artifact.
 See [the neural guide](docs/NEURAL_INTENT.md) before enabling the SSVEP grid,
 recording EEG, or connecting a board.
 ### Windows Optional-Model Troubleshooting

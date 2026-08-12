@@ -16,7 +16,12 @@ no physical, destructive, arbitrary-command, or approval authority. See
 ```bash
 pip install "pilot-daemon[neural]"
 pilot-neurod --source synthetic --synthetic-frequency 12
+pilot-neurod-benchmark brainflow-synthetic --seconds 2
+pilot-neurod-benchmark eegbci --subject 1 --runs 6 10 14
 ```
+
+The benchmark commands need no headset. Their JSON output identifies evidence
+as `synthetic` or `recorded_eeg`; neither result is live brain-control evidence.
 
 Typed and spoken requests enter the same observable interaction state machine.
 Interactive browser and desktop goals use a bounded observe, act, and verify

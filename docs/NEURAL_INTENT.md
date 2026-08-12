@@ -43,12 +43,12 @@ own the active session. A sidecar disconnect disarms the controller.
 
 | Source | Intended use | Boundary |
 |--------|--------------|----------|
-| Synthetic | Deterministic CI, UI development, soak and fault tests | Not biological EEG |
-| Playback `.npz` | Reproducible offline windows | Does not validate a live headset or user |
-| BrainFlow | Supported local boards, including a future OpenBCI setup | Requires board/vendor runtime and a real calibration artifact |
+| Synthetic | Deterministic CI, UI development, soak and fault tests | Explicitly labelled `synthetic`; not biological EEG |
+| Playback `.npz` | Reproducible offline windows | Explicitly labelled `recorded_eeg`; does not validate a live headset or user |
+| BrainFlow | Synthetic board `-1` plus supported physical boards | Synthetic board is labelled `synthetic`; physical boards require runtime and calibration |
 | Local LSL | Interoperation with a named local Lab Streaming Layer stream | Requires `pylsl` and a working platform `liblsl` runtime |
 
-The `neural` package extra installs BrainFlow and pylsl:
+The `neural` package extra installs BrainFlow, MNE, and pylsl:
 
 ```bash
 cd daemon
@@ -59,7 +59,7 @@ The desktop's normal `all` installation includes this extra. If a native board
 or LSL runtime is absent, that selected source fails visibly; it never falls
 back to synthetic data.
 
-## Run the zero-hardware path
+## Run the zero-hardware paths
 
 Start the daemon and desktop application, then open **Settings -> Neural Intent
 Research Controls**. A prominent photosensitivity warning must be accepted
@@ -87,6 +87,32 @@ Do not interpret a successful synthetic run as evidence of human SSVEP
 accuracy. Browser/WebView stimulus markers use a daemon-received monotonic
 timestamp and are suitable for product integration testing, but they are not a
 sub-millisecond laboratory trigger.
+
+Settings also contains a **No-hardware validation** panel. The equivalent
+developer commands are:
+
+```bash
+# Actual BrainFlow driver and synthetic board; generated data, not EEG accuracy
+pilot-neurod-benchmark brainflow-synthetic --seconds 2
+
+# Public recorded EEG, downloaded on demand by MNE
+pilot-neurod-benchmark eegbci --subject 1 --runs 6 10 14
+```
+
+The EEGBCI benchmark follows MNE's open motor-imagery CSP example: 7-30 Hz
+filtering, one-second imagery epochs, four-component CSP, and LDA. Heliox uses
+leave-one-run-out evaluation rather than overlapping random windows and maps
+held-run predictions only to the bounded `focus_left` and `focus_right`
+preview vocabulary. Dataset files stay in MNE's user cache and are never
+committed to the repository.
+
+- [MNE motor-imagery CSP example](https://mne.tools/stable/auto_examples/decoding/decoding_csp_eeg.html)
+- [PhysioNet EEG Motor Movement/Imagery Dataset](https://physionet.org/content/eegmmidb/1.0.0/)
+
+On 2026-08-12, the checked developer run for EEGBCI subject 1, runs 6/10/14,
+produced 45 recorded epochs and **95.54% held-run balanced accuracy** against a
+**53.33% majority-class baseline**. This is a reproducibility snapshot for one
+public recorded subject, not a claim about a live Heliox user or headset.
 
 ## Calibration and decoding
 
@@ -197,7 +223,9 @@ and email addresses do not belong in the neural protocol.
 
 Automated coverage includes strict parser validation, malformed/stale/future/
 replayed envelopes, bounded buffers, source crashes, dropped packets, playback
-rebasing, LSL chunk accumulation, calibration holdout rules, signal artifacts,
+rebasing, evidence-provenance enforcement, real BrainFlow synthetic-board
+acquisition, LSL chunk accumulation, grouped EEGBCI classification and bounded
+preview mapping, calibration holdout rules, signal artifacts,
 world-model refusal, cancel/commit races, role separation, sidecar disconnect,
 record encryption/tampering/retention/export, stimulus markers, audit-chain
 tampering, the shared execution lease, and a real two-WebSocket sidecar/UI
@@ -230,6 +258,7 @@ cross-session degradation matter more.
 | Least-privilege bridge | `rpc_client.py`, `security/rpc_identity.py` |
 | Heliox controller, fixed goals, provenance | `controller.py`, `goals.py`, `audit.py` |
 | Consented recording/export | `recording.py` |
+| No-hardware benchmarks | `benchmark.py` (`pilot-neurod-benchmark`) |
 | Desktop lifecycle | `tauri-app/src-tauri/src/commands.rs` (`start_neural_sidecar`, `stop_neural_sidecar`, export/status) |
 | Settings, stimulus and preview UI | `NeuralControlPanel.svelte`, `SSVEPStimulusGrid.svelte`, `NeuralControlOverlay.svelte` |
 | UI state | `tauri-app/ui/src/lib/stores/neural.ts` |
