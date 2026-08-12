@@ -296,6 +296,7 @@ def main() -> int:
     args.output.write_text(
         json.dumps(catalog, indent=2, ensure_ascii=False, sort_keys=False) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     print(
         f"Wrote {len(catalog['actions'])} actions and {len(catalog['plugins'])} plugins "

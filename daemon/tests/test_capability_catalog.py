@@ -72,4 +72,5 @@ def test_committed_capability_catalog_is_current(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
     )
+    assert b"\r\n" not in generated_path.read_bytes()
     assert generated_path.read_bytes() == (repo_root / "capabilities.json").read_bytes()
