@@ -209,6 +209,39 @@ jobs:
         working-directory: tauri-app/ui
         run: npm ci
 
+      - name: Prefetch verified WiX toolset
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "wix314-binaries.zip"
+          $wixTools = Join-Path $env:LOCALAPPDATA "tauri\WixTools314"
+          $expectedSha256 = "6AC824E1642D6F7277D0ED7EA09411A508F6116BA6FAE0AA5F2C7DAA2FF43D31"
+
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            gh release download wix3141rtm `
+              --repo wixtoolset/wix3 `
+              --pattern wix314-binaries.zip `
+              --dir $env:RUNNER_TEMP `
+              --clobber
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) { throw "Could not download WiX after $attempt attempts." }
+            Start-Sleep -Seconds (5 * $attempt)
+          }
+
+          $actualSha256 = (Get-FileHash -Algorithm SHA256 $archive).Hash
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "WiX archive checksum mismatch: $actualSha256"
+          }
+          New-Item -ItemType Directory -Path $wixTools -Force | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $wixTools -Force
+          foreach ($tool in @("candle.exe", "light.exe", "WixUIExtension.dll", "WixUtilExtension.dll")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $wixTools $tool))) {
+              throw "Verified WiX archive is missing $tool."
+            }
+          }
+
       - name: Build and stage release artifacts
         id: tauri
         uses: tauri-apps/tauri-action@v1
