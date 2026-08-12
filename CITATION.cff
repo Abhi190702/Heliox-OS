@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use Heliox OS in research or a public project, please cite this software."
+title: "Heliox OS: Open-Source AI System Control Agent"
+type: software
+authors:
+  - family-names: Kulshrestha
+    given-names: Vyom
+version: 0.10.1
+license: MIT
+repository-code: "https://github.com/VyomKulshrestha/Heliox-OS"
+url: "https://www.helioxos.dev/"
+abstract: >-
+  Heliox OS is a local-first desktop agent for natural-language, voice,
+  gesture, browser, and operating-system automation with permission gates
+  and post-execution verification.
+keywords:
+  - artificial intelligence
+  - desktop automation
+  - computer use
+  - voice control
+  - gesture control
+  - accessibility

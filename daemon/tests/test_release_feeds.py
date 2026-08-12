@@ -27,13 +27,18 @@ def test_release_outputs_are_fresh(tmp_path: Path):
 
 
 def test_release_feeds_match_shipped_version():
-    from pilot.changelog import CHANGELOG, VERSION
+    from pilot.changelog import CHANGELOG, PUBLIC_RELEASE_VERSION, VERSION
 
     payload = json.loads((ROOT / "releases.json").read_text(encoding="utf-8"))
     assert payload["current_version"] == VERSION
+    assert payload["current_source_version"] == VERSION
+    assert payload["latest_published_version"] == PUBLIC_RELEASE_VERSION
     assert [item["version"] for item in payload["releases"]] == list(CHANGELOG)
+    statuses = {item["version"]: item["status"] for item in payload["releases"]}
+    assert statuses[VERSION] == "draft-prerelease"
+    assert statuses[PUBLIC_RELEASE_VERSION] == "published"
     feed = json.loads((ROOT / "releases.feed.json").read_text(encoding="utf-8"))
     assert feed["version"] == "https://jsonfeed.org/version/1.1"
-    assert len(feed["items"]) == len(CHANGELOG)
+    assert [item["id"] for item in feed["items"]] == [f"heliox-{PUBLIC_RELEASE_VERSION}"]
     xml = ET.parse(ROOT / "releases.xml")
-    assert len(xml.findall("./channel/item")) == len(CHANGELOG)
+    assert len(xml.findall("./channel/item")) == 1

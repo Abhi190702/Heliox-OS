@@ -1,0 +1,30 @@
+{
+  "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+  "@type": "SoftwareSourceCode",
+  "name": "Heliox OS",
+  "alternateName": "Heliox",
+  "description": "A local-first desktop AI agent for natural-language, voice, gesture, browser, and operating-system automation with permission gates and verification.",
+  "codeRepository": "https://github.com/VyomKulshrestha/Heliox-OS",
+  "issueTracker": "https://github.com/VyomKulshrestha/Heliox-OS/issues",
+  "url": "https://www.helioxos.dev/",
+  "version": "0.10.1",
+  "license": "https://spdx.org/licenses/MIT.html",
+  "programmingLanguage": ["Python", "Rust", "TypeScript", "Svelte"],
+  "operatingSystem": ["Windows", "macOS", "Linux"],
+  "applicationCategory": "Desktop automation agent",
+  "author": {
+    "@type": "Person",
+    "givenName": "Vyom",
+    "familyName": "Kulshrestha",
+    "url": "https://github.com/VyomKulshrestha"
+  },
+  "keywords": [
+    "AI agent",
+    "desktop automation",
+    "computer use",
+    "voice control",
+    "gesture control",
+    "accessibility",
+    "local-first"
+  ]
+}

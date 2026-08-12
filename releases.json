@@ -1,6 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "current_version": "0.10.1",
+  "current_source_version": "0.10.1",
+  "latest_published_version": "0.9.0",
   "generated_from": "daemon/pilot/changelog.py",
   "releases": [
     {
@@ -26,7 +28,9 @@
           "description": "Cancelled work, cloud-provider failures, destructive file changes, and exact findings now produce bounded, redacted, recoverable results."
         }
       ],
-      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.10.1"
+      "status": "draft-prerelease",
+      "release_url": null,
+      "source_url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main"
     },
     {
       "version": "0.10.0",
@@ -59,7 +63,9 @@
           "description": "Multi-step workflows can be submitted, paused, resumed, and inspected while autonomous healing remains separately permission-gated."
         }
       ],
-      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.10.0"
+      "status": "source-milestone",
+      "release_url": null,
+      "source_url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main"
     },
     {
       "version": "0.9.0",
@@ -80,7 +86,9 @@
           "description": "Use on-device multimodal controls without sending camera frames."
         }
       ],
-      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.9.0"
+      "status": "published",
+      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.9.0",
+      "source_url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main"
     }
   ]
 }

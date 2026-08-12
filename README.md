@@ -30,7 +30,9 @@
   <a href="llms.txt">Repository Agent Index</a> •
   <a href="capabilities.json">Capability Catalog</a> •
   <a href="proof.md">Evidence &amp; Limits</a> •
-  <a href="changelog.md">Changelog</a>
+  <a href="changelog.md">Changelog</a> •
+  <a href="CITATION.cff">Citation</a> •
+  <a href="codemeta.json">CodeMeta</a>
 </p>
 
 <p align="center">

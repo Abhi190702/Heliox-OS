@@ -6,20 +6,6 @@
     <description>Verified release milestones generated from the Heliox daemon changelog.</description>
     <language>en</language>
     <item>
-      <title>Heliox OS 0.10.1 — Reliable Interactive Sessions</title>
-      <link>https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.10.1</link>
-      <guid isPermaLink="false">heliox-0.10.1</guid>
-      <pubDate>Thu, 30 Jul 2026 00:00:00 +0000</pubDate>
-      <description>Persistent sessions, faster browser control, and coordinated companion reliability</description>
-    </item>
-    <item>
-      <title>Heliox OS 0.10.0 — Interactive Companion and Reliability</title>
-      <link>https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.10.0</link>
-      <guid isPermaLink="false">heliox-0.10.0</guid>
-      <pubDate>Wed, 29 Jul 2026 00:00:00 +0000</pubDate>
-      <description>Companion intelligence, learned safety, multimodal control, and reliable execution</description>
-    </item>
-    <item>
       <title>Heliox OS 0.9.0 — JARVIS Autonomy</title>
       <link>https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.9.0</link>
       <guid isPermaLink="false">heliox-0.9.0</guid>

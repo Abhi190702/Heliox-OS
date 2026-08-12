@@ -13,7 +13,7 @@ from xml.etree import ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "daemon"))
 
-from pilot.changelog import CHANGELOG, VERSION  # noqa: E402
+from pilot.changelog import CHANGELOG, PUBLIC_RELEASE_VERSION, VERSION  # noqa: E402
 
 SITE = "https://www.helioxos.dev"
 REPOSITORY = "https://github.com/VyomKulshrestha/Heliox-OS"
@@ -28,6 +28,12 @@ def releases() -> list[dict[str, object]]:
             else {"name": str(item), "description": ""}
             for item in entry["features"]
         ]
+        if version == PUBLIC_RELEASE_VERSION:
+            status = "published"
+        elif version == VERSION:
+            status = "draft-prerelease"
+        else:
+            status = "source-milestone"
         result.append(
             {
                 "version": version,
@@ -35,7 +41,13 @@ def releases() -> list[dict[str, object]]:
                 "date": entry["date"],
                 "summary": entry["summary"],
                 "features": features,
-                "release_url": f"{REPOSITORY}/releases/tag/v{version}",
+                "status": status,
+                "release_url": (
+                    f"{REPOSITORY}/releases/tag/v{version}"
+                    if status == "published"
+                    else None
+                ),
+                "source_url": f"{REPOSITORY}/tree/main",
             }
         )
     return result
@@ -52,7 +64,8 @@ def render_markdown(items: list[dict[str, object]]) -> str:
         "# Heliox OS changelog",
         "",
         "This page is generated from the changelog shipped by the Heliox daemon. "
-        "It describes released product milestones; current limitations remain in the proof center.",
+        "It distinguishes published installers from draft and source-only milestones; "
+        "current limitations remain in the proof center.",
         "",
     ]
     for item in items:
@@ -60,7 +73,13 @@ def render_markdown(items: list[dict[str, object]]) -> str:
             [
                 f"## {item['version']} — {item['title']}",
                 "",
-                f"Released: **{item['date']}**",
+                f"Status: **{str(item['status']).replace('-', ' ').title()}**",
+                "",
+                (
+                    f"Released: **{item['date']}**"
+                    if item["status"] == "published"
+                    else f"Source milestone: **{item['date']}**"
+                ),
                 "",
                 str(item["summary"]),
                 "",
@@ -68,7 +87,24 @@ def render_markdown(items: list[dict[str, object]]) -> str:
         )
         for feature in item["features"]:
             lines.append(f"- **{feature['name']}** — {feature['description']}")
-        lines.extend(["", f"[Release artifacts]({item['release_url']})", ""])
+        if item["status"] == "published":
+            lines.extend(["", f"[Release artifacts]({item['release_url']})", ""])
+        elif item["status"] == "draft-prerelease":
+            lines.extend(
+                [
+                    "",
+                    "Draft installer artifacts are not public until the GitHub release is published.",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "",
+                    "This milestone is included in source and has no separate public installer.",
+                    "",
+                ]
+            )
     lines.extend(
         [
             "## Current evidence",
@@ -82,6 +118,7 @@ def render_markdown(items: list[dict[str, object]]) -> str:
 
 
 def render_json_feed(items: list[dict[str, object]]) -> dict[str, object]:
+    published = [item for item in items if item["status"] == "published"]
     return {
         "version": "https://jsonfeed.org/version/1.1",
         "title": "Heliox OS releases",
@@ -101,7 +138,7 @@ def render_json_feed(items: list[dict[str, object]]) -> dict[str, object]:
                     for feature in item["features"]
                 ),
             }
-            for item in items
+            for item in published
         ],
     }
 
@@ -119,7 +156,7 @@ def render_rss(items: list[dict[str, object]]) -> bytes:
         ("language", "en"),
     ):
         ET.SubElement(channel, tag).text = text
-    for item in items:
+    for item in (entry for entry in items if entry["status"] == "published"):
         node = ET.SubElement(channel, "item")
         ET.SubElement(
             node, "title"
@@ -141,8 +178,10 @@ def write_outputs(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     items = releases()
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "current_version": VERSION,
+        "current_source_version": VERSION,
+        "latest_published_version": PUBLIC_RELEASE_VERSION,
         "generated_from": "daemon/pilot/changelog.py",
         "releases": items,
     }

@@ -11,6 +11,7 @@ from typing import Any
 logger = logging.getLogger("pilot.changelog")
 
 VERSION = "0.10.1"
+PUBLIC_RELEASE_VERSION = "0.9.0"
 
 CHANGELOG = {
     "0.10.1": {

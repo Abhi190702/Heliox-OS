@@ -6,11 +6,13 @@ last_updated: 2026-08-12
 
 # Heliox OS changelog
 
-This page is generated from the changelog shipped by the Heliox daemon. It describes released product milestones; current limitations remain in the proof center.
+This page is generated from the changelog shipped by the Heliox daemon. It distinguishes published installers from draft and source-only milestones; current limitations remain in the proof center.
 
 ## 0.10.1 — Reliable Interactive Sessions
 
-Released: **2026-07-30**
+Status: **Draft Prerelease**
+
+Source milestone: **2026-07-30**
 
 Persistent sessions, faster browser control, and coordinated companion reliability
 
@@ -19,11 +21,13 @@ Persistent sessions, faster browser control, and coordinated companion reliabili
 - **Coordinated Companion Services** — Narration, learned-risk interruption, voice, and verified follow-up suggestions remain available together while approvals pass through every action gate.
 - **Safer, Truthful Task Results** — Cancelled work, cloud-provider failures, destructive file changes, and exact findings now produce bounded, redacted, recoverable results.
 
-[Release artifacts](https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.10.1)
+Draft installer artifacts are not public until the GitHub release is published.
 
 ## 0.10.0 — Interactive Companion and Reliability
 
-Released: **2026-07-29**
+Status: **Source Milestone**
+
+Source milestone: **2026-07-29**
 
 Companion intelligence, learned safety, multimodal control, and reliable execution
 
@@ -34,9 +38,11 @@ Companion intelligence, learned safety, multimodal control, and reliable executi
 - **Reliable Approvals and Results** — Approval responses remain live on the active connection, while cancelled, blocked, and failed actions now finish with truthful terminal results.
 - **Durable Voice and Gesture Workflows** — Multi-step workflows can be submitted, paused, resumed, and inspected while autonomous healing remains separately permission-gated.
 
-[Release artifacts](https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.10.0)
+This milestone is included in source and has no separate public installer.
 
 ## 0.9.0 — JARVIS Autonomy
+
+Status: **Published**
 
 Released: **2026-07-22**
 
