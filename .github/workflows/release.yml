@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Existing release tag to validate (for example v0.10.1)"
+        description: "Existing release tag to validate (for example v0.11.0)"
         type: string
         required: true
       build_installers:
-        description: "Build installers and update the draft prerelease"
+        description: "Build installers and publish the release after every gate passes"
         type: boolean
         default: false
       publish_pypi:
@@ -109,7 +109,7 @@ jobs:
   publish-daemon-to-pypi:
     name: Publish validated daemon to PyPI
     needs: release-gate
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_pypi == true
+    if: github.event_name == 'push' || inputs.publish_pypi == true
     runs-on: ubuntu-latest
     environment: pypi
     steps:
@@ -124,18 +124,22 @@ jobs:
           name: pilot-daemon-${{ needs.release-gate.outputs.version }}
           path: dist
 
-      - name: Refuse to overwrite an existing PyPI version
+      - name: Check whether this version is already on PyPI
+        id: pypi
         env:
           VERSION: ${{ needs.release-gate.outputs.version }}
         shell: bash
         run: |
           if curl --fail --silent --show-error \
             "https://pypi.org/pypi/pilot-daemon/${VERSION}/json" > /dev/null; then
-            echo "::error::pilot-daemon ${VERSION} already exists on PyPI."
-            exit 1
+            echo "pilot-daemon ${VERSION} is already on PyPI; publication is idempotent."
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Publish to PyPI
+        if: steps.pypi.outputs.already_published != 'true'
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
@@ -205,7 +209,7 @@ jobs:
         working-directory: tauri-app/ui
         run: npm ci
 
-      - name: Build and upload draft release artifacts
+      - name: Build and stage release artifacts
         id: tauri
         uses: tauri-apps/tauri-action@v1
         env:
@@ -217,8 +221,9 @@ jobs:
           releaseBody: |
             ## Heliox OS v${{ needs.release-gate.outputs.version }}
 
-            This is a **draft prerelease** pending clean-machine installation,
-            first-run daemon, hardware-input, and artifact verification.
+            Release artifacts are being built and verified. This temporary
+            staging release is published only after PyPI and every platform
+            installer pass their release gates.
 
             Python 3.11+ is required. The desktop app creates its private
             environment on first launch.
@@ -261,3 +266,70 @@ jobs:
           test -n "$rpm"
           dpkg-deb --info "$deb" > /dev/null
           file "$rpm" | grep -q 'RPM'
+
+  publish-release:
+    name: Verify assets and publish stable release
+    needs:
+      - release-gate
+      - publish-daemon-to-pypi
+      - build-tauri
+    if: >-
+      always() &&
+      needs.release-gate.result == 'success' &&
+      needs.publish-daemon-to-pypi.result == 'success' &&
+      needs.build-tauri.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || inputs.release_tag }}
+
+      - name: Verify complete installer set and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release-gate.outputs.version }}
+        shell: bash
+        run: |
+          releases="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" | jq -s 'add')"
+          release="$(jq --arg tag "$RELEASE_TAG" \
+            'map(select(.tag_name == $tag)) | first' <<<"$releases")"
+          release_id="$(jq -r '.id // empty' <<<"$release")"
+          if [[ -z "$release_id" ]]; then
+            echo "::error::No staged release exists for ${RELEASE_TAG}."
+            exit 1
+          fi
+
+          asset_names="$(jq -r '.assets[].name' <<<"$release")"
+          require_assets() {
+            local pattern="$1"
+            local minimum="$2"
+            local count
+            count="$(grep -Ec "$pattern" <<<"$asset_names" || true)"
+            if (( count < minimum )); then
+              echo "::error::Expected at least ${minimum} release asset(s) matching ${pattern}; found ${count}."
+              exit 1
+            fi
+          }
+          require_assets '\.exe$' 1
+          require_assets '\.msi$' 1
+          require_assets '\.dmg$' 2
+          require_assets '\.app\.tar\.gz$' 2
+          require_assets '\.AppImage$' 1
+          require_assets '\.deb$' 1
+          require_assets '\.rpm$' 1
+
+          release_notes="$(cat "docs/releases/${RELEASE_TAG}.md")"
+          gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -f name="Heliox OS ${RELEASE_TAG}" \
+            -F draft=false \
+            -F prerelease=false \
+            --raw-field body="$release_notes" > /dev/null
+
+          published="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}")"
+          jq -e '.draft == false and .prerelease == false' <<<"$published" > /dev/null
+          echo "Published ${RELEASE_TAG} with $(jq '.assets | length' <<<"$published") assets."

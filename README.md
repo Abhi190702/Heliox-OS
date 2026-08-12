@@ -95,7 +95,7 @@ and spoken requests share the same guarded plan, act, verify, and recovery path:
 7. **Security** — Five-tier permission system with confirmation gates and rollback support.
 
 <a id="jarvis-autonomy"></a>
-## 🤖 JARVIS Autonomy (v0.10.1)
+## 🤖 JARVIS Autonomy (v0.11.0)
 
 Heliox OS combines reactive commands with opt-in proactive and background capabilities that run through the same permission and verification pipeline:
 
@@ -271,17 +271,19 @@ The planner produces a validated action plan, the orchestrator selects a capable
 
 ## Release Verification
 
-The release gate is reproducible; it does not rely on an informal task-pass percentage. The v0.10.1 release candidate is validated through:
+The release gate is reproducible; it does not rely on an informal task-pass percentage. The v0.11.0 release is validated through:
 
 | Surface | Verification |
 |---------|--------------|
-| Python daemon | Ruff lint and format; 1,628 tests passed, 6 skipped |
-| Svelte UI | CI-scoped Prettier and `svelte-check` with zero warnings; 178 unit tests; static asset-policy test; production build |
+| Python daemon | Ruff lint and format; 1,642 tests passed, 6 skipped |
+| Svelte UI | CI-scoped Prettier and `svelte-check` with zero warnings; 179 unit tests; static asset-policy test; production build |
 | Dependencies | `npm audit --audit-level=high` with zero vulnerabilities |
-| Native Tauri bridge | Cargo format, Clippy with warnings denied, and 11 Rust tests |
+| Native Tauri bridge | Cargo format, Clippy with warnings denied, and 12 Rust tests |
 | Visual UI | 24 Playwright scenarios with committed Windows, Ubuntu, and macOS baselines |
 
 GitHub Actions repeats Python tests on Windows, Ubuntu, and macOS with Python 3.11 and 3.12, runs the frontend gate, compares per-OS visual baselines, and checks the Rust bridge on Linux. Camera, microphone, desktop permissions, model downloads, and OS-specific integrations still require real-device validation; CI cannot prove hardware behavior.
+
+See the [v0.11.0 release notes](docs/releases/v0.11.0.md) for the feature summary, upgrade guidance, and evidence boundaries.
 
 Public releases use a draft-first workflow. PyPI publication and stable
 promotion happen only after package and clean-machine acceptance.

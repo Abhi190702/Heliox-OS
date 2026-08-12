@@ -27,7 +27,12 @@ def test_release_outputs_are_fresh(tmp_path: Path):
 
 
 def test_release_feeds_match_shipped_version():
-    from pilot.changelog import CHANGELOG, PUBLIC_RELEASE_VERSION, VERSION
+    from pilot.changelog import (
+        CHANGELOG,
+        PUBLIC_RELEASE_VERSION,
+        PUBLISHED_RELEASE_VERSIONS,
+        VERSION,
+    )
 
     payload = json.loads((ROOT / "releases.json").read_text(encoding="utf-8"))
     assert payload["current_version"] == VERSION
@@ -35,10 +40,16 @@ def test_release_feeds_match_shipped_version():
     assert payload["latest_published_version"] == PUBLIC_RELEASE_VERSION
     assert [item["version"] for item in payload["releases"]] == list(CHANGELOG)
     statuses = {item["version"]: item["status"] for item in payload["releases"]}
-    assert statuses[VERSION] == "draft-prerelease"
+    assert statuses[VERSION] == "published"
     assert statuses[PUBLIC_RELEASE_VERSION] == "published"
+    assert [version for version, status in statuses.items() if status == "published"] == list(
+        PUBLISHED_RELEASE_VERSIONS
+    )
     feed = json.loads((ROOT / "releases.feed.json").read_text(encoding="utf-8"))
     assert feed["version"] == "https://jsonfeed.org/version/1.1"
-    assert [item["id"] for item in feed["items"]] == [f"heliox-{PUBLIC_RELEASE_VERSION}"]
+    assert [item["id"] for item in feed["items"]] == [
+        f"heliox-{PUBLIC_RELEASE_VERSION}",
+        "heliox-0.9.0",
+    ]
     xml = ET.parse(ROOT / "releases.xml")
-    assert len(xml.findall("./channel/item")) == 1
+    assert len(xml.findall("./channel/item")) == 2

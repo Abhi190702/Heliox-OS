@@ -10,10 +10,66 @@ from typing import Any
 
 logger = logging.getLogger("pilot.changelog")
 
-VERSION = "0.10.1"
-PUBLIC_RELEASE_VERSION = "0.9.0"
+VERSION = "0.11.0"
+PUBLIC_RELEASE_VERSION = "0.11.0"
+PUBLISHED_RELEASE_VERSIONS = ("0.11.0", "0.9.0")
 
 CHANGELOG = {
+    "0.11.0": {
+        "title": "Adaptive Multimodal Companion",
+        "date": "2026-08-12",
+        "features": [
+            {
+                "name": "Continuous Companion Loop",
+                "description": (
+                    "Always-on voice, spoken suggestions, interruption, and autonomous browser "
+                    "or application control now share one coordinated execution loop."
+                ),
+                "jarvis_announce": "My listening, actions, suggestions, and follow-ups now stay coordinated.",
+            },
+            {
+                "name": "Adaptive Intelligence Stack",
+                "description": (
+                    "A bounded experience ledger, temporal memory, verified online adaptation, "
+                    "strategy evolution, and an optional JEPA-style predictor advise future plans."
+                ),
+                "jarvis_announce": "I can learn from verified outcomes without widening my authority.",
+            },
+            {
+                "name": "Expanded Specialist Mesh",
+                "description": (
+                    "Twenty-one specialists provide concrete coverage for all 156 declared action "
+                    "types across desktop, browser, developer, integration, and research workflows."
+                ),
+                "jarvis_announce": "My specialist mesh now covers every declared action type.",
+            },
+            {
+                "name": "Reliable Multimodal Control",
+                "description": (
+                    "Gaze, 3D hand gestures, cursor control, wake-word audio, and workflow bindings "
+                    "can operate together with temporal false-positive rejection."
+                ),
+                "jarvis_announce": "Voice, gaze, and gesture inputs now cooperate more reliably.",
+            },
+            {
+                "name": "Guarded Neural Research Pipeline",
+                "description": (
+                    "Synthetic BrainFlow and recorded EEGBCI paths now exercise calibrated, signed, "
+                    "consent-bounded neural intents without claiming live brain control."
+                ),
+                "jarvis_announce": "Recorded and synthetic neural research now follows explicit safety controls.",
+            },
+            {
+                "name": "Truthful Execution and Delivery",
+                "description": (
+                    "Application launch, browser targeting, approvals, cancellations, result reporting, "
+                    "first-run Chromium setup, and cross-platform packaging are more deterministic."
+                ),
+                "jarvis_announce": "I now report completed, blocked, cancelled, and failed work more truthfully.",
+            },
+        ],
+        "summary": "Adaptive learning, coordinated multimodal control, expanded specialists, and guarded neural research",
+    },
     "0.10.1": {
         "title": "Reliable Interactive Sessions",
         "date": "2026-07-30",

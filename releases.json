@@ -1,10 +1,45 @@
 {
   "schema_version": 2,
-  "current_version": "0.10.1",
-  "current_source_version": "0.10.1",
-  "latest_published_version": "0.9.0",
+  "current_version": "0.11.0",
+  "current_source_version": "0.11.0",
+  "latest_published_version": "0.11.0",
   "generated_from": "daemon/pilot/changelog.py",
   "releases": [
+    {
+      "version": "0.11.0",
+      "title": "Adaptive Multimodal Companion",
+      "date": "2026-08-12",
+      "summary": "Adaptive learning, coordinated multimodal control, expanded specialists, and guarded neural research",
+      "features": [
+        {
+          "name": "Continuous Companion Loop",
+          "description": "Always-on voice, spoken suggestions, interruption, and autonomous browser or application control now share one coordinated execution loop."
+        },
+        {
+          "name": "Adaptive Intelligence Stack",
+          "description": "A bounded experience ledger, temporal memory, verified online adaptation, strategy evolution, and an optional JEPA-style predictor advise future plans."
+        },
+        {
+          "name": "Expanded Specialist Mesh",
+          "description": "Twenty-one specialists provide concrete coverage for all 156 declared action types across desktop, browser, developer, integration, and research workflows."
+        },
+        {
+          "name": "Reliable Multimodal Control",
+          "description": "Gaze, 3D hand gestures, cursor control, wake-word audio, and workflow bindings can operate together with temporal false-positive rejection."
+        },
+        {
+          "name": "Guarded Neural Research Pipeline",
+          "description": "Synthetic BrainFlow and recorded EEGBCI paths now exercise calibrated, signed, consent-bounded neural intents without claiming live brain control."
+        },
+        {
+          "name": "Truthful Execution and Delivery",
+          "description": "Application launch, browser targeting, approvals, cancellations, result reporting, first-run Chromium setup, and cross-platform packaging are more deterministic."
+        }
+      ],
+      "status": "published",
+      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.11.0",
+      "source_url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main"
+    },
     {
       "version": "0.10.1",
       "title": "Reliable Interactive Sessions",
@@ -28,7 +63,7 @@
           "description": "Cancelled work, cloud-provider failures, destructive file changes, and exact findings now produce bounded, redacted, recoverable results."
         }
       ],
-      "status": "draft-prerelease",
+      "status": "source-milestone",
       "release_url": null,
       "source_url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main"
     },

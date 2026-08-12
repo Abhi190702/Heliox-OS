@@ -13,7 +13,12 @@ from xml.etree import ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "daemon"))
 
-from pilot.changelog import CHANGELOG, PUBLIC_RELEASE_VERSION, VERSION  # noqa: E402
+from pilot.changelog import (  # noqa: E402
+    CHANGELOG,
+    PUBLISHED_RELEASE_VERSIONS,
+    PUBLIC_RELEASE_VERSION,
+    VERSION,
+)
 
 SITE = "https://www.helioxos.dev"
 REPOSITORY = "https://github.com/VyomKulshrestha/Heliox-OS"
@@ -28,7 +33,7 @@ def releases() -> list[dict[str, object]]:
             else {"name": str(item), "description": ""}
             for item in entry["features"]
         ]
-        if version == PUBLIC_RELEASE_VERSION:
+        if version in PUBLISHED_RELEASE_VERSIONS:
             status = "published"
         elif version == VERSION:
             status = "draft-prerelease"

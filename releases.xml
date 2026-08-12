@@ -6,6 +6,13 @@
     <description>Verified release milestones generated from the Heliox daemon changelog.</description>
     <language>en</language>
     <item>
+      <title>Heliox OS 0.11.0 — Adaptive Multimodal Companion</title>
+      <link>https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.11.0</link>
+      <guid isPermaLink="false">heliox-0.11.0</guid>
+      <pubDate>Wed, 12 Aug 2026 00:00:00 +0000</pubDate>
+      <description>Adaptive learning, coordinated multimodal control, expanded specialists, and guarded neural research</description>
+    </item>
+    <item>
       <title>Heliox OS 0.9.0 — JARVIS Autonomy</title>
       <link>https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.9.0</link>
       <guid isPermaLink="false">heliox-0.9.0</guid>

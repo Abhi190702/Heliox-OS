@@ -8,9 +8,26 @@ last_updated: 2026-08-12
 
 This page is generated from the changelog shipped by the Heliox daemon. It distinguishes published installers from draft and source-only milestones; current limitations remain in the proof center.
 
+## 0.11.0 — Adaptive Multimodal Companion
+
+Status: **Published**
+
+Released: **2026-08-12**
+
+Adaptive learning, coordinated multimodal control, expanded specialists, and guarded neural research
+
+- **Continuous Companion Loop** — Always-on voice, spoken suggestions, interruption, and autonomous browser or application control now share one coordinated execution loop.
+- **Adaptive Intelligence Stack** — A bounded experience ledger, temporal memory, verified online adaptation, strategy evolution, and an optional JEPA-style predictor advise future plans.
+- **Expanded Specialist Mesh** — Twenty-one specialists provide concrete coverage for all 156 declared action types across desktop, browser, developer, integration, and research workflows.
+- **Reliable Multimodal Control** — Gaze, 3D hand gestures, cursor control, wake-word audio, and workflow bindings can operate together with temporal false-positive rejection.
+- **Guarded Neural Research Pipeline** — Synthetic BrainFlow and recorded EEGBCI paths now exercise calibrated, signed, consent-bounded neural intents without claiming live brain control.
+- **Truthful Execution and Delivery** — Application launch, browser targeting, approvals, cancellations, result reporting, first-run Chromium setup, and cross-platform packaging are more deterministic.
+
+[Release artifacts](https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.11.0)
+
 ## 0.10.1 — Reliable Interactive Sessions
 
-Status: **Draft Prerelease**
+Status: **Source Milestone**
 
 Source milestone: **2026-07-30**
 
@@ -21,7 +38,7 @@ Persistent sessions, faster browser control, and coordinated companion reliabili
 - **Coordinated Companion Services** — Narration, learned-risk interruption, voice, and verified follow-up suggestions remain available together while approvals pass through every action gate.
 - **Safer, Truthful Task Results** — Cancelled work, cloud-provider failures, destructive file changes, and exact findings now produce bounded, redacted, recoverable results.
 
-Draft installer artifacts are not public until the GitHub release is published.
+This milestone is included in source and has no separate public installer.
 
 ## 0.10.0 — Interactive Companion and Reliability
 
