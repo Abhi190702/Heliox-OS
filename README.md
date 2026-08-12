@@ -1,7 +1,6 @@
 # Heliox OS — AI System Control Agent
 
 <p align="center">
-  <a href="https://gssoc.girlscript.org/"><img src="https://img.shields.io/badge/GSSoC-2026-F96F59?style=for-the-badge" alt="GSSoC 2026"></a>
   <a href="https://github.com/VyomKulshrestha/Heliox-OS/releases"><img src="https://img.shields.io/github/v/release/VyomKulshrestha/Heliox-OS?style=for-the-badge&color=00f0ff&label=Release" alt="Latest release"></a>
   <a href="https://github.com/VyomKulshrestha/Heliox-OS/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/VyomKulshrestha/Heliox-OS/ci.yml?style=for-the-badge&label=CI" alt="CI status"></a>
   <a href="https://github.com/sponsors/VyomKulshrestha"><img src="https://img.shields.io/github/sponsors/VyomKulshrestha?style=for-the-badge&color=ea4aaa&label=Sponsor" alt="Sponsor Heliox OS"></a>
