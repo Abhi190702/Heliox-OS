@@ -28,6 +28,7 @@ The committed CI workflow currently defines:
 | Rust desktop shell | Formatting, Clippy with warnings denied, and tests | [CI workflow](https://github.com/VyomKulshrestha/Heliox-OS/actions/workflows/ci.yml) |
 | Marketplace | Manifest, hash, and moderation validation | [Marketplace workflow](https://github.com/VyomKulshrestha/Heliox-OS/actions/workflows/marketplace.yml) |
 | Installers | Separate gated Windows, macOS, and Linux release jobs | [Release workflow](https://github.com/VyomKulshrestha/Heliox-OS/actions/workflows/release.yml) |
+| Windows signing | SignPath test-policy signing and Authenticode signer-presence verification for the EXE, MSI, and embedded application | [SignPath test workflow](https://github.com/VyomKulshrestha/Heliox-OS/actions/workflows/signpath-test.yml) |
 
 The result is intentionally linked rather than copied as “green”: CI status can change after this file is generated.
 
@@ -79,7 +80,7 @@ Neural details and the recorded EEGBCI snapshot are documented in [Neural Intent
 4. Local-first operation does not mean every configured path is offline. Cloud model and integration tasks send necessary context to the selected provider.
 5. Snapshots cover supported local-system changes. Messages, purchases, remote hosts, pushed Git commits, browser scripts, and other external effects may be irreversible.
 6. Learned risk and world-model outputs can add caution or interrupt; deterministic policy remains authoritative.
-7. Installers are currently distributed without a paid commercial code-signing certificate and may trigger operating-system reputation warnings.
+7. Public installers are not yet production-signed. The SignPath test-policy pipeline is validated, but the production certificate is still pending; operating-system reputation warnings may continue until that certificate is issued and the release workflow is migrated.
 
 ## Closed regression history
 
