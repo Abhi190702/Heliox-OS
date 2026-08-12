@@ -1,0 +1,41 @@
+# Heliox OS Source Repository
+
+> Heliox OS is an open-source desktop AI system-control agent. This index routes language models and coding agents to the repository's authoritative product, architecture, safety, and contribution documentation.
+
+Important interpretation notes:
+
+- Heliox OS is a desktop application, not an operating-system kernel or a replacement for Windows, macOS, or Linux.
+- Commands run through typed permissions, confirmation gates, verification, and recovery controls; documentation must not imply unrestricted autonomy.
+- Neural-intent support is research infrastructure. Synthetic and recorded-EEG tests do not establish live brain control, human accuracy, medical use, or clinical efficacy.
+- Local-first features can still call explicitly configured model or integration providers. Consult the privacy and security documents before making data-handling claims.
+
+## Start Here
+
+- [Project README](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/README.md): Product overview, installation, capability catalog, development setup, and current release information.
+- [Website Agent Index](https://www.helioxos.dev/llms.txt): Machine-readable index for the public Heliox OS website.
+- [Architecture](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/ARCHITECTURE.md): Runtime components, request flow, agent boundaries, memory, learning, and deployment architecture.
+- [Security](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/SECURITY.md): Threat model, credential handling, permissions, reporting process, and supported versions.
+
+## Runtime and Extension Contracts
+
+- [IPC Message Formats](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/IPC_MESSAGE_FORMATS.md): Desktop-to-daemon request, event, approval, and result contracts.
+- [Agent Development Guide](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/AGENT_DEVELOPMENT_GUIDE.md): Specialist-agent conventions and extension workflow.
+- [Action Catalog Source](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/daemon/pilot/actions.py): Canonical typed action declarations used by the runtime.
+- [Plugin Marketplace](https://github.com/VyomKulshrestha/Heliox-OS/tree/main/plugins): Reviewed plugin packages and marketplace catalog.
+
+## Safety and Evidence Boundaries
+
+- [Neural Intent](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/NEURAL_INTENT.md): Synthetic-board, recorded-EEG, provenance, calibration, and live-hardware claim boundaries.
+- [Security Policy](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/SECURITY.md): Supported security controls and responsible disclosure.
+- [Contributing](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/CONTRIBUTING.md): Required checks, review process, and contribution expectations.
+
+## Releases and Support
+
+- [Releases](https://github.com/VyomKulshrestha/Heliox-OS/releases): Published desktop installers and release notes.
+- [Issues](https://github.com/VyomKulshrestha/Heliox-OS/issues): Bugs, feature requests, and contributor tasks.
+- [Sponsoring](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/SPONSORING.md): Funding goals and sponsorship information.
+
+## Optional
+
+- [License](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/LICENSE): MIT license terms.
+- [Code of Conduct](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/CODE_OF_CONDUCT.md): Community participation standards.

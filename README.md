@@ -26,6 +26,11 @@
 </p>
 
 <p align="center">
+  <a href="https://www.helioxos.dev/llms.txt">Website Agent Index</a> •
+  <a href="llms.txt">Repository Agent Index</a>
+</p>
+
+<p align="center">
   <a href="#installation">Installation</a> •
   <a href="#jarvis-autonomy">JARVIS Mode</a> •
   <a href="#action-catalog">Actions</a> •
@@ -33,7 +38,8 @@
   <a href="#security">Security</a> •
   <a href="#troubleshooting">Troubleshooting</a> •
   <a href="CONTRIBUTING.md">Contributing</a> •
-  <a href="docs/SPONSORING.md">Sponsor</a>
+  <a href="docs/SPONSORING.md">Sponsor</a> •
+  <a href="llms.txt">Agent Index</a>
 </p>
 
 ---
