@@ -19,7 +19,7 @@
   "sources": {
     "action_registry": {
       "path": "daemon/pilot/actions.py",
-      "sha256": "c1d580b339dfde444f0d4cc78ab430083b65f75b64c2eb54cdb6658315b4fd2a"
+      "sha256": "79c57047b43103b6e0320e3840e3e39cf4a9959cd4a863e37bbec32710bfe163"
     },
     "plugin_manifests": [
       {

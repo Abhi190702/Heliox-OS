@@ -50,7 +50,10 @@ POSTCONDITION_VERIFIERS: dict[ActionType, str] = {
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    content = path.read_bytes()
+    if path.suffix.lower() in {".json", ".py"}:
+        content = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(content).hexdigest()
 
 
 def _action_family(action_type: ActionType) -> str:

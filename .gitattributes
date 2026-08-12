@@ -1,1 +1,12 @@
 *.task binary
+
+# Generated public artifacts are byte-for-byte reproducible on every runner.
+capabilities.json text eol=lf
+changelog.md text eol=lf
+releases.json text eol=lf
+releases.feed.json text eol=lf
+releases.xml text eol=lf
+
+# Capability source hashes must not depend on checkout line-ending policy.
+daemon/pilot/actions.py text eol=lf
+daemon/pilot/plugins/**/manifest.json text eol=lf

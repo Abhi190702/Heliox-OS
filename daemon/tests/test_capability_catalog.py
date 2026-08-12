@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
 from pathlib import Path
 
 from pilot.actions import ActionType
+
+
+def _generator_module():
+    repo_root = Path(__file__).resolve().parents[2]
+    script = repo_root / "scripts" / "generate_capability_catalog.py"
+    spec = importlib.util.spec_from_file_location("generate_capability_catalog", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_source_hashes_are_line_ending_independent(tmp_path: Path) -> None:
+    module = _generator_module()
+    lf = tmp_path / "lf.json"
+    crlf = tmp_path / "crlf.json"
+    lf.write_bytes(b'{"name": "Heliox"}\n')
+    crlf.write_bytes(b'{"name": "Heliox"}\r\n')
+    assert module._sha256(lf) == module._sha256(crlf)
 
 
 def test_generated_capability_catalog_matches_runtime(tmp_path: Path) -> None:
