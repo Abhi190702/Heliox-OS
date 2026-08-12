@@ -720,9 +720,45 @@ class Planner:
         app_match = re.match(r"^(?:open|launch|start|run)\s+([\w\s]+)$", text)
         if app_match:
             app_name = app_match.group(1).strip()
-            # Only fast-path for clearly an app name (not a complex sentence)
-            if len(app_name.split()) <= 3 and not any(
-                kw in app_name for kw in ("and", "then", "after", "with", "from", "the file")
+            app_tokens = tuple(app_name.split())
+            # Direct app commands are short noun names. Determiners plus work
+            # nouns ("run the tests", "start a backup", "open my report")
+            # are tasks, not executable names, and must reach the model planner.
+            # Explicit OS app aliases override those nouns where appropriate.
+            explicit_app_aliases = {
+                "command prompt",
+                "file explorer",
+                "task manager",
+                "visual studio code",
+            }
+            task_determiners = {"a", "an", "the", "my", "this", "that", "our", "your"}
+            task_nouns = {
+                "analysis",
+                "backup",
+                "command",
+                "deployment",
+                "document",
+                "file",
+                "folder",
+                "project",
+                "report",
+                "repository",
+                "repo",
+                "scan",
+                "script",
+                "task",
+                "test",
+                "tests",
+                "workflow",
+            }
+            looks_like_task = app_name not in explicit_app_aliases and (
+                (app_tokens and app_tokens[0] in task_determiners) or bool(set(app_tokens) & task_nouns)
+            )
+            # Only fast-path for clearly an app name (not a complex sentence).
+            if (
+                len(app_tokens) <= 3
+                and not looks_like_task
+                and not any(kw in app_name for kw in ("and", "then", "after", "with", "from"))
             ):
                 return ActionPlan(
                     actions=[
