@@ -50,6 +50,7 @@ async def test_connect_is_sidecar_only_and_strictly_parsed(server) -> None:
         "source_id": "synthetic-test",
         "board_kind": "synthetic",
         "transport": "synthetic",
+        "evidence_kind": "synthetic",
         "sample_rate_hz": 250,
         "channel_count": 2,
         "channel_names": ["O1", "Oz"],
