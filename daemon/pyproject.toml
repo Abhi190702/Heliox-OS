@@ -137,6 +137,7 @@ dev = [
 pilot-daemon = "pilot.server:main"
 pilot-neurod = "pilot.neural.rpc_client:main"
 pilot-neurod-export = "pilot.neural.recording:export_main"
+pilot-neurod-benchmark = "pilot.neural.benchmark:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pilot"]

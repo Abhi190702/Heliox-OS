@@ -123,6 +123,10 @@ def test_brainflow_adapter_validates_metadata_and_releases_driver(monkeypatch: p
         def get_sampling_rate(board_id: int) -> int:
             return 250
 
+        @staticmethod
+        def get_eeg_names(board_id: int) -> list[str]:
+            return ["O1", "Oz"]
+
         def prepare_session(self) -> None:
             calls.append("prepare")
 
@@ -159,6 +163,69 @@ def test_brainflow_adapter_validates_metadata_and_releases_driver(monkeypatch: p
     assert source.read(25).sample_count == 25
     source.stop()
     assert calls == ["prepare", "start", "stop", "release"]
+
+
+def test_brainflow_adapter_selects_named_subset_and_labels_synthetic_board(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Params:
+        pass
+
+    class Board:
+        def __init__(self, board_id: int, params: Params) -> None:
+            assert board_id == -1
+
+        @staticmethod
+        def get_eeg_channels(board_id: int) -> list[int]:
+            return [1, 2, 3, 4]
+
+        @staticmethod
+        def get_eeg_names(board_id: int) -> list[str]:
+            return ["C3", "Cz", "C4", "Oz"]
+
+        @staticmethod
+        def get_sampling_rate(board_id: int) -> int:
+            return 250
+
+        def prepare_session(self) -> None:
+            pass
+
+        def start_stream(self, capacity: int) -> None:
+            pass
+
+        def get_board_data(self, count: int) -> np.ndarray:
+            data = np.zeros((5, count), dtype=np.float64)
+            for index in range(1, 5):
+                data[index, :] = index
+            return data
+
+        def get_board_data_count(self) -> int:
+            return 1000
+
+        def stop_stream(self) -> None:
+            pass
+
+        def release_session(self) -> None:
+            pass
+
+    package = types.ModuleType("brainflow")
+    module = types.ModuleType("brainflow.board_shim")
+    module.BrainFlowInputParams = Params
+    module.BoardShim = Board
+    monkeypatch.setitem(sys.modules, "brainflow", package)
+    monkeypatch.setitem(sys.modules, "brainflow.board_shim", module)
+
+    source = BrainFlowNeuralSource(
+        board_id=-1,
+        channel_names=("C3", "C4"),
+        reference="synthetic-common-reference",
+    )
+    source.start()
+    try:
+        assert source.descriptor.evidence_kind.value == "synthetic"
+        assert source.read(5).samples_uv[:, 0].tolist() == [1.0, 3.0]
+    finally:
+        source.stop()
 
 
 def test_lsl_adapter_accumulates_partial_chunks_without_dropping_samples(

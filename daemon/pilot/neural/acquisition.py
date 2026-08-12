@@ -520,7 +520,19 @@ class BrainFlowNeuralSource:
         try:
             eeg_channels = list(module.BoardShim.get_eeg_channels(self._board_id))
             sample_rate = int(module.BoardShim.get_sampling_rate(self._board_id))
-            if len(eeg_channels) != len(self._channel_names):
+            get_names = getattr(module.BoardShim, "get_eeg_names", None)
+            board_names = tuple(str(name) for name in get_names(self._board_id)) if get_names else ()
+            if board_names and len(board_names) == len(eeg_channels):
+                name_to_channel = {
+                    name.casefold(): channel for name, channel in zip(board_names, eeg_channels, strict=True)
+                }
+                try:
+                    eeg_channels = [name_to_channel[name.casefold()] for name in self._channel_names]
+                except KeyError as exc:
+                    raise NeuralAcquisitionError(
+                        f"configured EEG channel is unavailable on this BrainFlow board: {exc.args[0]}"
+                    ) from exc
+            elif len(eeg_channels) != len(self._channel_names):
                 raise NeuralAcquisitionError("configured channel names do not match BrainFlow EEG channels")
             board.prepare_session()
             board.start_stream(sample_rate * 30)
