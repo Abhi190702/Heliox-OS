@@ -25,6 +25,7 @@ const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Err
 const notificationHandlers: NotificationHandler[] = [];
 const connectionHandlers: ConnectionHandler[] = [];
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectEnabled = true;
 
 export function onNotification(handler: NotificationHandler) {
   notificationHandlers.push(handler);
@@ -57,6 +58,7 @@ let connectPromise: Promise<boolean> | null = null;
 export async function connect(): Promise<boolean> {
   if (isConnected()) return true;
   if (connectPromise) return connectPromise;
+  reconnectEnabled = true;
 
   connectPromise = new Promise(async (resolve) => {
     const finish = (result: boolean) => {
@@ -86,9 +88,10 @@ export async function connect(): Promise<boolean> {
     }
 
     try {
-      ws = new WebSocket(DAEMON_URL);
+      const socket = new WebSocket(DAEMON_URL);
+      ws = socket;
 
-      ws.onopen = async () => {
+      socket.onopen = async () => {
         if (reconnectTimer) {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
@@ -111,19 +114,19 @@ export async function connect(): Promise<boolean> {
             finish(true);
           },
           reject: (_e) => {
-            ws = null;
+            if (ws === socket) ws = null;
             finish(false);
           },
         });
 
-        ws!.send(JSON.stringify(authRequest));
+        socket.send(JSON.stringify(authRequest));
 
         // Timeout auth handshake after 5 seconds to prevent hanging
         setTimeout(() => {
           if (pending.has(authId)) {
             pending.delete(authId);
-            if (ws) {
-              ws.close();
+            if (ws === socket) {
+              socket.close();
               ws = null;
             }
             finish(false);
@@ -131,7 +134,7 @@ export async function connect(): Promise<boolean> {
         }, 5000);
       };
 
-      ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
         try {
           const data: JsonRpcResponse = JSON.parse(event.data);
 
@@ -154,7 +157,10 @@ export async function connect(): Promise<boolean> {
         }
       };
 
-      ws.onclose = () => {
+      socket.onclose = () => {
+        // A delayed close/error from an obsolete socket must never clear a
+        // newer authenticated connection or reject that connection's calls.
+        if (ws !== socket) return;
         ws = null;
         for (const [id, waiter] of pending) {
           pending.delete(id);
@@ -165,7 +171,8 @@ export async function connect(): Promise<boolean> {
         finish(false);
       };
 
-      ws.onerror = () => {
+      socket.onerror = () => {
+        if (ws !== socket) return;
         ws = null;
         notifyConnectionState(false);
         finish(false);
@@ -210,6 +217,7 @@ export async function call<T = unknown>(method: string, params: Record<string, u
 }
 
 export function disconnect() {
+  reconnectEnabled = false;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -222,7 +230,7 @@ export function disconnect() {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer) return;
+  if (!reconnectEnabled || reconnectTimer) return;
   reconnectTimer = setTimeout(async () => {
     reconnectTimer = null;
     await connect();

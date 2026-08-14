@@ -79,4 +79,33 @@ describe("daemon websocket interruption", () => {
     expect(states).toEqual([true, false]);
     daemon.disconnect();
   });
+
+  it("does not let an obsolete socket clear a newer connection", async () => {
+    const daemon = await import("./daemon");
+    await expect(daemon.connect()).resolves.toBe(true);
+    const original = FakeWebSocket.instances[0];
+
+    original.readyState = 3;
+    original.onclose?.();
+    await expect(daemon.connect()).resolves.toBe(true);
+    const replacement = FakeWebSocket.instances[1];
+
+    original.onerror?.();
+
+    expect(daemon.isConnected()).toBe(true);
+    expect(replacement.readyState).toBe(FakeWebSocket.OPEN);
+    daemon.disconnect();
+  });
+
+  it("does not reconnect after an intentional disconnect", async () => {
+    vi.useFakeTimers();
+    const daemon = await import("./daemon");
+    await expect(daemon.connect()).resolves.toBe(true);
+
+    daemon.disconnect();
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    vi.useRealTimers();
+  });
 });

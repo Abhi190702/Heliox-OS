@@ -48,6 +48,14 @@
   let cameraControlsActive = $state(false);
   let virtualListEl: VirtualList<Message> | undefined = $state();
   let particleBurst: ParticleBurst | undefined = $state();
+  let daemonConnectionEpoch = $state(0);
+  let previousDaemonConnection = $state(false);
+
+  $effect(() => {
+    const connected = $session.daemonConnected;
+    if (connected && !previousDaemonConnection) daemonConnectionEpoch += 1;
+    previousDaemonConnection = connected;
+  });
   $effect(() => {
     showScrollFAB = !isAtBottom;
   });
@@ -359,15 +367,17 @@
           </div>
         </div>
       </div>
-      {#if activeTab === "log"}
-        <ActivityLog />
-      {:else if activeTab === "dashboard"}
-        <Dashboard />
-      {:else if activeTab === "plugins"}
-        <PluginsTab />
-      {:else if activeTab === "settings"}
-        <SettingsPanel onOpenCommand={() => (activeTab = "chat")} />
-      {/if}
+      {#key daemonConnectionEpoch}
+        {#if activeTab === "log"}
+          <ActivityLog />
+        {:else if activeTab === "dashboard"}
+          <Dashboard />
+        {:else if activeTab === "plugins"}
+          <PluginsTab />
+        {:else if activeTab === "settings"}
+          <SettingsPanel onOpenCommand={() => (activeTab = "chat")} />
+        {/if}
+      {/key}
       {#snippet failed(error, reset)}
         <div class="empty-state">
           <div class="empty-logo" style="background: var(--danger)">!</div>
