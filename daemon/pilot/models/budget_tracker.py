@@ -21,6 +21,11 @@ COST_PER_1K_TOKENS: dict[str, tuple[float, float]] = {
     "openai": (0.005, 0.015),
     "claude": (0.003, 0.015),
     "gemini": (0.000075, 0.0003),
+    # OpenRouter prices vary by selected/routed model. Until usage-cost
+    # metadata is plumbed through the response contract, use a non-zero
+    # conservative planning estimate instead of silently recording $0.00.
+    # The OpenRouter dashboard remains authoritative for billed cost.
+    "openrouter": (0.005, 0.015),
     # Meta Model API public-preview pricing ($1.25/$4.25 per million
     # tokens) as of July 2026 -- reverify once Muse Spark leaves preview;
     # an unlisted provider key here silently costs $0.00 and never trips

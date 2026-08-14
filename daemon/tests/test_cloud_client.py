@@ -4,8 +4,8 @@ No prior test coverage existed for CloudClient at all (every existing
 router/budget test mocks the whole class out, see
 test_router_budget_gating.py). These use httpx.MockTransport to actually
 exercise the request-building/response-parsing code, focused on the new
-"meta" (Muse Spark 1.1) provider plus one regression check for "openai"
-since both share `_call_openai_compat`.
+"meta" (Muse Spark 1.1) and OpenRouter providers plus one regression check
+for "openai" since all three share `_call_openai_compat`.
 """
 
 from __future__ import annotations
@@ -118,3 +118,65 @@ class TestOpenAiProviderRegression:
 
         assert result == "hello from gpt"
         assert seen["url"] == PROVIDER_ENDPOINTS["openai"]
+
+
+class TestOpenRouterProvider:
+    @pytest.mark.asyncio
+    async def test_generate_uses_openrouter_endpoint_key_default_and_attribution_headers(self):
+        config = PilotConfig()
+        config.model.cloud_provider = "openrouter"
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json
+
+            seen["url"] = str(request.url)
+            seen["auth"] = request.headers.get("authorization")
+            seen["referer"] = request.headers.get("http-referer")
+            seen["title"] = request.headers.get("x-title")
+            seen["body"] = json.loads(request.read())
+            return _openai_format_response("hello through openrouter")
+
+        client = _client_with_mock_transport(
+            config,
+            _FakeVault({"openrouter": "sk-or-v1-test-key"}),
+            handler,
+        )
+        result = await client.generate("hi")
+
+        assert result == "hello through openrouter"
+        assert seen == {
+            "url": PROVIDER_ENDPOINTS["openrouter"],
+            "auth": "Bearer sk-or-v1-test-key",
+            "referer": "https://www.helioxos.dev/",
+            "title": "Heliox OS",
+            "body": {
+                "model": DEFAULT_MODELS["openrouter"],
+                "messages": [{"role": "user", "content": "hi"}],
+                "temperature": 0.1,
+            },
+        }
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_generate_accepts_any_explicit_openrouter_model_slug(self):
+        config = PilotConfig()
+        config.model.cloud_provider = "openrouter"
+        config.model.cloud_model = "deepseek/deepseek-v4-pro"
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json
+
+            seen["model"] = json.loads(request.read())["model"]
+            return _openai_format_response("ok")
+
+        client = _client_with_mock_transport(
+            config,
+            _FakeVault({"openrouter": "sk-or-v1-test-key"}),
+            handler,
+        )
+        await client.generate("hi")
+
+        assert seen["model"] == "deepseek/deepseek-v4-pro"
+        await client.close()

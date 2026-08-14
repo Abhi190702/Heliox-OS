@@ -203,6 +203,7 @@ const MODEL_RATES: Record<string, number> = {
   "gemini-1.5-pro": 0.000003,
   "gpt-4o": 0.000005,
   "claude-sonnet": 0.000004,
+  openrouter: 0.000005,
 };
 
 const NOTIFY_MIN_DURATION_MS = 15000;
@@ -768,10 +769,13 @@ function createSession() {
     let estimatedCost = 0;
     if (terminal.messageType === "result") {
       const settingsState = get(settings);
+      const cloudProvider = settingsState?.model?.cloud_provider?.toLowerCase() || "";
       const model = settingsState?.model?.cloud_model || settingsState?.model?.cloud_provider || "ollama";
       const normalizedModel = model.toLowerCase();
       let rate = 0;
-      if (normalizedModel.includes("gemini")) {
+      if (cloudProvider === "openrouter") {
+        rate = MODEL_RATES.openrouter;
+      } else if (normalizedModel.includes("gemini")) {
         rate = MODEL_RATES["gemini-1.5-pro"];
       } else if (normalizedModel.includes("gpt-4o")) {
         rate = MODEL_RATES["gpt-4o"];

@@ -49,6 +49,16 @@ def test_invalid_key_error_is_actionable_without_echoing_provider_body():
     assert message == "Gemini API unavailable (400): the configured API key is invalid."
 
 
+def test_openrouter_credit_error_is_actionable_without_echoing_provider_body():
+    message = safe_provider_error(
+        _http_error(402, body='{"error":{"message":"Insufficient credits for sk-or-v1-secret"}}'),
+        "openrouter",
+    )
+
+    assert message == "OpenRouter API unavailable (402): the account or API key has insufficient credits."
+    assert "sk-or" not in message
+
+
 @pytest.mark.asyncio
 async def test_cloud_client_raises_sanitized_error_without_original_exception_chain():
     config = PilotConfig()

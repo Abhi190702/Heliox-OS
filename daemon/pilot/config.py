@@ -76,7 +76,7 @@ class ModelConfig:
     mode: str = "lightweight"  # "lightweight" | "full"
     gpu_memory_limit_mb: int = 0  # 0 = no limit
     idle_unload_seconds: int = 60
-    cloud_provider: str = ""  # "openai" | "claude" | "gemini" | "meta"
+    cloud_provider: str = ""  # "openai" | "openrouter" | "claude" | "gemini" | "meta"
     cloud_model: str = ""
     # Rate limiting — applied to every LLM call via ModelRouter
     rate_limit_enabled: bool = True

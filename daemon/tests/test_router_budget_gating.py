@@ -9,6 +9,7 @@ import pytest
 
 from pilot.config import ModelConfig, PilotConfig
 from pilot.models.budget_tracker import (
+    COST_PER_1K_TOKENS,
     ActionBudgetExceededError,
     BudgetTracker,
     TaskBudgetExceededError,
@@ -20,6 +21,12 @@ from pilot.models.router import ModelRouter
 def test_default_action_budget_can_fit_the_planner_prompt():
     assert ModelConfig().max_tokens_per_action >= 12000
     assert ModelConfig().max_tokens_per_task >= 100000
+
+
+def test_openrouter_has_a_nonzero_budget_estimate():
+    input_rate, output_rate = COST_PER_1K_TOKENS["openrouter"]
+    assert input_rate > 0
+    assert output_rate > 0
 
 
 @pytest.fixture

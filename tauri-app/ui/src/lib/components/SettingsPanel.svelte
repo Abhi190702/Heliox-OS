@@ -105,6 +105,14 @@
   const cloudModels: Record<string, string[]> = {
     gemini: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
     openai: ["gpt-4o", "gpt-4o-mini", "o1", "o3-mini"],
+    openrouter: [
+      "openrouter/auto",
+      "deepseek/deepseek-v4-pro",
+      "~deepseek/deepseek-v4-flash-latest",
+      "~anthropic/claude-sonnet-latest",
+      "~google/gemini-pro-latest",
+      "~openai/gpt-latest",
+    ],
     claude: ["claude-3-7-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
     meta: ["muse-spark-1.1"],
   };
@@ -348,7 +356,7 @@
   }
 
   function setCloudProvider(cloud_provider: string) {
-    settings.updateSection("model", { cloud_provider, provider: "cloud" });
+    settings.updateSection("model", { cloud_provider, cloud_model: "", provider: "cloud" });
   }
 
   function updateCloudModel(e: Event) {
@@ -1539,6 +1547,10 @@
         <button class:active={$settings.model.cloud_provider === "openai"} onclick={() => setCloudProvider("openai")}
           >OpenAI</button
         >
+        <button
+          class:active={$settings.model.cloud_provider === "openrouter"}
+          onclick={() => setCloudProvider("openrouter")}>OpenRouter</button
+        >
         <button class:active={$settings.model.cloud_provider === "claude"} onclick={() => setCloudProvider("claude")}
           >Claude</button
         >
@@ -1553,12 +1565,27 @@
         <span class="setting-label">{$_("settings.cloud_model")}</span>
         <span class="setting-desc">{$_("settings.cloud_model_desc")}</span>
       </div>
-      <select class="input-md" value={$settings.model.cloud_model} onchange={updateCloudModel}>
-        <option value="">Default for provider</option>
-        {#each cloudModels[$settings.model.cloud_provider || "gemini"] || [] as modelOption}
-          <option value={modelOption}>{modelOption}</option>
-        {/each}
-      </select>
+      {#if $settings.model.cloud_provider === "openrouter"}
+        <input
+          class="input-md"
+          list="openrouter-model-options"
+          value={$settings.model.cloud_model}
+          oninput={updateCloudModel}
+          placeholder="openrouter/auto or any OpenRouter model slug"
+        />
+        <datalist id="openrouter-model-options">
+          {#each cloudModels.openrouter as modelOption}
+            <option value={modelOption}></option>
+          {/each}
+        </datalist>
+      {:else}
+        <select class="input-md" value={$settings.model.cloud_model} onchange={updateCloudModel}>
+          <option value="">Default for provider</option>
+          {#each cloudModels[$settings.model.cloud_provider || "gemini"] || [] as modelOption}
+            <option value={modelOption}>{modelOption}</option>
+          {/each}
+        </select>
+      {/if}
     </div>
 
     <div class="setting-row">
@@ -1571,7 +1598,9 @@
           type="password"
           class="input-md"
           bind:value={apiKeyInput}
-          placeholder={$_("settings.api_key_placeholder")}
+          placeholder={$settings.model.cloud_provider === "openrouter"
+            ? "sk-or-v1-..."
+            : $_("settings.api_key_placeholder")}
         />
         <button class="btn-save" onclick={saveApiKey} disabled={apiKeySaving}>
           {apiKeySaved ? $_("settings.saved") : apiKeySaving ? $_("settings.saving") : $_("settings.save")}

@@ -1,8 +1,8 @@
 """Cloud API client supporting OpenAI-compatible endpoints and native Gemini.
 
-OpenAI and Meta's Muse Spark both speak the OpenAI chat-completions
-format, so they share `_call_openai_compat`; Gemini and Claude each need
-their own native request/response shape.
+OpenAI, OpenRouter, and Meta's Muse Spark speak the OpenAI
+chat-completions format, so they share `_call_openai_compat`; Gemini and
+Claude each need their own native request/response shape.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ PROVIDER_ENDPOINTS = {
     "openai": "https://api.openai.com/v1/chat/completions",
     "gemini": "https://generativelanguage.googleapis.com/v1beta",
     "claude": "https://api.anthropic.com/v1/messages",
+    "openrouter": "https://openrouter.ai/api/v1/chat/completions",
     # Meta Model API (public preview as of July 2026) -- drop-in OpenAI
     # chat-completions compatible, so it needs no dispatch branch of its
     # own below; it falls through to _call_openai_compat like any other
@@ -40,7 +41,12 @@ DEFAULT_MODELS = {
     "openai": "gpt-4o",
     "gemini": "gemini-2.5-flash",
     "claude": "claude-sonnet-4-20250514",
+    "openrouter": "openrouter/auto",
     "meta": "muse-spark-1.1",
+}
+
+PROVIDER_DISPLAY_NAMES = {
+    "openrouter": "OpenRouter",
 }
 
 MAX_RETRIES = 3
@@ -61,7 +67,7 @@ _GOOGLE_API_KEY = re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b")
 
 def safe_provider_error(error: Exception, provider: str) -> str:
     """Return an actionable provider failure that never includes secrets or URLs."""
-    provider_name = provider.title() or "Cloud"
+    provider_name = PROVIDER_DISPLAY_NAMES.get(provider, provider.title()) or "Cloud"
     if isinstance(error, TimeoutError | httpx.TimeoutException):
         return f"{provider_name} API unavailable: the request timed out."
     if isinstance(error, httpx.HTTPStatusError):
@@ -71,6 +77,8 @@ def safe_provider_error(error: Exception, provider: str) -> str:
             detail = "quota or rate limit reached"
         elif status in {401, 403}:
             detail = "authentication was rejected"
+        elif status == 402:
+            detail = "the account or API key has insufficient credits"
         elif status == 400 and ("api_key_invalid" in body or "api key not valid" in body):
             detail = "the configured API key is invalid"
         elif status == 400:
@@ -366,6 +374,11 @@ class CloudClient:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        if provider == "openrouter":
+            # Optional OpenRouter attribution headers. They do not grant any
+            # additional authority and contain no local/user information.
+            headers["HTTP-Referer"] = "https://www.helioxos.dev/"
+            headers["X-Title"] = "Heliox OS"
 
         for attempt in range(MAX_RETRIES + 1):
             resp = await self._client.post(endpoint, json=payload, headers=headers)

@@ -242,7 +242,8 @@ User configuration is stored at `~/.config/heliox-os/config.toml`. Most settings
 [model]
 provider = "ollama"          # "ollama" or "cloud"
 ollama_model = "llama3.1:8b"
-cloud_provider = "gemini"    # "gemini", "openai", "claude", or "meta"
+cloud_provider = "gemini"    # "gemini", "openai", "openrouter", "claude", or "meta"
+cloud_model = ""             # OpenRouter defaults to "openrouter/auto"; try "deepseek/deepseek-v4-pro"
 
 [security]
 root_enabled = false

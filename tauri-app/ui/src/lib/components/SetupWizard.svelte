@@ -18,6 +18,7 @@
   let ollamaAvailable = $state(false);
   let loadingModels = $state(true);
   let cloudProvider = $state("");
+  let cloudModel = $state("");
   let cloudApiKey = $state("");
   let protectedFolders = $state("");
   let protectedPackages = $state("firefox, nautilus");
@@ -50,6 +51,7 @@
         provider: modelProvider,
         ollama_model: ollamaModel,
         cloud_provider: cloudProvider,
+        cloud_model: cloudModel,
       });
 
       const folders = protectedFolders
@@ -141,7 +143,7 @@
                 <input type="radio" bind:group={modelProvider} value="cloud" />
                 <div>
                   <strong>Cloud API</strong>
-                  <span>Uses OpenAI, Claude, or Gemini. Requires API key.</span>
+                  <span>Uses OpenAI, OpenRouter, Claude, or Gemini. Requires API key.</span>
                 </div>
               </label>
             </div>
@@ -174,17 +176,44 @@
           {:else}
             <div class="field">
               <label for="cloud-provider">Cloud Provider</label>
-              <select id="cloud-provider" bind:value={cloudProvider}>
+              <select id="cloud-provider" bind:value={cloudProvider} onchange={() => (cloudModel = "")}>
                 <option value="">Select...</option>
                 <option value="openai">OpenAI</option>
+                <option value="openrouter">OpenRouter</option>
                 <option value="claude">Anthropic (Claude)</option>
                 <option value="gemini">Google (Gemini)</option>
               </select>
             </div>
             {#if cloudProvider}
+              {#if cloudProvider === "openrouter"}
+                <div class="field">
+                  <label for="openrouter-model">OpenRouter Model</label>
+                  <input
+                    id="openrouter-model"
+                    type="text"
+                    list="setup-openrouter-model-options"
+                    bind:value={cloudModel}
+                    placeholder="openrouter/auto"
+                  />
+                  <datalist id="setup-openrouter-model-options">
+                    <option value="openrouter/auto"></option>
+                    <option value="deepseek/deepseek-v4-pro"></option>
+                    <option value="~deepseek/deepseek-v4-flash-latest"></option>
+                    <option value="~anthropic/claude-sonnet-latest"></option>
+                    <option value="~google/gemini-pro-latest"></option>
+                    <option value="~openai/gpt-latest"></option>
+                  </datalist>
+                  <span class="hint">Choose a suggestion or paste any model slug from the OpenRouter catalog.</span>
+                </div>
+              {/if}
               <div class="field">
                 <label for="cloud-api-key">API Key</label>
-                <input id="cloud-api-key" type="password" bind:value={cloudApiKey} placeholder="sk-..." />
+                <input
+                  id="cloud-api-key"
+                  type="password"
+                  bind:value={cloudApiKey}
+                  placeholder={cloudProvider === "openrouter" ? "sk-or-v1-..." : "sk-..."}
+                />
                 <span class="hint"
                   >Stored only in Windows Credential Manager, macOS Keychain, or Linux Secret Service.</span
                 >
