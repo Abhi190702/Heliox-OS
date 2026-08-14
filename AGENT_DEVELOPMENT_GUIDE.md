@@ -1,8 +1,8 @@
 # Specialist Agent Development Guide
 
-Heliox v0.10.1 uses capability-based discovery rather than a fixed roster. The
+Heliox main uses capability-based discovery rather than a fixed roster. The
 current runtime registers 21 concrete specialists across 20 source-scoped
-gateway roles and covers all 156 declared actions.
+gateway roles and covers all 157 declared actions.
 
 Add an agent only when it provides a distinct capability or measurable
 reliability advantage. More classes are not a product goal by themselves.
