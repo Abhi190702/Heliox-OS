@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
-  "captured_at": "2026-08-14T16:59:18.028322+05:30",
+  "captured_at": "2026-08-14T17:38:16.999115+05:30",
   "captured_on": "2026-08-14",
-  "source_commit": "64fa581d4e12d6683e504e967b66ba5c448b08ed",
+  "source_commit": "dc09070864c68d30a60d1fc4b22bb9944a958be8",
   "claim_boundary": "Local software benchmark bundle; no claim of model-provider, network, browser page-load, microphone, camera, speaker, gaze, gesture, EEG, or human accuracy",
   "guarded_cpu_request": {
     "schema_version": "2.0.0",
@@ -14,16 +14,16 @@
       "python": "3.12.6",
       "warmup_iterations": 10
     },
-    "cold_ready_request_ms": 32.107,
+    "cold_ready_request_ms": 45.041,
     "steady_state": {
       "iterations": 100,
-      "mean_ms": 27.789,
-      "median_ms": 27.534,
-      "p95_ms": 29.1,
-      "p99_ms": 31.63,
-      "min_ms": 26.308,
-      "max_ms": 40.444,
-      "stdev_ms": 1.528
+      "mean_ms": 28.498,
+      "median_ms": 27.921,
+      "p95_ms": 32.178,
+      "p99_ms": 39.104,
+      "min_ms": 26.146,
+      "max_ms": 43.788,
+      "stdev_ms": 2.473
     },
     "model_generate_calls": 0,
     "total_model_generate_calls": 0,
@@ -49,48 +49,48 @@
         "expected_action": "cpu_usage",
         "iterations": 50,
         "mean_ms": 27.13,
-        "median_ms": 26.925,
-        "p95_ms": 28.589,
-        "p99_ms": 29.409,
-        "min_ms": 26.097,
-        "max_ms": 29.807,
-        "stdev_ms": 0.757
+        "median_ms": 27.116,
+        "p95_ms": 28.375,
+        "p99_ms": 28.656,
+        "min_ms": 26.085,
+        "max_ms": 28.714,
+        "stdev_ms": 0.725
       },
       "memory_usage": {
         "query": "What's my memory usage?",
         "expected_action": "memory_usage",
         "iterations": 50,
-        "mean_ms": 5.471,
-        "median_ms": 5.36,
-        "p95_ms": 6.911,
-        "p99_ms": 7.316,
-        "min_ms": 4.447,
-        "max_ms": 7.54,
-        "stdev_ms": 0.738
+        "mean_ms": 6.476,
+        "median_ms": 6.516,
+        "p95_ms": 8.346,
+        "p99_ms": 8.663,
+        "min_ms": 5.176,
+        "max_ms": 8.868,
+        "stdev_ms": 0.94
       },
       "disk_usage": {
         "query": "What's my disk usage?",
         "expected_action": "disk_usage",
         "iterations": 50,
-        "mean_ms": 5.448,
-        "median_ms": 5.33,
-        "p95_ms": 6.528,
-        "p99_ms": 6.828,
-        "min_ms": 4.628,
-        "max_ms": 6.833,
-        "stdev_ms": 0.547
+        "mean_ms": 6.373,
+        "median_ms": 6.271,
+        "p95_ms": 7.798,
+        "p99_ms": 8.247,
+        "min_ms": 5.374,
+        "max_ms": 8.355,
+        "stdev_ms": 0.694
       },
       "system_information": {
         "query": "Show system information",
         "expected_action": "system_info",
         "iterations": 50,
-        "mean_ms": 59.457,
-        "median_ms": 57.457,
-        "p95_ms": 77.782,
-        "p99_ms": 78.848,
-        "min_ms": 56.763,
-        "max_ms": 78.85,
-        "stdev_ms": 5.889
+        "mean_ms": 59.083,
+        "median_ms": 57.891,
+        "p95_ms": 69.354,
+        "p99_ms": 78.844,
+        "min_ms": 56.404,
+        "max_ms": 79.57,
+        "stdev_ms": 4.96
       }
     },
     "model_generate_calls": 0,
@@ -110,13 +110,13 @@
       "python": "3.12.6",
       "target_heartbeat_ms": 10.0
     },
-    "sample_duration_ms": 1000.851,
-    "cpu_percent": 17.2,
+    "sample_duration_ms": 1001.259,
+    "cpu_percent": 18.6,
     "heartbeat_ticks": 66,
-    "heartbeat_median_ms": 15.549,
-    "heartbeat_p95_ms": 16.117,
-    "heartbeat_max_ms": 20.511,
-    "max_scheduler_delay_ms": 10.511,
+    "heartbeat_median_ms": 15.616,
+    "heartbeat_p95_ms": 16.111,
+    "heartbeat_max_ms": 17.504,
+    "max_scheduler_delay_ms": 7.504,
     "limitations": [
       "Measures scheduler availability, not CPU-monitor completion latency.",
       "Windows timer granularity and host load affect heartbeat intervals.",
@@ -189,13 +189,13 @@
     },
     "latency": {
       "iterations": 59,
-      "mean_ms": 0.043,
+      "mean_ms": 0.046,
       "median_ms": 0.026,
-      "p95_ms": 0.162,
-      "p99_ms": 0.316,
-      "min_ms": 0.008,
-      "max_ms": 0.48,
-      "stdev_ms": 0.068
+      "p95_ms": 0.172,
+      "p99_ms": 0.353,
+      "min_ms": 0.007,
+      "max_ms": 0.582,
+      "stdev_ms": 0.08
     },
     "failures": [],
     "limitations": [
@@ -234,13 +234,13 @@
     "direction_checks_passed": 5,
     "inference": {
       "iterations": 12000,
-      "mean_ms": 0.03,
-      "median_ms": 0.027,
-      "p95_ms": 0.038,
-      "p99_ms": 0.081,
-      "min_ms": 0.023,
-      "max_ms": 0.521,
-      "stdev_ms": 0.015
+      "mean_ms": 0.032,
+      "median_ms": 0.028,
+      "p95_ms": 0.045,
+      "p99_ms": 0.111,
+      "min_ms": 0.024,
+      "max_ms": 1.121,
+      "stdev_ms": 0.026
     },
     "limitations": [
       "Validation metrics are metadata saved during a stratified temporal holdout before the production refit.",

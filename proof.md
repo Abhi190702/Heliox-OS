@@ -42,7 +42,7 @@ cd daemon
 python ../scripts/generate_benchmark_evidence.py
 ```
 
-Bundle environment: Windows 11, Python 3.12.6. Source commit: `64fa581d4e12`.
+Bundle environment: Windows 11, Python 3.12.6. Source commit: `dc09070864c6`.
 
 ### Guarded local request latency
 
@@ -50,11 +50,11 @@ Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk ass
 
 | Metric | Ready-cold | Warm steady state |
 | --- | ---: | ---: |
-| Median | — | 27.534 ms |
-| p95 | — | 29.100 ms |
-| p99 | — | 31.630 ms |
-| Minimum | — | 26.308 ms |
-| Maximum | 32.107 ms | 40.444 ms |
+| Median | — | 27.921 ms |
+| p95 | — | 32.178 ms |
+| p99 | — | 39.104 ms |
+| Minimum | — | 26.146 ms |
+| Maximum | 45.041 ms | 43.788 ms |
 
 - The harness executes local planning, routing, risk assessment, execution, post-condition verification, and response shaping.
 - All 100 measured steady-state iterations made **0 model calls**.
@@ -64,16 +64,16 @@ Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk ass
 
 | Real guarded action | Iterations | Median | p95 | p99 |
 | --- | ---: | ---: | ---: | ---: |
-| CPU usage | 50 | 26.925 ms | 28.589 ms | 29.409 ms |
-| Memory usage | 50 | 5.360 ms | 6.911 ms | 7.316 ms |
-| Disk usage | 50 | 5.330 ms | 6.528 ms | 6.828 ms |
-| Comprehensive system information | 50 | 57.457 ms | 77.782 ms | 78.848 ms |
+| CPU usage | 50 | 27.116 ms | 28.375 ms | 28.656 ms |
+| Memory usage | 50 | 6.516 ms | 8.346 ms | 8.663 ms |
+| Disk usage | 50 | 6.271 ms | 7.798 ms | 8.247 ms |
+| Comprehensive system information | 50 | 57.891 ms | 69.354 ms | 78.844 ms |
 
 Each case validates the exact selected action, executes the real read-only host probe, and makes zero model calls.
 
 ### Event-loop responsiveness
 
-During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **66 ticks**, with **15.549 ms median**, **16.117 ms p95**, and **20.511 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
+During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **66 ticks**, with **15.616 ms median**, **16.111 ms p95**, and **17.504 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
 
 ### Deterministic intent dispatch
 
@@ -88,7 +88,7 @@ The shipped `risk-mlp-v3-calibrated` artifact records **36,000 training** and **
 | Disk-delta MAE | 0.0000000330 | 0.0000000718 | 54.0154% |
 | Process-delta MAE | 0.0000130251 | 0.0022166655 | 99.4124% |
 
-The audit passed **5/5 direction invariants** and measured **0.027 ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
+The audit passed **5/5 direction invariants** and measured **0.028 ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
 
 ### Historical CPU-path improvement
 
