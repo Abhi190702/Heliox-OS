@@ -366,7 +366,7 @@ fallback and is suppressed when daemon speech already owns the utterance.
 **What this does instead — a real screenshot, a real element detection, a real dry run.** `pilot.system.action_preview.generate_action_preview()` composes three things this codebase already has, none of them new:
 
 - A real screenshot of the current screen (`pilot.system.vision`'s existing capture primitive).
-- The target UI element highlighted via `screen_detect_elements()` — the same VLM-based bounding-box detection already used elsewhere in this codebase (cloud Gemini/OpenAI/Claude, or fully local/offline Ollama LLaVA — no new provider integration).
+- The target UI element highlighted via `screen_detect_elements()` — the same VLM-based bounding-box detection already used elsewhere in this codebase (cloud Gemini/OpenAI/OpenRouter/Claude, or fully local/offline Ollama LLaVA — no new provider integration).
 - For the five browser interaction action types (`browser_click`/`browser_click_text`/`browser_type`/`browser_select`/`browser_fill_form`), a genuine dry run: `pilot.system.dom_diff.dry_run_action()` clones the real page into a scratch tab in the same `BrowserContext` (so it shares session/cookies, but is a fully separate `Page`/DOM/JS realm), attempts the actual action against the clone, measures a real before/after DOM diff via the existing `snapshot_dom()`/`diff_dom()` machinery, and closes the clone — never touching the user's real tab. This is a real measurement, not a prediction.
 
 **No new safety primitive.** `pilot.agents.narrator.ExecutionNarrator.on_action_preview()` reuses the exact same `PendingConfirmation`/`confirm` interrupt-and-wait mechanism `on_plan_risk`/`on_target_assessment` already established — same broadcast event (`execution_interrupt`, distinguished by `kind: "action_preview"`), same frontend dialog (`InterruptDialog.svelte`, extended to render the screenshot/highlight/diff when that kind is present), same timeout-denies-by-default behavior.
@@ -603,4 +603,4 @@ review contract.
 
 Security researchers who responsibly disclose vulnerabilities will be credited in our release notes — unless you'd prefer to stay anonymous, which is completely fine.
 
-This project participates in **GSSoC 2026** and **NSoC**. All contributors are expected to follow this security policy when handling security-related work.
+All contributors are expected to follow this security policy when handling security-related work.

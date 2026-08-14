@@ -12,8 +12,8 @@ The Heliox OS UI and daemon communicate over a local WebSocket using the [JSON-R
 | Request timeout | 5 minutes |
 | Reconnect interval | 3 seconds (auto-reconnect on close) |
 
-The daemon currently registers **157 WebSocket RPC methods**. That is the API
-surface count, not the action catalog: Heliox still exposes **156 action
+The daemon currently registers **159 WebSocket RPC methods**. That is the API
+surface count, not the action catalog: Heliox exposes **157 action
 types** through the guarded planner/executor system. This document names every
 registered RPC method; grouped tables are used where several methods share one
 contract.
@@ -569,7 +569,7 @@ coverage contract.
 
 **Params:** `{}`
 
-The v0.10.1 runtime reports 21 executable specialists, 156 declared and
+The current `main` runtime reports 21 executable specialists, 157 declared and
 available action types, and an empty `uncovered_action_types` list. Clients must
 surface exact uncovered names as a release-blocking warning rather than hiding
 coverage regression.
@@ -581,8 +581,8 @@ coverage regression.
   "enabled": true,
   "total_specialists": 21,
   "executable_specialists": 21,
-  "registered_action_types": 156,
-  "available_action_types": 156,
+  "registered_action_types": 157,
+  "available_action_types": 157,
   "coverage_complete": true,
   "uncovered_action_types": [],
   "specialists": []
@@ -1801,8 +1801,11 @@ broadcast recipients.
 Emitted once on startup when a new daemon version introduces new capabilities.
 
 ```json
-{ "message": "New: v0.10.1 intelligence, safety, and agent-mesh improvements are now available!", "version": "0.10.1" }
+{ "message": "New Heliox capabilities are now available.", "version": "0.11.1" }
 ```
+
+The exact message is assembled from the daemon changelog; clients must treat
+`version` as authoritative instead of parsing a version from `message`.
 
 ---
 

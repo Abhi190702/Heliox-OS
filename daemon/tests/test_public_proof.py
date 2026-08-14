@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import ast
+import json
 import subprocess
 import sys
 from pathlib import Path
+
+from pilot.actions import ActionType
 
 
 def _generate(repo_root: Path, output: Path) -> None:
@@ -44,3 +48,35 @@ def test_committed_public_proof_is_current(tmp_path: Path) -> None:
     output = tmp_path / "proof.md"
     _generate(repo_root, output)
     assert output.read_bytes() == (repo_root / "proof.md").read_bytes()
+
+
+def test_current_source_documentation_matches_runtime_contracts() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    capabilities = json.loads((repo_root / "capabilities.json").read_text(encoding="utf-8"))
+    action_count = len(ActionType)
+    independent_count = capabilities["summary"]["independent_postcondition_verifiers"]
+
+    readme = (repo_root / "README.md").read_text(encoding="utf-8")
+    daemon_readme = (repo_root / "daemon" / "README.md").read_text(encoding="utf-8")
+    architecture = (repo_root / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    neural = (repo_root / "docs" / "NEURAL_INTENT.md").read_text(encoding="utf-8")
+    ipc = (repo_root / "IPC_MESSAGE_FORMATS.md").read_text(encoding="utf-8")
+
+    assert f"{action_count} declared action types" in readme
+    assert f"The other {action_count - independent_count}" in readme
+    assert f"{action_count}-action system interface" in daemon_readme
+    assert "system_health_review" in architecture
+    assert "OpenRouter" in architecture
+    assert "stage up to eight explicit autonomous goals" in neural
+
+    server_tree = ast.parse((repo_root / "daemon" / "pilot" / "server.py").read_text(encoding="utf-8"))
+    handler_counts = [
+        len(node.value.keys)
+        for node in ast.walk(server_tree)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Dict)
+        and any(isinstance(target, ast.Attribute) and target.attr == "_handlers" for target in node.targets)
+    ]
+    assert len(handler_counts) == 1
+    assert f"**{handler_counts[0]} WebSocket RPC methods**" in ipc
+    assert f"**{action_count} action" in ipc

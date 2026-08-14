@@ -4,7 +4,7 @@ Python backend for the Heliox OS AI System Control Agent. It provides the
 append-only experience ledger, durable task loop, temporal context, companion
 coordination, hybrid world model, verified online learning, strategy/evolution
 harnesses, 21-specialist mesh, Planner/Executor/Verifier, security layers, and
-the 156-action system interface.
+the 157-action system interface.
 
 The optional neural-intent research path runs acquisition and decoding in the
 separately authenticated `pilot-neurod` sidecar. It supports synthetic,
@@ -31,6 +31,13 @@ specific: Windows resolves installed-app records and shortcuts, macOS uses
 Launch Services, and Linux accepts verified executables or desktop entries.
 Issuing a launch command is never treated as proof that the user's goal is
 complete.
+
+Bounded read-only health-review requests use the local
+`system_health_review` action to collect current CPU, memory, disk, battery,
+and process evidence without a model call. Cloud planning supports Gemini,
+OpenAI, OpenRouter, Claude, and Meta; OpenRouter accepts automatic routing or
+an exact catalog model ID such as DeepSeek V4 Pro. Provider keys remain in the
+operating-system credential store.
 
 See the [main README](../README.md) and
 [Architecture](../docs/ARCHITECTURE.md) for the full runtime contract.

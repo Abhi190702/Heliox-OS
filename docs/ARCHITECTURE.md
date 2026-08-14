@@ -1,7 +1,7 @@
 # Heliox OS Architecture
 
-This document describes the implemented v0.10.1 runtime. It is an architecture
-contract, not a roadmap. Exact action values live in
+This document describes the current `main` source runtime (package version
+0.11.1). It is an architecture contract, not a roadmap. Exact action values live in
 `daemon/pilot/actions.py`; exact RPC handlers live in
 `daemon/pilot/server.py`.
 
@@ -69,6 +69,13 @@ effect is running. A neural commit does not queue behind another effect and
 later execute from a stale preview; it fails closed and must be deliberately
 selected again.
 
+Bounded read-only status intents have deterministic local plans. The
+`system_health_review` action collects fresh CPU, memory, disk, battery, and
+running-process evidence through `psutil`, formats the two most important
+observations, and returns a prioritized recommendation without an LLM call or
+an OS mutation. It still enters the normal permission, routing, execution,
+verification, and result contracts.
+
 ## Intelligence and reliability layers
 
 ### 1. Unified experience ledger
@@ -96,6 +103,12 @@ succeeded states. Hashed resume capabilities, durable approvals, optimistic
 versions, and per-action execution claims support reconnect and restart
 recovery. An interrupted or expired claim is marked uncertain and reconciled;
 it is never silently repeated.
+
+The frontend tracks a connection epoch. When the daemon reconnects it rejects
+stale pending RPC promises, re-authenticates, and reloads daemon-backed feature
+stores so panels do not remain permanently unavailable. A resumed durable task
+preserves its real terminal status: failed or interrupted actions cannot be
+relabelled as successful, and planning text is never used as a failure result.
 
 ### 4. Temporal context and memory
 
@@ -133,6 +146,22 @@ Continuous conversation is explicit and bounded. While the listener is on,
 complete utterances are eligible for routing without a wake phrase, and a
 30-second follow-up window opens after speech completes. The listener is
 suppressed while Heliox itself speaks so TTS cannot become a new command.
+
+### Model adapters and terminal results
+
+The model router supports local Ollama plus native Gemini and Claude adapters.
+OpenAI, OpenRouter, and Meta use the shared OpenAI-compatible chat-completions
+adapter. OpenRouter defaults to `openrouter/auto`, accepts an exact catalog
+model ID, and exposes DeepSeek V4 Pro and the latest V4 Flash alias in the UI.
+API keys are retrieved from the operating-system credential store; provider
+authentication, credit, rate-limit, timeout, and service errors are redacted
+before they reach the UI.
+
+Only an explicit `success` terminal status renders as a result. Partial,
+blocked, and failed work renders as an error; cancellation, interruption, and
+live replanning render as neutral system states. Complex cloud planning has a
+bounded 35-second generation budget, while deterministic local status paths do
+not wait for model-provider advisory work.
 
 ### 6. Hybrid world model
 

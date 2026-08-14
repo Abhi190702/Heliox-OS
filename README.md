@@ -35,7 +35,9 @@ User intent → Planner → Permission and risk gates → Specialist → Executo
                     ↘ durable task state, memory, audit, cancellation and recovery ↗
 ```
 
-Current release: **v0.11.1** · Python **3.11+** · Windows is the primary hardware-development platform.
+Published release: **v0.11.1** · Python **3.11+** · Windows is the primary hardware-development platform.
+
+The `main` branch currently contains newer source-only improvements, including staged neural task launch, a local evidence-driven system-health review, stronger reconnect/interruption recovery, and OpenRouter model selection. Those changes are not part of the published v0.11.1 installers until a newer release is tagged and validated.
 
 ## Why Heliox
 
@@ -54,7 +56,7 @@ Current release: **v0.11.1** · Python **3.11+** · Windows is the primary hardw
 | -------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Action schema        | 157 declared action types                                                                     | Availability depends on OS, dependencies, permissions, credentials, and policy                 |
 | Specialist mesh      | 21 executable specialists with providers for 157/157 declared actions                         | Provider coverage is not universal environment compatibility                                   |
-| Outcome verification | 11 actions have an independent observed post-condition verifier                               | The other 145 currently rely on the executor result                                            |
+| Outcome verification | 11 actions have an independent observed post-condition verifier                               | The other 146 currently rely on the executor result                                            |
 | Guarded fast path    | 28.640 ms median, 30.490 ms p95 across 100 non-LLM CPU-usage iterations; zero model calls     | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
 | Intent dispatch      | 59/59 curated bounded-intent and ambiguous-fall-through regression cases                     | Fixed corpus; not population-level language-understanding accuracy                            |
 | Learned risk model   | 36,000 training and 5,400 temporal-validation samples; 5/5 direction invariants              | Covers 12 coarse disk/process action transitions; deterministic policy remains authoritative  |
@@ -260,6 +262,8 @@ enabled = false
 [voice]
 tts_engine = "kokoro_tts"
 ```
+
+OpenRouter uses its OpenAI-compatible endpoint. Settings and first-run setup offer automatic routing, DeepSeek V4 Pro, the latest DeepSeek V4 Flash alias, and other current aliases; an exact OpenRouter catalog model ID can also be entered manually. Provider keys remain in the operating-system credential store.
 
 Kokoro, Pocket TTS, gaze, gesture tracking, and the learned-risk model are CPU-capable; CUDA is not required. Optional models still consume storage, memory, CPU time, and download bandwidth.
 
