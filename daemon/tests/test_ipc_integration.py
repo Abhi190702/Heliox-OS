@@ -117,6 +117,34 @@ async def test_ipc_ping_pong(daemon_server):
 
 
 @pytest.mark.asyncio
+async def test_daemon_rotates_a_role_scoped_local_mcp_token(daemon_server):
+    from pilot import config as config_module
+
+    token_path = config_module.RUNTIME_DIR / "mcp_auth_token"
+    token = token_path.read_text(encoding="utf-8")
+    assert len(token) >= 32
+
+    async with websockets.connect(daemon_server) as ws:
+        await ws.send(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "auth",
+                    "params": {"token": token},
+                    "id": "mcp-auth",
+                }
+            )
+        )
+        authenticated = json.loads(await ws.recv())
+        assert authenticated["result"] == {"status": "authenticated", "role": "mcp_local"}
+
+        await ws.send(json.dumps({"jsonrpc": "2.0", "method": "execute", "id": "forbidden"}))
+        denied = json.loads(await ws.recv())
+        assert denied["error"]["code"] == -32601
+        assert "mcp_local" in denied["error"]["message"]
+
+
+@pytest.mark.asyncio
 async def test_neural_sidecar_token_is_role_scoped_and_cannot_call_ping(daemon_server):
     from pilot import config as config_module
 

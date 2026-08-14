@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import uuid
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -24,6 +25,14 @@ from mcp_types import ToolAnnotations
 from pilot.config import RUNTIME_DIR, PilotConfig
 
 logger = logging.getLogger("pilot.mcp")
+
+
+def _package_version() -> str:
+    try:
+        return version("pilot-daemon")
+    except PackageNotFoundError:
+        return "0+source"
+
 
 _READ_ONLY = ToolAnnotations(
     readOnlyHint=True,
@@ -81,9 +90,7 @@ class HelioxDaemonClient:
         try:
             token = self._token_file.read_text(encoding="utf-8").strip()
         except OSError as exc:
-            raise DaemonRpcError(
-                "Cannot connect to Heliox OS. Start the desktop app or daemon first."
-            ) from exc
+            raise DaemonRpcError("Cannot connect to Heliox OS. Start the desktop app or daemon first.") from exc
         if not token:
             raise DaemonRpcError("The local Heliox MCP credential is empty; restart the daemon.")
         return token
@@ -150,9 +157,7 @@ class HelioxDaemonClient:
         except DaemonRpcError:
             raise
         except (OSError, TimeoutError, websockets.exceptions.WebSocketException) as exc:
-            raise DaemonRpcError(
-                "Cannot connect to the local Heliox daemon. Start Heliox OS and try again."
-            ) from exc
+            raise DaemonRpcError("Cannot connect to the local Heliox daemon. Start Heliox OS and try again.") from exc
 
 
 def create_mcp_server(client: RpcClient | None = None) -> MCPServer:
@@ -163,7 +168,7 @@ def create_mcp_server(client: RpcClient | None = None) -> MCPServer:
         name="heliox-local",
         title="Heliox OS Local Control",
         description="Approval-gated local desktop automation through Heliox OS.",
-        version="0.11.1",
+        version=_package_version(),
         website_url="https://www.helioxos.dev",
         instructions=(
             "This server controls only the current user's local Heliox daemon. "
@@ -265,9 +270,7 @@ def main() -> None:
     parser.add_argument("--token-file", default=None, help="Override the rotated MCP token file")
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
-    server = create_mcp_server(
-        HelioxDaemonClient(uri=args.daemon_url, token_file=args.token_file)
-    )
+    server = create_mcp_server(HelioxDaemonClient(uri=args.daemon_url, token_file=args.token_file))
     server.run(transport="stdio")
 
 

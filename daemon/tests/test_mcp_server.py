@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 import websockets
 from mcp import Client
 
+from pilot.config import PilotConfig
 from pilot.mcp_server import DaemonRpcError, HelioxDaemonClient, create_mcp_server
+from pilot.server import PilotServer
 
 
 class _RecordingDaemon:
@@ -140,3 +143,51 @@ async def test_daemon_client_fails_cleanly_when_daemon_has_not_created_token(
 
     with pytest.raises(DaemonRpcError, match="Start the desktop app"):
         await client.call("health")
+
+
+@pytest.mark.asyncio
+async def test_official_mcp_client_reaches_role_scoped_daemon_dispatch(tmp_path: Path) -> None:
+    token_file = tmp_path / "mcp_auth_token"
+    token_file.write_text("mcp-secret", encoding="utf-8")
+    daemon = PilotServer(PilotConfig())
+    daemon._mcp_auth_token = "mcp-secret"
+    daemon._handlers = {
+        "mcp_plan_task": AsyncMock(
+            return_value={
+                "status": "preview",
+                "authoritative": False,
+                "requires_user_approval": True,
+                "actions": [],
+            }
+        )
+    }
+    listener = await websockets.serve(daemon._handle_connection, "127.0.0.1", 0)
+    port = listener.sockets[0].getsockname()[1]
+    bridge = HelioxDaemonClient(
+        uri=f"ws://127.0.0.1:{port}",
+        token_file=token_file,
+        timeout_seconds=1,
+    )
+    mcp_server = create_mcp_server(bridge)
+    try:
+        async with Client(mcp_server) as client:
+            result = await client.call_tool(
+                "preview_heliox_task",
+                {"input": "inspect system health", "session_id": "host-e2e"},
+            )
+    finally:
+        listener.close()
+        await listener.wait_closed()
+
+    assert result.is_error is False
+    assert result.structured_content == {
+        "status": "preview",
+        "authoritative": False,
+        "requires_user_approval": True,
+        "actions": [],
+    }
+    daemon._handlers["mcp_plan_task"].assert_awaited_once()
+    assert daemon._handlers["mcp_plan_task"].await_args.args[0] == {
+        "input": "inspect system health",
+        "session_id": "host-e2e",
+    }
