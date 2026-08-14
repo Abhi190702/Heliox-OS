@@ -60,15 +60,24 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=Path,
-        default=REPO_ROOT / "docs" / "evidence" / "software-benchmarks-2026-08-13.json",
+        help=(
+            "Destination for the evidence bundle. Defaults to a dated file under "
+            "docs/evidence using the bundle capture date."
+        ),
     )
     args = parser.parse_args()
     report = asyncio.run(build_bundle())
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
+    output = args.output or (
+        REPO_ROOT
+        / "docs"
+        / "evidence"
+        / f"software-benchmarks-{report['captured_on']}.json"
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
         json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
-    print(f"Wrote benchmark evidence to {args.output}")
+    print(f"Wrote benchmark evidence to {output}")
     return 0
 
 

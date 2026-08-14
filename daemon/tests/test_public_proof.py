@@ -40,7 +40,7 @@ def test_public_proof_exposes_evidence_boundaries(tmp_path: Path) -> None:
     assert "59/59 cases" in text
     assert "36,000 training" in text
     assert "Event-loop responsiveness" in text
-    assert "software-benchmarks-2026-08-13.json" in text
+    assert "software-benchmarks-2026-08-14.json" in text
 
 
 def test_committed_public_proof_is_current(tmp_path: Path) -> None:

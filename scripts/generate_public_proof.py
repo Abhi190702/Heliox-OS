@@ -16,6 +16,14 @@ def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _latest_benchmark_path() -> Path:
+    evidence_dir = REPO_ROOT / "docs" / "evidence"
+    candidates = sorted(evidence_dir.glob("software-benchmarks-*.json"))
+    if not candidates:
+        raise FileNotFoundError("No software benchmark evidence bundle is committed")
+    return candidates[-1]
+
+
 def _matrix_values(workflow: str, key: str) -> list[str]:
     match = re.search(rf"^\s*{re.escape(key)}:\s*\[([^\]]+)]", workflow, re.MULTILINE)
     if not match:
@@ -32,9 +40,8 @@ def build_proof() -> str:
     legacy_latency = _load_json(
         REPO_ROOT / "docs" / "evidence" / "react-latency-2026-08-12.json"
     )
-    benchmarks = _load_json(
-        REPO_ROOT / "docs" / "evidence" / "software-benchmarks-2026-08-13.json"
-    )
+    benchmark_path = _latest_benchmark_path()
+    benchmarks = _load_json(benchmark_path)
     ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
         encoding="utf-8"
     )
@@ -162,7 +169,7 @@ The audit passed **{world_model["direction_checks_passed"]}/{len(world_model["di
 - None of these software benchmarks measures model-provider, network, browser page-load, UI-rendering, microphone, TTS, camera, gaze, gesture, EEG, or human latency/accuracy.
 - Local snapshots are reproducibility evidence, not universal performance guarantees.
 
-Raw evidence: [`software-benchmarks-2026-08-13.json`]({REPOSITORY_URL}/blob/main/docs/evidence/software-benchmarks-2026-08-13.json) and the [historical CPU artifact]({REPOSITORY_URL}/blob/main/docs/evidence/react-latency-2026-08-12.json).
+Raw evidence: [`{benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence/{benchmark_path.name}) and the [historical CPU artifact]({REPOSITORY_URL}/blob/main/docs/evidence/react-latency-2026-08-12.json).
 
 ## Platform and hardware evidence
 
