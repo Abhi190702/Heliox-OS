@@ -1,6 +1,6 @@
 import { writable, get } from "svelte/store";
 import { call, connect, isConnected, onConnectionState, onNotification } from "../api/daemon";
-import { classifyExecuteResponse, normalizeActionResult } from "../utils/executeResponse";
+import { classifyExecuteResponse, normalizeActionResult, repairLegacyPlanFallback } from "../utils/executeResponse";
 import {
   LEGACY_CHAT_HISTORY_KEY,
   createChatSession,
@@ -149,10 +149,17 @@ export interface Attachment {
 }
 
 function normalizeMessages(messages: Message[]): Message[] {
-  return messages.map((message) => ({
-    ...message,
-    actionResults: message.actionResults?.map((result) => normalizeActionResult(result)),
-  }));
+  let previousPlanExplanation = "";
+  return messages.map((message) => {
+    if (message.type === "plan") {
+      previousPlanExplanation = String(message.plan?.explanation ?? message.text).trim();
+    }
+    const repaired = repairLegacyPlanFallback(message, previousPlanExplanation);
+    return {
+      ...repaired,
+      actionResults: repaired.actionResults?.map((result) => normalizeActionResult(result)),
+    };
+  });
 }
 
 const browserStorage = typeof localStorage === "undefined" ? null : localStorage;

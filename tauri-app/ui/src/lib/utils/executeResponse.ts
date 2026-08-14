@@ -14,6 +14,12 @@ export interface NormalizableActionResult {
   error: string | null;
 }
 
+export interface NormalizableMessage {
+  type: string;
+  text: string;
+  plan?: { explanation?: string };
+}
+
 const CODE_EXECUTION_FAILURE_OUTPUT = /^\s*(?:An unexpected error occurred:|Traceback \(most recent call last\):)/i;
 
 /**
@@ -40,7 +46,9 @@ export function normalizeActionResult<T extends NormalizableActionResult>(result
  */
 export function classifyExecuteResponse(result: Record<string, unknown>): ClassifiedExecuteResponse {
   const status = String(result.status ?? "");
-  const text = String(result.message ?? result.explanation ?? "").trim();
+  const message = String(result.message ?? "").trim();
+  const legacySuccessExplanation = status === "success" ? String(result.explanation ?? "").trim() : "";
+  const text = message || legacySuccessExplanation;
   const rawFollowUp = result.companion_follow_up;
   const followUp =
     rawFollowUp && typeof rawFollowUp === "object"
@@ -90,6 +98,20 @@ export function classifyExecuteResponse(result: Record<string, unknown>): Classi
         messageType: "system",
         text: text || "Task cancelled.",
       };
+    case "interrupted":
+      return {
+        status,
+        messageType: "system",
+        text:
+          text ||
+          "Task was interrupted before a verified result was returned. No unfinished action was reported as complete.",
+      };
+    case "revising":
+      return {
+        status,
+        messageType: "system",
+        text: text || "The active task accepted your correction and is replanning.",
+      };
     case "error":
       return {
         status,
@@ -103,4 +125,30 @@ export function classifyExecuteResponse(result: Record<string, unknown>): Classi
         text: `Unexpected daemon response${status ? ` status: ${status}` : ""}. The task was not reported as successful.`,
       };
   }
+}
+
+/**
+ * Repair terminal cards persisted by older clients that displayed the plan
+ * intent as an execution error when the daemon returned no terminal message.
+ */
+export function repairLegacyPlanFallback<T extends NormalizableMessage>(
+  message: T,
+  previousPlanExplanation: string,
+): T {
+  const text = message.text.trim();
+  const explanation = previousPlanExplanation.trim();
+  if (message.type === "error" && /^Unexpected daemon response status: revising\b/.test(text)) {
+    return {
+      ...message,
+      type: "system",
+      text: "The active task accepted your correction and started replanning.",
+    };
+  }
+  if (message.type !== "error" || !text || !explanation || text !== explanation) return message;
+
+  return {
+    ...message,
+    type: "system",
+    text: "Task was interrupted before a verified result was returned. No unfinished action was reported as complete.",
+  };
 }

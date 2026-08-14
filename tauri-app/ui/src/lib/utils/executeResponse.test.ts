@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyExecuteResponse, normalizeActionResult } from "./executeResponse";
+import { classifyExecuteResponse, normalizeActionResult, repairLegacyPlanFallback } from "./executeResponse";
 
 describe("classifyExecuteResponse", () => {
   it("shows only explicit success as a result", () => {
@@ -36,6 +36,22 @@ describe("classifyExecuteResponse", () => {
     expect(classifyExecuteResponse({ status: "cancelled", message: "Denied." }).messageType).toBe("system");
   });
 
+  it("shows an interruption as a truthful neutral system result", () => {
+    expect(classifyExecuteResponse({ status: "interrupted", message: "Restart interrupted execution." })).toEqual({
+      status: "interrupted",
+      messageType: "system",
+      text: "Restart interrupted execution.",
+    });
+  });
+
+  it("shows live replanning as progress instead of an unknown error", () => {
+    expect(classifyExecuteResponse({ status: "revising", message: "Applying correction." })).toEqual({
+      status: "revising",
+      messageType: "system",
+      text: "Applying correction.",
+    });
+  });
+
   it("fails closed for unknown or missing statuses", () => {
     expect(classifyExecuteResponse({ status: "future_status" }).messageType).toBe("error");
     expect(classifyExecuteResponse({}).text).toContain("not reported as successful");
@@ -49,6 +65,49 @@ describe("classifyExecuteResponse", () => {
         explanation: "Print a greeting.",
       }).text,
     ).toBe("Execution failed with exit code 125.");
+  });
+
+  it("never presents a planning explanation as a failure result", () => {
+    expect(
+      classifyExecuteResponse({
+        status: "partial_failure",
+        explanation: "Collect live read-only system evidence.",
+      }).text,
+    ).toBe("Task completed with errors.");
+  });
+});
+
+describe("repairLegacyPlanFallback", () => {
+  it("repairs a persisted error card that merely repeats the preceding plan", () => {
+    expect(
+      repairLegacyPlanFallback(
+        { type: "error", text: "Collect live read-only system evidence." },
+        "Collect live read-only system evidence.",
+      ),
+    ).toEqual({
+      type: "system",
+      text: "Task was interrupted before a verified result was returned. No unfinished action was reported as complete.",
+    });
+  });
+
+  it("preserves a genuine execution error", () => {
+    const message = { type: "error", text: "Disk query failed: access denied." };
+    expect(repairLegacyPlanFallback(message, "Collect disk evidence.")).toEqual(message);
+  });
+
+  it("repairs the legacy unknown-revising card", () => {
+    expect(
+      repairLegacyPlanFallback(
+        {
+          type: "error",
+          text: "Unexpected daemon response status: revising. The task was not reported as successful.",
+        },
+        "",
+      ),
+    ).toEqual({
+      type: "system",
+      text: "The active task accepted your correction and started replanning.",
+    });
   });
 });
 
