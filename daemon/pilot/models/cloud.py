@@ -45,7 +45,13 @@ DEFAULT_MODELS = {
 
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 3.0  # seconds
-CLOUD_GENERATION_BUDGET_SECONDS = 18.0
+# Planning requests carry Heliox's structured action contract and can take
+# longer than short conversational turns even on a healthy provider.  The
+# previous 18-second process-level deadline routinely cancelled Gemini before
+# the HTTP client's own timeout and surfaced a false "provider unavailable"
+# error.  This remains a hard bound, but gives complex plans enough time to
+# finish; successful requests still return as soon as the provider responds.
+CLOUD_GENERATION_BUDGET_SECONDS = 35.0
 RATE_LIMIT_KEY_COOLDOWN_SECONDS = 60.0
 INVALID_KEY_COOLDOWN_SECONDS = 3600.0
 TRANSIENT_KEY_COOLDOWN_SECONDS = 15.0

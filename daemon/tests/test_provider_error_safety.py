@@ -151,6 +151,23 @@ async def test_cloud_client_bounds_a_hung_generation(monkeypatch):
     await client.close()
 
 
+@pytest.mark.asyncio
+async def test_cloud_client_allows_a_healthy_generation_within_budget(monkeypatch):
+    config = PilotConfig()
+    config.model.cloud_provider = "gemini"
+    client = CloudClient(config, _Vault())
+    monkeypatch.setattr(cloud_module, "CLOUD_GENERATION_BUDGET_SECONDS", 0.08)
+
+    async def _respond(*args, **kwargs):
+        await asyncio.sleep(0.03)
+        return "healthy response"
+
+    client._call_gemini_native = _respond
+
+    assert await client.generate("hello") == "healthy response"
+    await client.close()
+
+
 def test_cloud_circuit_breaker_fails_fast_with_sanitized_reason():
     config = PilotConfig()
     config.model.cloud_provider = "gemini"
