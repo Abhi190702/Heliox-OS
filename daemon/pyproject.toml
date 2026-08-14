@@ -28,6 +28,7 @@ dependencies = [
     "river==0.23.0",
     "icalendar>=5.0.0",
     "caldav>=1.0.0",
+    "mcp>=2.0,<3",
 ]
 
 [project.optional-dependencies]
@@ -140,6 +141,7 @@ pilot-daemon = "pilot.server:main"
 pilot-neurod = "pilot.neural.rpc_client:main"
 pilot-neurod-export = "pilot.neural.recording:export_main"
 pilot-neurod-benchmark = "pilot.neural.benchmark:main"
+heliox-mcp = "pilot.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pilot"]
