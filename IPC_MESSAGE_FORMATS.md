@@ -12,7 +12,7 @@ The Heliox OS UI and daemon communicate over a local WebSocket using the [JSON-R
 | Request timeout | 5 minutes |
 | Reconnect interval | 3 seconds (auto-reconnect on close) |
 
-The daemon currently registers **159 WebSocket RPC methods**. That is the API
+The daemon currently registers **163 WebSocket RPC methods**. That is the API
 surface count, not the action catalog: Heliox exposes **157 action
 types** through the guarded planner/executor system. This document names every
 registered RPC method; grouped tables are used where several methods share one
@@ -622,6 +622,29 @@ is disabled.
 
 ---
 
+### Local MCP Bridge
+
+The local stdio MCP server authenticates to this WebSocket API as the
+`mcp_local` role using a separate rotated runtime token. It has an explicit
+nine-method allowlist: `health`, `ready`, `system_status`, `capabilities`,
+`agent_capabilities`, and the four methods below. It cannot call `execute`,
+`confirm`, configuration, credential, neural, or arbitrary RPC methods.
+
+| Method | Purpose |
+| --- | --- |
+| `mcp_plan_task` | Produce a non-binding, side-effect-free task preview. |
+| `mcp_submit_task` | Replan and enqueue an MCP-owned durable task; return immediately. |
+| `mcp_task_status` | Read approval, progress, and terminal result for an MCP-owned task. |
+| `mcp_cancel_task` | Cancel an MCP-owned task and deny any pending approval wait. |
+
+`mcp_submit_task` accepts `input` plus an optional `session_id`. It returns a
+`task_id` and an accepted/planning state, not an execution result. Every action
+is presented in the Heliox UI for confirmation. There is deliberately no MCP
+RPC for approval. `mcp_task_status` and `mcp_cancel_task` reject tasks that are
+not owned by `mcp-local`.
+
+---
+
 ### Multimodal Input
 
 #### `voice_event`
@@ -681,10 +704,11 @@ Return fusion engine statistics.
 
 ### Neural Intent Research Controls
 
-Neural RPC uses two authenticated roles. The UI retains the ordinary daemon
+Daemon RPC uses three authenticated roles. The UI retains the ordinary daemon
 token. The one allowed `pilot-neurod` connection authenticates with a separate
 short-lived sidecar token and can call only the methods marked Sidecar below.
-Role violations return method-not-available before a handler runs.
+The local MCP bridge uses its own token and the narrow allowlist documented
+above. Role violations return method-not-available before a handler runs.
 
 | Method | Role | Purpose |
 |--------|------|---------|

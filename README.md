@@ -119,6 +119,7 @@ No comparison declares a universal winner. See the [transparent cost page](https
 | Bounded learning       | Provenance-aware temporal memory, repeated-evidence promotion, replay, drift detection, and reset controls                                                 |
 | Plugin ecosystem       | Reviewed GitHub marketplace, signed local plugins, per-file hashes, capability manifests, and constrained native/WASM brokers                              |
 | Neural research        | BrainFlow synthetic, recorded EEG playback, public EEGBCI benchmarking, calibrated SSVEP selection, replay-safe Tier 0/1 goals, and explicit staged autonomous task launch |
+| MCP interfaces         | Public read-only documentation MCP plus a local, separately authenticated stdio bridge whose tasks use visible Heliox approvals                           |
 
 ## Architecture
 
@@ -135,6 +136,8 @@ flowchart LR
     Memory --> Planner
     Neurod[Synthetic / recorded / local neural sidecar] --> NeuralSelect[Bounded neural selection]
     NeuralSelect --> Gateway
+    MCPHost[Local MCP host] --> MCPBridge[Least-privilege stdio bridge]
+    MCPBridge --> Safety
 ```
 
 The desktop is a Tauri/Svelte application. A local Python daemon owns planning, permissions, specialist routing, execution, verification, durable state, memory, and model adapters. Browser, OS, integration, plugin, and research paths enter the same safety and audit backbone.
@@ -221,6 +224,26 @@ npm run tauri dev
 
 Windows contributors can use `setup.ps1`. See [CONTRIBUTING.md](CONTRIBUTING.md) for platform prerequisites and test commands.
 
+### Connect a local MCP host
+
+Start the Heliox desktop application, then configure an MCP host to launch the
+installed `heliox-mcp` command:
+
+```json
+{
+  "mcpServers": {
+    "heliox-local": {
+      "command": "heliox-mcp"
+    }
+  }
+}
+```
+
+The local server exposes status, capability, task preview, submission, polling,
+and cancellation tools. Every submitted action requires visible approval in
+Heliox; the MCP client cannot approve its own work. See [MCP interfaces](docs/MCP.md)
+for the tool list and security boundary.
+
 ## Try these tasks
 
 ```text
@@ -296,6 +319,7 @@ Open a [bug report](https://github.com/VyomKulshrestha/Heliox-OS/issues/new/choo
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [MCP interfaces and local-host setup](docs/MCP.md)
 - [Security policy and threat model](SECURITY.md)
 - [Windows signing](docs/WINDOWS_SIGNING.md)
 - [Gesture and gaze control](GESTURES.md)
@@ -317,6 +341,11 @@ Heliox publishes public, read-only discovery surfaces so search engines and assi
 - [Human evidence center](https://www.helioxos.dev/proof.html), [Markdown evidence](https://www.helioxos.dev/proof.md), and [release feed](https://www.helioxos.dev/releases.json)
 
 These surfaces improve technical discoverability; they do not guarantee search ranking, citations, sponsorship, or funding. External visibility is measured separately through a recurring prompt and index audit.
+
+The public documentation MCP is intentionally unable to control a computer.
+Local control uses the separately authenticated stdio bridge documented in
+[MCP interfaces](docs/MCP.md), and its work remains approval-gated in the
+desktop application.
 
 ## Support Heliox
 

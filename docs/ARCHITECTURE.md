@@ -7,7 +7,7 @@ This document describes the current `main` source runtime (package version
 
 ## System boundaries
 
-Heliox is split into four trust boundaries:
+Heliox is split into five trust boundaries:
 
 1. **Tauri desktop shell and Svelte UI** collect explicit text, voice, gesture,
    gaze, camera, and settings input. The UI is not the execution authority.
@@ -22,6 +22,13 @@ Heliox is split into four trust boundaries:
    consented encrypted raw recording. It authenticates with a separate token
    and can send only bounded observations, stimulus reads, and signed intent;
    it cannot arm, commit, execute, approve, or use the UI credential.
+5. **Least-privileged local MCP bridge** runs over stdio for an explicitly
+   configured MCP host. It authenticates to the loopback daemon with a rotated
+   `mcp_local` token and a nine-method RPC allowlist. It cannot call raw
+   execution, confirmation, configuration, credential, or neural methods.
+   Submitted work enters the normal daemon path and always pauses for visible
+   approval in the desktop UI. The public documentation MCP is a separate,
+   read-only website endpoint with no local-daemon credential or control path.
 
 Raw camera frames, audio, hand or face landmarks, screen pixels, and binary
 payloads are excluded from the experience and learning stores by default.
@@ -35,6 +42,9 @@ flowchart LR
     Neurod --> SignedIntent["Signed, expiring neural intent"]
     SignedIntent --> NeuralGate["Dwell, replay, preview and cancellation gate"]
     NeuralGate --> Interaction
+    MCPHost["Local MCP host"] --> MCPBridge["stdio MCP bridge"]
+    MCPBridge --> MCPTask["MCP task preview, submit, poll or cancel"]
+    MCPTask --> Planner
     Interaction --> Ledger["Append-only experience ledger"]
     Ledger --> Context["Temporal context assembler"]
     Context --> Planner["Planner and strategy assignment"]
@@ -75,6 +85,21 @@ running-process evidence through `psutil`, formats the two most important
 observations, and returns a prioritized recommendation without an LLM call or
 an OS mutation. It still enters the normal permission, routing, execution,
 verification, and result contracts.
+
+### Local MCP task lifecycle
+
+`pilot.mcp_server` uses the official Python MCP SDK over stdio and translates
+seven tools into nine allowlisted daemon RPC methods. A submit call returns a
+durable task identifier immediately; it never reports submission as execution
+success. The host polls status until success, failure, cancellation, or another
+terminal state. Task status and cancellation are limited to tasks whose durable
+owner is `mcp-local`.
+
+MCP task preview is advisory and side-effect free. Submission replans from
+current state and forces every proposed action through the existing visible
+confirmation dialog. There is no MCP confirmation primitive, so the calling
+model cannot authorize its own effects. Cancellation also resolves a waiting
+approval as denied, avoiding an orphaned five-minute confirmation wait.
 
 ## Intelligence and reliability layers
 
