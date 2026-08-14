@@ -86,7 +86,7 @@ test.describe("Chat Interface", () => {
           data: JSON.stringify({
             jsonrpc: "2.0",
             id: msgId,
-            result: { status: "error", explanation: "Connection to daemon lost. Please restart." },
+            result: { status: "error", message: "Connection to daemon lost. Please restart." },
           }),
         });
       }
