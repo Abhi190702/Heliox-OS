@@ -5,7 +5,10 @@ deliberately elicited neural choice as one input modality. It does **not** read
 unrestricted thoughts, diagnose a person, certify a brain-computer interface,
 or authorize physical equipment. The implemented product boundary is N0-N3:
 simulator/acquisition, observe-only decoding, safe UI navigation, and a fixed
-set of reversible Tier 0/1 desktop goals.
+set of reversible Tier 0/1 desktop goals. A user may also stage an explicit
+text-authored autonomous goal, then use neural focus/select to launch that
+specific goal through Heliox's normal decomposition and specialist-agent
+pipeline. This is selection of prior text, not free-form thought decoding.
 
 Physical neural control is disabled in code. N4 physical proposal shadow mode
 and N5 physical research pilots remain future work and require independent
@@ -171,6 +174,17 @@ control surface. Safe desktop mode can select only these compiled goals:
 - open the OS calculator; and
 - show a local break reminder.
 
+The UI can additionally stage up to eight explicit autonomous goals. Each
+staged goal is authored non-neurally, shown in the neural control surface, and
+identified by an opaque daemon-owned task UUID. Neural input can focus and
+select that card; it cannot supply or modify the goal text, action parameters,
+agent assignment, permission scope, or approval state. A successful selection
+submits the staged goal to the standard autonomous engine, which decomposes
+complex work, routes each resulting action plan through registered specialist
+agents, executes under the ordinary autonomous gateway ceiling, verifies
+postconditions, and reports progress. Normal confirmations still apply to
+later actions. Staging or selecting a task is not blanket approval.
+
 Every goal is checked at construction to be reversible and Tier 0 or Tier 1.
 The `neural` Agent Gateway profile cannot be widened by a caller. The resolved
 plan is assessed by the world model before preview and again immediately before
@@ -183,9 +197,9 @@ commit never waits behind an already-running effect and then executes a stale
 preview: it fails closed. Acquisition and cancel/disarm signals remain live
 while another feature holds the lease.
 
-Physical goals, destructive approval, root authority, arbitrary commands,
-provider secrets, and continuous cursor/robot motion are not capabilities of
-the neural sidecar or gate.
+Physical goals, destructive approval, root authority, arbitrary neural command
+text, provider secrets, and continuous cursor/robot motion are not capabilities
+of the neural sidecar or gate.
 
 ## Recording and BIDS export
 
@@ -228,8 +242,9 @@ acquisition, LSL chunk accumulation, grouped EEGBCI classification and bounded
 preview mapping, calibration holdout rules, signal artifacts,
 world-model refusal, cancel/commit races, role separation, sidecar disconnect,
 record encryption/tampering/retention/export, stimulus markers, audit-chain
-tampering, the shared execution lease, and a real two-WebSocket sidecar/UI
-end-to-end flow.
+tampering, the shared execution lease, explicit task staging, neural task
+selection, autonomous submission, specialist routing, and a real two-WebSocket
+sidecar/UI end-to-end flow.
 
 A deterministic synthetic soak covers 7,200 observations over a simulated
 hour with zero emitted intents. This proves the registered synthetic fixture
@@ -240,7 +255,7 @@ does not create control, not a biological false-activation rate.
 | N0 contract and simulator | Implemented and automated | None for the software boundary |
 | N1 observe-only live EEG | Acquisition/recording/export/decoder software implemented | Real OpenBCI session, multi-day replay, biological artifact and calibration evidence |
 | N2 safe UI navigation | Implemented and paired-RPC tested | Representative human no-control soak and physical keyboard/mouse emergency-disarm exercise |
-| N3 low-risk desktop goals | Implemented and guarded-path tested | Real-user latency, fatigue, cross-session, voice/gaze/gesture coexistence validation |
+| N3 desktop goals and staged autonomous launch | Implemented and guarded-path tested | Real-user latency, fatigue, cross-session, voice/gaze/gesture coexistence validation |
 | N4 physical shadow proposal | Not implemented | HIL simulator, physical world model, deterministic supervisor and independent stop evidence |
 | N5 physical research pilot | Not implemented | Qualified safety/ethics/human-factors review and on-site operator controls |
 

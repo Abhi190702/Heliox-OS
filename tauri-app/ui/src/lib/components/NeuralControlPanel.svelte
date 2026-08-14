@@ -24,6 +24,8 @@
   let benchmarkError = $state("");
   let benchmarkResult = $state<Record<string, unknown> | null>(null);
   let eegbciSubject = $state(1);
+  let stagedTaskLabel = $state("");
+  let stagedTaskGoal = $state("");
 
   onMount(() => {
     void neural.refresh();
@@ -62,6 +64,14 @@
     return `${Math.round((value ?? 0) * 100)}%`;
   }
 
+  function resultText(key: string): string {
+    const result = $neural.lastResult;
+    if (!result) return "";
+    const job = (result.job ?? {}) as Record<string, unknown>;
+    const value = key === "job_id" ? job.job_id : (result[key] ?? job[key]);
+    return value === null || value === undefined ? "" : String(value);
+  }
+
   async function runBenchmark(benchmark: "brainflow-synthetic" | "eegbci") {
     benchmarkBusy = true;
     benchmarkError = "";
@@ -76,6 +86,14 @@
       benchmarkError = cause instanceof Error ? cause.message : String(cause);
     } finally {
       benchmarkBusy = false;
+    }
+  }
+
+  async function stageAutonomousTask() {
+    const staged = await neural.stageTask(stagedTaskLabel, stagedTaskGoal);
+    if (staged) {
+      stagedTaskLabel = "";
+      stagedTaskGoal = "";
     }
   }
 
@@ -301,6 +319,60 @@
     </div>
   {/if}
 
+  <div class="task-launcher">
+    <div class="goal-header">
+      <div>
+        <strong>{$_("neural.task_launcher")}</strong>
+        <span>{$_("neural.task_launcher_body")}</span>
+      </div>
+      <span class="evidence-badge">{$_("neural.task_authority")}</span>
+    </div>
+    <div class="configuration-grid task-form">
+      <label>
+        <span>{$_("neural.task_label")}</span>
+        <input bind:value={stagedTaskLabel} maxlength="80" placeholder="Research and summarize" />
+      </label>
+      <label class="wide">
+        <span>{$_("neural.task_goal")}</span>
+        <textarea
+          bind:value={stagedTaskGoal}
+          maxlength="2000"
+          rows="3"
+          placeholder="Research the topic, compare the evidence, and save a verified summary."></textarea>
+      </label>
+    </div>
+    <div class="actions task-actions">
+      <button class="primary" onclick={stageAutonomousTask} disabled={$neural.busy || stagedTaskGoal.trim().length < 3}>
+        {$_("neural.stage_task")}
+      </button>
+    </div>
+    <div class="staged-task-list">
+      {#each $neural.stagedTasks as task (task.task_id)}
+        <div class:focused={$neural.focusedCommandId === task.command_id} class="staged-task">
+          <div>
+            <strong>{task.label}</strong>
+            <small>{task.goal}</small>
+          </div>
+          <button onclick={() => neural.removeStagedTask(task.task_id)} disabled={$neural.busy}>
+            {$_("neural.remove_task")}
+          </button>
+        </div>
+      {:else}
+        <p class="empty">{$_("neural.no_staged_tasks")}</p>
+      {/each}
+    </div>
+    {#if $neural.lastResult?.staged_task}
+      <div class:failed={resultText("status") === "failed"} class="task-result" aria-live="polite">
+        <strong>{$_("neural.task_result")}: {resultText("status") || $_("neural.task_result_unknown")}</strong>
+        {#if resultText("job_id")}
+          <span>{$_("neural.task_job_id")}: <code>{resultText("job_id")}</code></span>
+        {/if}
+        {#if resultText("error")}<span>{resultText("error")}</span>{/if}
+        <small>{$_("neural.task_result_body")}</small>
+      </div>
+    {/if}
+  </div>
+
   <div class="goal-list" aria-label={$_("neural.safe_goals")}>
     <div class="goal-header">
       <strong>{$_("neural.safe_goals")}</strong>
@@ -462,13 +534,17 @@
     grid-column: 1 / -1;
   }
   input,
-  select {
+  select,
+  textarea {
     min-width: 0;
     padding: 7px 9px;
     color: var(--text-primary);
     background: var(--bg-primary);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
+  }
+  textarea {
+    resize: vertical;
   }
   .actions {
     justify-content: flex-start;
@@ -529,6 +605,70 @@
     gap: 8px;
     padding: 12px 14px 14px;
     border-top: 1px solid var(--border);
+  }
+  .task-launcher {
+    display: grid;
+    gap: 10px;
+    margin: 0 14px 12px;
+    padding: 10px;
+    background: color-mix(in srgb, var(--accent) 5%, var(--bg-primary));
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    border-radius: var(--radius-sm);
+  }
+  .task-form {
+    padding: 0;
+  }
+  .task-actions {
+    padding: 0;
+  }
+  .staged-task-list {
+    display: grid;
+    gap: 7px;
+  }
+  .task-result {
+    display: grid;
+    gap: 4px;
+    padding: 9px;
+    color: var(--success);
+    background: color-mix(in srgb, var(--success) 7%, var(--bg-primary));
+    border: 1px solid color-mix(in srgb, var(--success) 35%, var(--border));
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+  }
+  .task-result.failed {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 7%, var(--bg-primary));
+    border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  }
+  .task-result span,
+  .task-result small {
+    color: var(--text-secondary);
+  }
+  .staged-task {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .staged-task.focused {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .staged-task div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .staged-task small {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
   }
   .goal-header,
   .empty {

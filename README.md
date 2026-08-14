@@ -116,7 +116,7 @@ No comparison declares a universal winner. See the [transparent cost page](https
 | Hybrid risk model      | Deterministic policy plus structured transitions, learned risk, verified failure history, and optional shadow UI-JEPA; learned output can only add caution |
 | Bounded learning       | Provenance-aware temporal memory, repeated-evidence promotion, replay, drift detection, and reset controls                                                 |
 | Plugin ecosystem       | Reviewed GitHub marketplace, signed local plugins, per-file hashes, capability manifests, and constrained native/WASM brokers                              |
-| Neural research        | BrainFlow synthetic, recorded EEG playback, public EEGBCI benchmarking, calibrated SSVEP vocabulary, and replay-safe Tier 0/1 proposals                    |
+| Neural research        | BrainFlow synthetic, recorded EEG playback, public EEGBCI benchmarking, calibrated SSVEP selection, replay-safe Tier 0/1 goals, and explicit staged autonomous task launch |
 
 ## Architecture
 
@@ -131,7 +131,8 @@ flowchart LR
     Verifier --> Result[Visible result]
     Verifier --> Memory[Ledger · memory · replay]
     Memory --> Planner
-    Neurod[Synthetic / recorded / local neural sidecar] --> Gateway
+    Neurod[Synthetic / recorded / local neural sidecar] --> NeuralSelect[Bounded neural selection]
+    NeuralSelect --> Gateway
 ```
 
 The desktop is a Tauri/Svelte application. A local Python daemon owns planning, permissions, specialist routing, execution, verification, durable state, memory, and model adapters. Browser, OS, integration, plugin, and research paths enter the same safety and audit backbone.
@@ -270,7 +271,7 @@ Kokoro, Pocket TTS, gaze, gesture tracking, and the learned-risk model are CPU-c
 | macOS                   | Python/UI CI plus desktop packages; permissions and hardware require local validation                                                      |
 | Camera gesture and gaze | Automated geometry, calibration, fusion, and false-positive tests; physical accuracy is not established across users and environments      |
 | Voice and TTS           | Routing, fallback, interruption, and cancellation tests; microphone accuracy and audible quality require human checks                      |
-| Neural intent           | Synthetic BrainFlow and recorded EEG paths only; no established live headset accuracy, thought reading, medical use, or physical authority |
+| Neural intent           | Synthetic BrainFlow and recorded EEG paths are tested. A user may stage up to eight text-authored goals and use calibrated focus/select to launch one through normal autonomous decomposition, specialist routing, permissions, approvals, and verification. No live headset accuracy, unrestricted thought reading, medical use, or physical authority is established. |
 | Cognitive HUD           | Behavioural estimates from local interaction signals, not physiological or medical measurements                                            |
 
 <a id="troubleshooting"></a>

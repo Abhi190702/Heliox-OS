@@ -295,11 +295,15 @@ BrainFlow synthetic board and MNE CSP/LDA on PhysioNet EEGBCI recordings; its
 held-run predictions reach only the bounded navigation-preview vocabulary.
 
 Dedicated neural UI navigation has no OS side effect. Safe desktop mode maps
-only through `NeuralGoalRegistry`, whose shipped entries are reversible Tier
-0/1 status, calculator, and local-notification actions. The `neural` gateway
-profile, shared executor, normal permission policy, durable claim, adapter,
-audit, and verification remain authoritative. Physical control, destructive
-approval, arbitrary command text, and provider credentials are unavailable.
+through `NeuralGoalRegistry`, whose shipped entries are reversible Tier 0/1
+status, calculator, and local-notification actions. The UI may also stage an
+explicit text-authored goal under a daemon-owned UUID. Neural focus/select can
+launch that exact staged goal through the autonomous decomposer and specialist
+orchestrator; the sidecar cannot author or alter it. The autonomous gateway,
+normal permission and confirmation policy, durable claim, adapter, audit, and
+verification remain authoritative. Physical control, destructive approval,
+free-form thought decoding, arbitrary neural command text, and provider
+credentials are unavailable.
 
 Raw samples stay inside `neurod` unless a user grants explicit purpose-bound
 recording consent. `.neeg` chunks and stimulus markers use AES-256-GCM with a

@@ -95,4 +95,32 @@ describe("neural control store", () => {
     expect(get(neural).evidenceKind).toBe("recorded_eeg");
     expect(get(neural).boardKind).toBe("local-npz-playback");
   });
+
+  it("stages an explicit goal instead of accepting free-form neural text", async () => {
+    const { neural } = await import("./neural");
+    call.mockResolvedValue({
+      status: "ok",
+      staged_tasks: [
+        {
+          task_id: "task-1",
+          command_id: "staged-task:task-1",
+          label: "Research",
+          goal: "Research and save a verified summary",
+          session_id: "chat-4",
+          created_at_ns: 10,
+          authority: "explicit_non_neural_staging",
+        },
+      ],
+      focused_command_id: "staged-task:task-1",
+    });
+
+    expect(await neural.stageTask("Research", "Research and save a verified summary", "chat-4")).toBe(true);
+    expect(call).toHaveBeenCalledWith("neural_stage_task", {
+      label: "Research",
+      goal: "Research and save a verified summary",
+      session_id: "chat-4",
+    });
+    expect(get(neural).stagedTasks[0]?.authority).toBe("explicit_non_neural_staging");
+    expect(get(neural).focusedCommandId).toBe("staged-task:task-1");
+  });
 });

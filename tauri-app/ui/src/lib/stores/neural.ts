@@ -38,6 +38,7 @@ export interface NeuralPreview {
   expires_at_ns: number;
   requires_non_neural_approval: boolean;
   world_model: Record<string, unknown> | null;
+  staged_task: NeuralStagedTask | null;
 }
 
 export interface NeuralSafeGoal {
@@ -46,6 +47,16 @@ export interface NeuralSafeGoal {
   description: string;
   action_type: string;
   permission_tier: number;
+}
+
+export interface NeuralStagedTask {
+  task_id: string;
+  command_id: string;
+  label: string;
+  goal: string;
+  session_id: string;
+  created_at_ns: number;
+  authority: "explicit_non_neural_staging";
 }
 
 export interface NeuralState {
@@ -73,6 +84,7 @@ export interface NeuralState {
   stateRevision: number;
   focusedCommandId: string;
   safeGoals: NeuralSafeGoal[];
+  stagedTasks: NeuralStagedTask[];
   quality: NeuralQuality | null;
   bufferedSamples: number;
   droppedSamples: number;
@@ -101,6 +113,7 @@ const DEFAULT_STATE: NeuralState = {
   stateRevision: 0,
   focusedCommandId: "",
   safeGoals: [],
+  stagedTasks: [],
   quality: null,
   bufferedSamples: 0,
   droppedSamples: 0,
@@ -142,6 +155,7 @@ function createNeuralControl() {
       stateRevision: Number(payload.state_revision ?? current.stateRevision),
       focusedCommandId: String(payload.focused_command_id ?? current.focusedCommandId),
       safeGoals: (payload.safe_goals as NeuralSafeGoal[] | undefined) ?? current.safeGoals,
+      stagedTasks: (payload.staged_tasks as NeuralStagedTask[] | undefined) ?? current.stagedTasks,
       error: "",
     }));
   }
@@ -302,6 +316,40 @@ function createNeuralControl() {
     }
   }
 
+  async function stageTask(label: string, goal: string, sessionId = "neural"): Promise<boolean> {
+    store.update((current) => ({ ...current, busy: true, error: "" }));
+    try {
+      const result = (await call("neural_stage_task", {
+        label,
+        goal,
+        session_id: sessionId,
+      })) as Record<string, unknown>;
+      if (result.status === "rejected") throw new Error(String(result.error ?? "Task staging was rejected"));
+      applyStatus(result);
+      return true;
+    } catch (cause) {
+      store.update((current) => ({ ...current, error: readableError(cause) }));
+      return false;
+    } finally {
+      store.update((current) => ({ ...current, busy: false }));
+    }
+  }
+
+  async function removeStagedTask(taskId: string): Promise<boolean> {
+    store.update((current) => ({ ...current, busy: true, error: "" }));
+    try {
+      const result = (await call("neural_remove_staged_task", { task_id: taskId })) as Record<string, unknown>;
+      if (result.status === "rejected") throw new Error(String(result.error ?? "Task removal was rejected"));
+      applyStatus(result);
+      return true;
+    } catch (cause) {
+      store.update((current) => ({ ...current, error: readableError(cause) }));
+      return false;
+    } finally {
+      store.update((current) => ({ ...current, busy: false }));
+    }
+  }
+
   return {
     subscribe: store.subscribe,
     refresh,
@@ -310,6 +358,8 @@ function createNeuralControl() {
     beginCalibration,
     arm,
     disarm,
+    stageTask,
+    removeStagedTask,
     approvePreview: () => commitPreview(true),
     cancelPreview: () => disarm("preview_cancelled_by_user"),
     setStimulusEnabled(enabled: boolean) {

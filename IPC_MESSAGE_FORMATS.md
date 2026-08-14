@@ -689,6 +689,8 @@ Role violations return method-not-available before a handler runs.
 | Method | Role | Purpose |
 |--------|------|---------|
 | `neural_status` | UI, Sidecar | Read state, capabilities, fixed goals, quality and bounded audit status |
+| `neural_stage_task` | UI | Stage one explicit text-authored goal for later neural focus/select |
+| `neural_remove_staged_task` | UI | Remove an unlaunched staged goal by daemon-issued UUID |
 | `neural_connect` | Sidecar | Register one strict `NeuralStreamDescriptorV1` session |
 | `neural_begin_calibration` | UI | Move the current session into explicit calibration |
 | `neural_finish_calibration` | Sidecar | Bind verified artifact, subject pseudonym, decoder version and held-block metrics |
@@ -705,6 +707,15 @@ Role violations return method-not-available before a handler runs.
 pseudonymous source, transport, sample rate, channel metadata, reference,
 optional calibration hash, sequence start, and monotonic start. Unknown fields,
 invalid ranges, inconsistent channels, and unsupported versions reject.
+
+`neural_stage_task` accepts a 3-2000 character `goal`, an optional 1-80
+character `label`, and an optional bounded conversation `session_id`. At most
+eight tasks are held in memory. The response exposes their opaque task and
+command IDs, but the sidecar cannot call either staging method or place goal
+text in a signed intent. Neural selection therefore launches prior explicit
+text rather than treating EEG as a natural-language channel. The launched job
+uses the normal autonomous decomposition, specialist routing, permissions,
+confirmation, verification, cancellation, and progress notifications.
 
 `neural_finish_calibration`:
 

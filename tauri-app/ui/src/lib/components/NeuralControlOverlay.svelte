@@ -35,12 +35,19 @@
     <div class="preview-card">
       <div class="eyebrow">{$_("neural.decoded_candidate")}</div>
       <h3 id="neural-preview-title">
-        {$neural.preview.resolved_command_id ?? $neural.preview.canonical_goal.replaceAll("_", " ")}
+        {$neural.preview.staged_task?.label ??
+          $neural.preview.resolved_command_id ??
+          $neural.preview.canonical_goal.replaceAll("_", " ")}
       </h3>
-      <p>
-        {$_("neural.preview_body")}
-        {#if !$neural.preview.requires_non_neural_approval}{$_("neural.auto_commit")}{/if}
-      </p>
+      {#if $neural.preview.staged_task}
+        <p class="task-goal">{$neural.preview.staged_task.goal}</p>
+        <p>{$_("neural.task_preview_body")}</p>
+      {:else}
+        <p>
+          {$_("neural.preview_body")}
+          {#if !$neural.preview.requires_non_neural_approval}{$_("neural.auto_commit")}{/if}
+        </p>
+      {/if}
       {#if $neural.preview.world_model}
         <div class="world-model">
           <strong>{$_("neural.world_model")}</strong>
@@ -149,6 +156,13 @@
     color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.5;
+  }
+  .task-goal {
+    padding: 9px;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
   }
   .world-model {
     display: grid;
