@@ -191,7 +191,7 @@ PLUGIN RUNTIMES:
 
 SYSTEM ADMINISTRATION / PACKAGE / SERVICE / PROCESS / POWER:
 ... (all standard commands apply)
-- You have full access to shell_command, shell_script, system_info, registry_read, dbus_call, etc.
+- You have full access to shell_command, shell_script, system_info, system_health_review, registry_read, dbus_call, etc.
 
 REMOTE EXECUTION (SSH):
 - ssh_command Params: {{"host": "prod-1", "command": "uname -a", "timeout_seconds": 60}}
@@ -678,6 +678,43 @@ class Planner:
                     )
                 ],
                 explanation="Display current system information",
+                raw_input=user_input,
+            )
+
+        # --- comprehensive read-only system health review ---
+        # A bounded diagnostic must remain useful when a cloud planner is slow
+        # or unavailable. The executor derives its findings from fresh local
+        # measurements, so this is neither a canned response nor a mutation.
+        wants_health_review = (
+            re.search(r"\b(?:system|computer|pc|machine)\s+health\b", text)
+            and re.search(r"\b(?:review|check|report|diagnos(?:e|tic)|assess)\b", text)
+        ) or (
+            re.search(r"\b(?:cpu|processor)\b", text)
+            and re.search(r"\b(?:memory|ram)\b", text)
+            and re.search(r"\bdisk\b", text)
+            and re.search(r"\b(?:process|processes|running-process)\b", text)
+            and re.search(r"\b(?:review|evidence|observation|recommendation|health)\b", text)
+        )
+        mutating_health_request = re.search(
+            r"(?:^|[,;]\s*|\b(?:and|then|also|please)\s+)"
+            r"(?:stop|kill|install|delete|remove|modify|change|clean|optimi[sz]e|fix)\b",
+            text,
+        )
+        explicitly_read_only = re.search(
+            r"\bread[- ]only\b|\b(?:do not|don't|never)\b.{0,160}"
+            r"\b(?:stop|kill|install|delete|remove|modify|change)\b",
+            text,
+        )
+        if wants_health_review and (explicitly_read_only or not mutating_health_request):
+            return ActionPlan(
+                actions=[
+                    Action(
+                        action_type=ActionType.SYSTEM_HEALTH_REVIEW,
+                        target="system health",
+                        parameters=EmptyParams(),
+                    )
+                ],
+                explanation="Collect live read-only system evidence and produce a prioritized health assessment",
                 raw_input=user_input,
             )
 
@@ -1760,6 +1797,7 @@ class Planner:
         if action_type == ActionType.SYSTEM_INFO:
             return SystemInfoParams(**params)
         if action_type in (
+            ActionType.SYSTEM_HEALTH_REVIEW,
             ActionType.DISK_USAGE,
             ActionType.MEMORY_USAGE,
             ActionType.CPU_USAGE,

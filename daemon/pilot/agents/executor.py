@@ -225,6 +225,7 @@ class Executor:
             ActionType.CLIPBOARD_WRITE: self._exec_clipboard_write,
             # -- System info --
             ActionType.SYSTEM_INFO: self._exec_system_info,
+            ActionType.SYSTEM_HEALTH_REVIEW: self._exec_system_health_review,
             ActionType.DISK_USAGE: self._exec_disk_usage,
             ActionType.MEMORY_USAGE: self._exec_memory_usage,
             ActionType.CPU_USAGE: self._exec_cpu_usage,
@@ -1775,6 +1776,11 @@ class Executor:
 
         params: SystemInfoParams = action.parameters  # type: ignore[assignment]
         return await system_info(params.categories)
+
+    async def _exec_system_health_review(self, action: Action) -> str:
+        from pilot.system.sysinfo import system_health_review
+
+        return await system_health_review()
 
     async def _exec_disk_usage(self, action: Action) -> str:
         from pilot.system.sysinfo import disk_usage

@@ -264,3 +264,155 @@ async def _battery_info() -> str:
 
 async def battery_info() -> str:
     return await _battery_info()
+
+
+def _collect_system_health_snapshot() -> dict:
+    """Collect one coherent, read-only psutil snapshot for health reporting."""
+    import psutil
+
+    cpu_percent = float(psutil.cpu_percent(interval=SYSTEM_INFO_CPU_SAMPLE_SECONDS))
+    memory = psutil.virtual_memory()
+    disks: list[dict[str, object]] = []
+    seen_mounts: set[str] = set()
+    for part in psutil.disk_partitions():
+        if part.mountpoint in seen_mounts:
+            continue
+        seen_mounts.add(part.mountpoint)
+        try:
+            usage = psutil.disk_usage(part.mountpoint)
+        except (PermissionError, OSError):
+            continue
+        disks.append(
+            {
+                "device": part.device or part.mountpoint,
+                "mountpoint": part.mountpoint,
+                "percent": float(usage.percent),
+                "free_gb": usage.free / (1024**3),
+            }
+        )
+
+    battery = psutil.sensors_battery()
+    processes: list[dict[str, object]] = []
+    for proc in psutil.process_iter(["pid", "name", "memory_info"]):
+        try:
+            info = proc.info
+            memory_info = info.get("memory_info")
+            processes.append(
+                {
+                    "pid": int(info["pid"]),
+                    "name": str(info.get("name") or "unknown"),
+                    "memory_mb": float(memory_info.rss / (1024**2)) if memory_info else 0.0,
+                }
+            )
+        except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError, ValueError):
+            continue
+    processes.sort(key=lambda item: float(item["memory_mb"]), reverse=True)
+
+    return {
+        "cpu_percent": cpu_percent,
+        "memory_percent": float(memory.percent),
+        "memory_available_gb": memory.available / (1024**3),
+        "disks": disks,
+        "battery_percent": float(battery.percent) if battery else None,
+        "battery_plugged": bool(battery.power_plugged) if battery else None,
+        "process_count": len(processes),
+        "top_processes": processes[:5],
+    }
+
+
+def _format_system_health_review(snapshot: dict) -> str:
+    """Turn measured evidence into two deterministic observations and advice."""
+    cpu = float(snapshot["cpu_percent"])
+    memory = float(snapshot["memory_percent"])
+    available = float(snapshot["memory_available_gb"])
+    disks = list(snapshot["disks"])
+    battery_percent = snapshot["battery_percent"]
+    battery_plugged = snapshot["battery_plugged"]
+    process_count = int(snapshot["process_count"])
+    top_processes = list(snapshot["top_processes"])
+
+    disk = max(disks, key=lambda item: float(item["percent"]), default=None)
+    disk_percent = float(disk["percent"]) if disk else 0.0
+    disk_label = str(disk["device"]) if disk else "No accessible disk"
+    disk_free = float(disk["free_gb"]) if disk else 0.0
+
+    candidates: list[tuple[int, str, str]] = [
+        (
+            100 if memory >= 90 else 75 if memory >= 80 else 35,
+            f"Memory is {memory:.1f}% used with {available:.1f} GB available.",
+            "Close or pause the largest unneeded applications before starting another memory-heavy workload."
+            if memory >= 80
+            else "No immediate memory action is required; recheck if responsiveness degrades.",
+        ),
+        (
+            95 if disk_percent >= 95 else 70 if disk_percent >= 85 else 30,
+            f"The fullest accessible disk is {disk_label} at {disk_percent:.1f}% used ({disk_free:.1f} GB free)."
+            if disk
+            else "No accessible filesystem usage could be measured.",
+            "Review large files and temporary data soon, without deleting anything automatically."
+            if disk_percent >= 85
+            else "Disk headroom is currently acceptable.",
+        ),
+        (
+            85 if cpu >= 90 else 60 if cpu >= 75 else 25,
+            f"CPU utilization is {cpu:.1f}% in the current sample.",
+            "Inspect sustained high-CPU processes before deciding whether any intervention is needed."
+            if cpu >= 75
+            else "CPU load does not currently require intervention.",
+        ),
+    ]
+    if battery_percent is not None:
+        candidates.append(
+            (
+                80 if float(battery_percent) <= 15 and not battery_plugged else 20,
+                f"Battery is {float(battery_percent):.0f}% and "
+                f"{'plugged in' if battery_plugged else 'running on battery'}.",
+                "Connect power before a long-running task."
+                if float(battery_percent) <= 15 and not battery_plugged
+                else "No battery action is needed.",
+            )
+        )
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    primary = candidates[:2]
+    process_text = (
+        ", ".join(f"{item['name']} (PID {item['pid']}, {float(item['memory_mb']):.0f} MB)" for item in top_processes)
+        or "none available"
+    )
+
+    lines = [
+        "READ-ONLY SYSTEM HEALTH REVIEW",
+        "Evidence:",
+        f"- CPU: {cpu:.1f}%",
+        f"- Memory: {memory:.1f}% used; {available:.1f} GB available",
+        (
+            f"- Fullest disk: {disk_label}; {disk_percent:.1f}% used; {disk_free:.1f} GB free"
+            if disk
+            else "- Disk: no accessible filesystem measurement"
+        ),
+        (
+            f"- Battery: {float(battery_percent):.0f}%; {'plugged in' if battery_plugged else 'on battery'}"
+            if battery_percent is not None
+            else "- Battery: no battery detected"
+        ),
+        f"- Running processes: {process_count}; largest by working set: {process_text}",
+        "",
+        "Two most important observations:",
+        f"1. {primary[0][1]}",
+        f"2. {primary[1][1]}",
+        "",
+        "Prioritized recommendation:",
+        f"1. {primary[0][2]}",
+        f"2. {primary[1][2]}",
+        "No processes or files were changed.",
+    ]
+    return "\n".join(lines)
+
+
+async def system_health_review() -> str:
+    """Collect and summarize live health evidence without modifying state."""
+    try:
+        snapshot = await asyncio.to_thread(_collect_system_health_snapshot)
+    except ImportError as exc:
+        raise RuntimeError("System health review requires psutil") from exc
+    return _format_system_health_review(snapshot)

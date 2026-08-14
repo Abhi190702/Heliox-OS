@@ -57,14 +57,14 @@ def test_registry_discovers_21_concrete_specialists_without_abstract_helpers():
     assert "_ExecutorDomainAgent" not in discovered
 
 
-async def test_mesh_covers_every_one_of_156_actions():
+async def test_mesh_covers_every_one_of_157_actions():
     orchestrator, mesh, registered = await _expanded_mesh()
     try:
         status = mesh.status()
         assert registered == 21
         assert status["executable_specialists"] == 21
-        assert status["registered_action_types"] == 156
-        assert status["available_action_types"] == 156
+        assert status["registered_action_types"] == 157
+        assert status["available_action_types"] == 157
         assert status["coverage_complete"] is True
         assert status["uncovered_action_types"] == []
     finally:

@@ -60,6 +60,7 @@ SYSTEM_ACTION_TYPES: set[ActionType] = {
     ActionType.CLIPBOARD_WRITE,
     # System info
     ActionType.SYSTEM_INFO,
+    ActionType.SYSTEM_HEALTH_REVIEW,
     ActionType.DISK_USAGE,
     ActionType.MEMORY_USAGE,
     ActionType.CPU_USAGE,

@@ -79,6 +79,7 @@ class ActionType(StrEnum):
 
     # -- System info & monitoring --
     SYSTEM_INFO = "system_info"
+    SYSTEM_HEALTH_REVIEW = "system_health_review"
     DISK_USAGE = "disk_usage"
     MEMORY_USAGE = "memory_usage"
     CPU_USAGE = "cpu_usage"
@@ -284,6 +285,7 @@ READ_ONLY_ACTIONS = {
     ActionType.PROCESS_INFO,
     ActionType.CLIPBOARD_READ,
     ActionType.SYSTEM_INFO,
+    ActionType.SYSTEM_HEALTH_REVIEW,
     ActionType.DISK_USAGE,
     ActionType.MEMORY_USAGE,
     ActionType.CPU_USAGE,

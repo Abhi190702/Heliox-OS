@@ -1,4 +1,4 @@
-from pilot.actions import Action, ActionType, ScreenVisionParams
+from pilot.actions import Action, ActionType, PermissionTier, ScreenVisionParams
 from pilot.agents.planner import Planner
 
 
@@ -14,6 +14,18 @@ def test_system_information_fast_path_is_bounded_to_short_status_queries():
         Planner._try_fast_path("research system information formats and write a detailed comparison of every standard")
         is None
     )
+
+
+def test_read_only_system_health_review_uses_local_evidence_action():
+    plan = Planner._try_fast_path(
+        "Perform a read-only system health review: collect current CPU, memory, disk, battery, "
+        "and running-process evidence; identify the two most important observations; then give "
+        "a concise prioritized recommendation. Do not stop, kill, install, delete, or modify anything."
+    )
+
+    assert plan is not None
+    assert [action.action_type for action in plan.actions] == [ActionType.SYSTEM_HEALTH_REVIEW]
+    assert plan.actions[0].permission_tier == PermissionTier.READ_ONLY
 
 
 def test_visual_question_uses_real_screen_analysis_fast_path():
