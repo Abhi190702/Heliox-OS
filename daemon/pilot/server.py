@@ -2646,9 +2646,7 @@ class PilotServer:
                 }
                 await ws.send(_notification("critic_verdict", critic_verdict_payload))
 
-            mcp_requires_visible_approval = (
-                str(params.get("source") or "").strip().lower() == "mcp"
-            )
+            mcp_requires_visible_approval = str(params.get("source") or "").strip().lower() == "mcp"
             needs_confirm = (
                 self._permission_checker.plan_requires_confirmation(plan)
                 or world_model_interrupt

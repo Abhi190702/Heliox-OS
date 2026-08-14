@@ -78,9 +78,7 @@ async def test_mcp_submit_runs_as_mcp_local_and_returns_without_waiting() -> Non
     server, socket = _authorized_server()
     server._durable_tasks = SimpleNamespace()
     server._broadcast_notification = AsyncMock()
-    server._handle_execute = AsyncMock(
-        return_value={"status": "success", "message": "Verified.", "task_id": "ignored"}
-    )
+    server._handle_execute = AsyncMock(return_value={"status": "success", "message": "Verified.", "task_id": "ignored"})
 
     submitted = await server._handle_mcp_submit_task(
         {"input": "show system info", "session_id": "codex"},
@@ -168,15 +166,11 @@ async def test_mcp_websocket_token_cannot_call_ui_methods() -> None:
         authenticated = json.loads(await socket.recv())
         assert authenticated["result"]["role"] == "mcp_local"
 
-        await socket.send(
-            json.dumps({"jsonrpc": "2.0", "method": "health", "params": {}, "id": "health"})
-        )
+        await socket.send(json.dumps({"jsonrpc": "2.0", "method": "health", "params": {}, "id": "health"}))
         health = json.loads(await socket.recv())
         assert health["result"] == {"status": "ok"}
 
-        await socket.send(
-            json.dumps({"jsonrpc": "2.0", "method": "execute", "params": {}, "id": "execute"})
-        )
+        await socket.send(json.dumps({"jsonrpc": "2.0", "method": "execute", "params": {}, "id": "execute"}))
         denied = json.loads(await socket.recv())
         assert denied["error"]["code"] == -32601
         server._handlers["execute"].assert_not_awaited()
