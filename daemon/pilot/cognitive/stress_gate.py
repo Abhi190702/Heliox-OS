@@ -43,6 +43,7 @@ SAFE_ACTIONS: set[ActionType] = {
     ActionType.FILE_SEARCH,
     ActionType.CLIPBOARD_READ,
     ActionType.SYSTEM_INFO,
+    ActionType.SYSTEM_HEALTH_REVIEW,
     ActionType.DISK_USAGE,
     ActionType.MEMORY_USAGE,
     ActionType.CPU_USAGE,

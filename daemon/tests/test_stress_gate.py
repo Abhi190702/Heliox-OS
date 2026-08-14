@@ -87,6 +87,7 @@ class TestSafeActionsNeverGated:
             ActionType.OPEN_APPLICATION,
             ActionType.BROWSER_NAVIGATE,
             ActionType.BROWSER_NEW_TAB,
+            ActionType.SYSTEM_HEALTH_REVIEW,
         ],
     )
     async def test_read_only_navigation_never_sleeps_for_cognitive_gating(self, action_type):
