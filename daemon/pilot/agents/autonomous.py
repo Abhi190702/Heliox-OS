@@ -182,6 +182,7 @@ class AutonomousExecutor:
         decomposer: TaskDecomposer,
         screen_vision: ScreenVisionAgent | None = None,
         memory: MemoryStore | None = None,
+        orchestrator: Any | None = None,
     ) -> None:
         self._planner = planner
         self._executor = executor
@@ -189,8 +190,10 @@ class AutonomousExecutor:
         self._decomposer = decomposer
         self._screen_vision = screen_vision
         self._memory = memory
+        self._orchestrator = orchestrator
         self._broadcast: Callable[[str, Any], Coroutine[Any, Any, None]] | None = None
         self._speech: Callable[[str, str, str], Coroutine[Any, Any, Any]] | None = None
+        self._approval: Callable[[AutonomousJob, ActionPlan, str], Coroutine[Any, Any, bool]] | None = None
         self._jobs: dict[str, AutonomousJob] = {}
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
 
@@ -201,6 +204,19 @@ class AutonomousExecutor:
     def set_speech(self, fn: Callable[[str, str, str], Coroutine[Any, Any, Any]]) -> None:
         """Set the shared companion speech coordinator."""
         self._speech = fn
+
+    def set_orchestrator(self, orchestrator: Any) -> None:
+        """Route autonomous plans through executable specialist agents."""
+
+        self._orchestrator = orchestrator
+
+    def set_approval_handler(
+        self,
+        fn: Callable[[AutonomousJob, ActionPlan, str], Coroutine[Any, Any, bool]],
+    ) -> None:
+        """Require the UI confirmation gate for elevated autonomous plans."""
+
+        self._approval = fn
 
     async def submit(
         self,
@@ -629,6 +645,23 @@ class AutonomousExecutor:
                     step.error = "Autonomous loop stopped after repeating the same plan without progress."
                     break
 
+                plan_id = (
+                    plan_id_prefix
+                    if plan_id_prefix and round_index == 0
+                    else f"{plan_id_prefix}:{round_index}"
+                    if plan_id_prefix
+                    else f"autonomous-{job.job_id}:{step.index}:{round_index}"
+                )
+                user_confirmed = False
+                if any(action.requires_confirmation or action.is_irreversible for action in plan.actions):
+                    if self._approval is None:
+                        step.error = "Autonomous execution requires UI approval, but no approval handler is available."
+                        break
+                    user_confirmed = await self._approval(job, plan, plan_id)
+                    if not user_confirmed:
+                        step.error = "Autonomous execution was denied or its approval expired."
+                        break
+
                 is_interactive_round = self._is_interactive_plan(plan)
                 interactive_task = interactive_task or is_interactive_round
                 planned_target = self._bind_plan_to_target(plan, target_window)
@@ -641,19 +674,22 @@ class AutonomousExecutor:
                     progress.append(f"Round {round_index + 1} blocked: {failure}")
                     step.error = failure
                     break
-                plan_id = (
-                    plan_id_prefix
-                    if plan_id_prefix and round_index == 0
-                    else f"{plan_id_prefix}:{round_index}"
-                    if plan_id_prefix
-                    else None
-                )
-                results = await self._executor.execute(
-                    plan,
-                    plan_id=plan_id,
-                    invocation_source=invocation_source,
-                    scope_override=job.scope_override,
-                )
+                if self._orchestrator is not None:
+                    results = await self._orchestrator.execute_plan(
+                        goal,
+                        plan,
+                        plan_id=plan_id,
+                        scope_override=job.scope_override,
+                        user_confirmed=user_confirmed,
+                    )
+                else:
+                    results = await self._executor.execute(
+                        plan,
+                        plan_id=plan_id,
+                        invocation_source=invocation_source,
+                        scope_override=job.scope_override,
+                        user_confirmed=user_confirmed,
+                    )
                 target_window = planned_target
                 verification = await self._verifier.verify(plan, results)
                 if on_round_complete is not None:

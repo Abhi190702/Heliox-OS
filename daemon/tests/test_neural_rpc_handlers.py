@@ -18,6 +18,10 @@ def server() -> tuple[PilotServer, MagicMock, MagicMock]:
         return_value={"connected": False, "capabilities": {"physical_control": False}}
     )
     instance._neural_controller.connect = AsyncMock(return_value={"connected": True})
+    instance._neural_controller.stage_task = AsyncMock(
+        return_value={"staged_tasks": [{"task_id": "task-1", "goal": "research and summarize"}]}
+    )
+    instance._neural_controller.remove_staged_task = AsyncMock(return_value={"staged_tasks": []})
     instance._neural_controller.arm = AsyncMock(return_value={"state": "armed_safe_ui"})
     instance._neural_controller.commit = AsyncMock(return_value={"status": "committed"})
     instance._neural_controller.disarm = AsyncMock(return_value={"state": "observe_only"})
@@ -40,6 +44,30 @@ async def test_status_is_shared_but_physical_authority_is_explicitly_false(serve
         result = await instance._handle_neural_status({}, client)
         assert result["status"] == "ok"
         assert result["capabilities"]["physical_control"] is False
+
+
+@pytest.mark.asyncio
+async def test_staged_autonomous_tasks_are_authored_and_removed_only_by_ui(server) -> None:
+    instance, ui, sidecar = server
+    staged = await instance._handle_neural_stage_task(
+        {"label": "Research", "goal": "research and summarize", "session_id": "chat-7"},
+        ui,
+    )
+    assert staged["status"] == "ok"
+    instance._neural_controller.stage_task.assert_awaited_once_with(
+        label="Research",
+        goal="research and summarize",
+        session_id="chat-7",
+    )
+    with pytest.raises(PermissionError):
+        await instance._handle_neural_stage_task({"goal": "sidecar supplied goal"}, sidecar)
+
+    task_id = uuid.uuid4()
+    removed = await instance._handle_neural_remove_staged_task({"task_id": str(task_id)}, ui)
+    assert removed == {"status": "ok", "staged_tasks": []}
+    instance._neural_controller.remove_staged_task.assert_awaited_once_with(task_id)
+    with pytest.raises(PermissionError):
+        await instance._handle_neural_remove_staged_task({"task_id": str(task_id)}, sidecar)
 
 
 @pytest.mark.asyncio

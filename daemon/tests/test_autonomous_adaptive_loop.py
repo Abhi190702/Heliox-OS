@@ -12,6 +12,7 @@ from pilot.actions import (
     ActionType,
     KeyboardParams,
     OpenApplicationParams,
+    ShellCommandParams,
     SystemInfoParams,
     VerificationResult,
 )
@@ -209,6 +210,74 @@ async def test_non_desktop_action_completes_after_postcondition_verification():
     assert job.steps[0].status == "success"
     assert job.steps[0].rounds == 1
     assert job.steps[0].output == "Windows 11"
+
+
+@pytest.mark.asyncio
+async def test_autonomous_plan_routes_through_specialist_orchestrator_when_available():
+    action = Action(action_type=ActionType.SYSTEM_INFO, parameters=SystemInfoParams())
+    plan = ActionPlan(actions=[action], explanation="Inspect system")
+    result = ActionResult(action=action, success=True, output="Windows 11")
+    autonomous = _autonomous(
+        plans=[plan],
+        results=[],
+        verifications=[VerificationResult(passed=True, details=["verified"])],
+    )
+    orchestrator = SimpleNamespace(execute_plan=AsyncMock(return_value=[result]))
+    autonomous.set_orchestrator(orchestrator)
+    job = AutonomousJob(goal="Show system info", steps=[JobStep(index=0, title="Execute", description="")])
+
+    await autonomous._execute_single_step(job)
+
+    assert job.steps[0].status == "success"
+    orchestrator.execute_plan.assert_awaited_once()
+    assert orchestrator.execute_plan.await_args.args[:2] == ("Show system info", plan)
+    autonomous._executor.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_elevated_autonomous_plan_fails_closed_without_approval_handler():
+    action = Action(
+        action_type=ActionType.SHELL_COMMAND,
+        target="whoami",
+        parameters=ShellCommandParams(command="whoami"),
+    )
+    plan = ActionPlan(actions=[action], explanation="Run a command")
+    autonomous = _autonomous(plans=[plan], results=[], verifications=[])
+    job = AutonomousJob(goal="Run whoami", steps=[JobStep(index=0, title="Execute", description="")])
+
+    await autonomous._execute_single_step(job)
+
+    assert job.steps[0].status == "failed"
+    assert "requires UI approval" in job.steps[0].error
+    autonomous._executor.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_elevated_autonomous_plan_executes_only_after_explicit_approval():
+    action = Action(
+        action_type=ActionType.SHELL_COMMAND,
+        target="whoami",
+        parameters=ShellCommandParams(command="whoami"),
+    )
+    plan = ActionPlan(actions=[action], explanation="Run a command")
+    result = ActionResult(action=action, success=True, output="user")
+    autonomous = _autonomous(
+        plans=[plan],
+        results=[[result]],
+        verifications=[VerificationResult(passed=True, details=["verified"])],
+    )
+    approval = AsyncMock(return_value=True)
+    autonomous.set_approval_handler(approval)
+    job = AutonomousJob(goal="Run whoami", steps=[JobStep(index=0, title="Execute", description="")])
+
+    await autonomous._execute_single_step(job)
+
+    assert job.steps[0].status == "success"
+    approval.assert_awaited_once()
+    assert approval.await_args.args[0] is job
+    assert approval.await_args.args[1] is plan
+    assert approval.await_args.args[2].startswith(f"autonomous-{job.job_id}")
+    assert autonomous._executor.execute.await_args.kwargs["user_confirmed"] is True
 
 
 @pytest.mark.asyncio

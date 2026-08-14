@@ -49,6 +49,7 @@ async def _controller(
     *,
     audit_store: NeuralAuditStore | None = None,
     fusion_snapshot=None,
+    task_dispatcher=None,
 ) -> tuple[NeuralController, NeuralIntentSigner, uuid.UUID, AsyncMock]:
     signer = NeuralIntentSigner(b"k" * 32)
     session_id = uuid.uuid4()
@@ -66,6 +67,7 @@ async def _controller(
         goals=goals,
         audit_store=audit_store,
         fusion_snapshot=fusion_snapshot,
+        task_dispatcher=task_dispatcher,
     )
     descriptor = NeuralStreamDescriptorV1(
         session_id=session_id,
@@ -219,6 +221,107 @@ async def test_safe_desktop_select_resolves_only_the_daemon_owned_focused_goal()
         )
     assert result["command_id"] == focused
     assert executor.execute.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_explicitly_staged_task_launches_autonomous_pipeline_from_neural_select() -> None:
+    dispatcher = AsyncMock(return_value={"job_id": "job-1", "status": "pending", "total_steps": 0})
+    controller, signer, session_id, executor = await _controller(
+        NeuralScope.SAFE_DESKTOP,
+        task_dispatcher=dispatcher,
+    )
+    staged = await controller.stage_task(
+        label="Research and report",
+        goal="Research the topic, compare the evidence, and save a verified report.",
+        session_id="chat-42",
+    )
+    task = staged["staged_task"]
+    assert staged["focused_command_id"] == task["command_id"]
+    assert staged["capabilities"]["free_form_thought_decoding"] is False
+
+    intent = await _intent(
+        controller,
+        signer,
+        session_id,
+        intent_class=NeuralIntentClass.SELECT,
+        scope=NeuralScope.SAFE_DESKTOP,
+    )
+    preview = await controller.preview(intent)
+    assert preview["resolved_command_id"] == task["command_id"]
+    assert preview["staged_task"]["goal"] == task["goal"]
+    assert preview["requires_non_neural_approval"] is False
+
+    await asyncio.sleep(0.02)
+    result = await controller.commit(
+        uuid.UUID(str(preview["preview_id"])),
+        expected_revision=int(preview["state_revision"]),
+        world_model_approved=False,
+    )
+    assert result["status"] == "submitted"
+    assert result["job"]["job_id"] == "job-1"
+    dispatched_task, scope_override = dispatcher.await_args.args
+    assert dispatched_task.goal == task["goal"]
+    assert dispatched_task.session_id == "chat-42"
+    assert scope_override.allow_root is False
+    assert "power_shutdown" in scope_override.deny_action_types
+    assert (await controller.status())["staged_tasks"] == []
+    executor.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_failed_staged_task_dispatch_is_visible_and_kept_for_retry() -> None:
+    dispatcher = AsyncMock(side_effect=RuntimeError("autonomous queue unavailable"))
+    controller, signer, session_id, executor = await _controller(
+        NeuralScope.SAFE_DESKTOP,
+        task_dispatcher=dispatcher,
+    )
+    staged = await controller.stage_task(
+        label="Research and report",
+        goal="Research the topic and save a verified report.",
+        session_id="chat-42",
+    )
+    intent = await _intent(
+        controller,
+        signer,
+        session_id,
+        intent_class=NeuralIntentClass.SELECT,
+        scope=NeuralScope.SAFE_DESKTOP,
+    )
+    preview = await controller.preview(intent)
+    await asyncio.sleep(0.02)
+
+    result = await controller.commit(
+        uuid.UUID(str(preview["preview_id"])),
+        expected_revision=int(preview["state_revision"]),
+        world_model_approved=False,
+    )
+
+    assert result["status"] == "failed"
+    assert result["retry_allowed"] is True
+    assert result["error"] == "autonomous queue unavailable"
+    assert [task["task_id"] for task in (await controller.status())["staged_tasks"]] == [
+        staged["staged_task"]["task_id"]
+    ]
+    executor.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_staged_task_queue_is_bounded() -> None:
+    controller, _, _, _ = await _controller(NeuralScope.SAFE_DESKTOP)
+    for index in range(8):
+        await controller.stage_task(
+            label=f"Task {index + 1}",
+            goal=f"Inspect and verify bounded task number {index + 1}.",
+            session_id="chat-bounded",
+        )
+
+    with pytest.raises(NeuralControlError, match="at most 8"):
+        await controller.stage_task(
+            label="Task 9",
+            goal="This task must not enter the bounded neural queue.",
+            session_id="chat-bounded",
+        )
+    assert len((await controller.status())["staged_tasks"]) == 8
 
 
 @pytest.mark.asyncio

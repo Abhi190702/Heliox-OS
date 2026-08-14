@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 import websockets
 
-from pilot.actions import Action, ActionPlan, ActionType, EmptyParams
+from pilot.actions import Action, ActionPlan, ActionType, EmptyParams, ShellCommandParams
 from pilot.config import PilotConfig
 from pilot.server import PendingConfirmation, PilotServer, _notification
 
@@ -143,3 +145,37 @@ async def test_world_model_confirmation_forces_all_actions_and_includes_reason()
     assert confirmed is False
     assert approved == set()
     assert required == {0}
+
+
+@pytest.mark.asyncio
+async def test_background_autonomous_confirmation_uses_shared_confirm_rpc():
+    server = PilotServer(PilotConfig())
+    server._broadcast_notification = AsyncMock()
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.SHELL_COMMAND,
+                target="whoami",
+                parameters=ShellCommandParams(command="whoami"),
+            )
+        ],
+        raw_input="run whoami",
+    )
+    job = SimpleNamespace(job_id="job-approval", source="neural")
+    task = asyncio.create_task(server._wait_for_autonomous_confirmation(job, plan, "background-plan"))
+    await asyncio.sleep(0)
+
+    server._broadcast_notification.assert_awaited_once()
+    method, payload = server._broadcast_notification.await_args.args
+    assert method == "confirm_required"
+    assert payload["task_id"] == "job-approval"
+    assert payload["source"] == "neural"
+    assert payload["actions"][0]["action_type"] == "shell_command"
+
+    result = await server._handle_confirm(
+        {"plan_id": "background-plan", "confirmed": True},
+        SimpleNamespace(),
+    )
+    assert result == {"status": "ok", "confirmed": True}
+    assert await task is True
+    assert "background-plan" not in server._pending_confirms

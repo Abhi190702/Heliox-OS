@@ -1007,9 +1007,13 @@ class PilotServer:
                 decomposer=self._decomposer,
                 screen_vision=self._screen_vision,
                 memory=self._memory,
+                orchestrator=self._orchestrator,
             )
             self._autonomous.set_broadcast(self._broadcast_notification)
             self._autonomous.set_speech(self._speak_companion_text)
+            self._autonomous.set_approval_handler(self._wait_for_autonomous_confirmation)
+            if self._neural_controller is not None:
+                self._neural_controller.set_task_dispatcher(self._dispatch_neural_staged_task)
             logger.info("AutonomousExecutor initialized")
         except Exception:
             logger.warning("AutonomousExecutor init failed (non-critical)", exc_info=True)
@@ -1258,6 +1262,8 @@ class PilotServer:
             "risk_gate_config_update": self._handle_risk_gate_config_update,
             # Least-privileged neural sidecar and explicit UI control plane.
             "neural_status": self._handle_neural_status,
+            "neural_stage_task": self._handle_neural_stage_task,
+            "neural_remove_staged_task": self._handle_neural_remove_staged_task,
             "neural_connect": self._handle_neural_connect,
             "neural_begin_calibration": self._handle_neural_begin_calibration,
             "neural_finish_calibration": self._handle_neural_finish_calibration,
@@ -4920,11 +4926,83 @@ class PilotServer:
             names = ", ".join(item.value for item in allowed)
             raise PermissionError(f"RPC requires client role: {names}")
 
+    async def _dispatch_neural_staged_task(self, task: Any, scope_override: Any) -> dict[str, object]:
+        """Launch one explicitly staged neural selection through the autonomous engine."""
+
+        if self._autonomous is None:
+            raise RuntimeError("autonomous executor is not initialized")
+        job = await self._autonomous.submit(
+            task.goal,
+            source="neural",
+            scope_override=scope_override,
+            session_id=task.session_id,
+        )
+        return job.to_dict()
+
+    async def _wait_for_autonomous_confirmation(self, job: Any, plan: Any, plan_id: str) -> bool:
+        """Pause a background plan at the same UI confirmation boundary as interactive work."""
+
+        required = {
+            index for index, action in enumerate(plan.actions) if action.requires_confirmation or action.is_irreversible
+        }
+        if not required:
+            return True
+
+        pending = PendingConfirmation(plan_id=plan_id, event=asyncio.Event(), plan=plan)
+        self._pending_confirms[plan_id] = pending
+        try:
+            await self._broadcast_notification(
+                "confirm_required",
+                {
+                    "task_id": job.job_id,
+                    "plan_id": plan_id,
+                    "source": job.source,
+                    "actions": [
+                        {
+                            **plan.actions[index].model_dump(mode="json"),
+                            "index": index,
+                            "irreversible": plan.actions[index].is_irreversible,
+                        }
+                        for index in sorted(required)
+                    ],
+                    "reason": "An autonomous task reached an action that requires explicit approval.",
+                },
+            )
+            await asyncio.wait_for(pending.event.wait(), timeout=CONFIRM_TIMEOUT_SECONDS)
+        except TimeoutError:
+            logger.warning("Autonomous confirmation timed out for plan %s", plan_id)
+            return False
+        finally:
+            self._pending_confirms.pop(plan_id, None)
+
+        approved = pending.approved_indices if pending.approved_indices is not None else required
+        return pending.confirmed and required.issubset(approved)
+
     async def _handle_neural_status(self, params: dict, ws: ServerConnection) -> dict:
         self._require_rpc_role(ws, RpcClientRole.UI, RpcClientRole.NEURAL_SIDECAR)
         if self._neural_controller is None:
             return {"status": "unavailable", "connected": False}
         return {"status": "ok", **await self._neural_controller.status()}
+
+    async def _handle_neural_stage_task(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.UI)
+        try:
+            result = await self._neural_controller.stage_task(
+                label=str(params.get("label") or ""),
+                goal=str(params["goal"]),
+                session_id=str(params.get("session_id") or "neural"),
+            )
+            return {"status": "ok", **result}
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
+
+    async def _handle_neural_remove_staged_task(self, params: dict, ws: ServerConnection) -> dict:
+        self._require_rpc_role(ws, RpcClientRole.UI)
+        try:
+            result = await self._neural_controller.remove_staged_task(uuid.UUID(str(params["task_id"])))
+            return {"status": "ok", **result}
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"status": "rejected", "error": str(exc)}
 
     async def _handle_neural_connect(self, params: dict, ws: ServerConnection) -> dict:
         self._require_rpc_role(ws, RpcClientRole.NEURAL_SIDECAR)
