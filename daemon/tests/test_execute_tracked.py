@@ -393,6 +393,38 @@ async def test_handle_execute_denial_has_one_truthful_terminal_response_and_does
 
 
 @pytest.mark.asyncio
+async def test_mcp_source_forces_approval_even_when_normal_policy_does_not():
+    class _ExecutorThatMustNotRun:
+        async def execute(self, plan, **kwargs):
+            raise AssertionError("an MCP plan denied by the user must not execute")
+
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.SYSTEM_INFO,
+                target="system",
+                parameters=SystemInfoParams(),
+            )
+        ],
+        explanation="Inspect system information.",
+    )
+    server = _server_ready_for_handle_execute(_ExecutorThatMustNotRun(), plan)
+    server._permission_checker = _FakePermissionChecker(requires_confirmation=False)
+    ws = _FakeWs(confirmation=False)
+    ws.server = server
+
+    result = await server._handle_execute(
+        {"input": "show system information", "source": "mcp"},
+        ws,
+    )
+
+    assert result["status"] == "cancelled"
+    request = next(json.loads(message) for message in ws.sent if '"method": "confirm_required"' in message)
+    assert request["params"]["actions"][0]["index"] == 0
+    assert "local MCP client" in request["params"]["reason"]
+
+
+@pytest.mark.asyncio
 async def test_handle_execute_approved_success_reports_verified_outcome():
     class _Executor:
         async def execute(self, plan, **kwargs):

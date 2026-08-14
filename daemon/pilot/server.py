@@ -523,6 +523,9 @@ class PilotServer:
         self._plan_history_tasks: set[asyncio.Task[None]] = set()
         self._companion_follow_up_tasks: set[asyncio.Task[None]] = set()
         self._interaction_speech_tasks: set[asyncio.Task[SpeechOutcome]] = set()
+        self._mcp_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
+        self._mcp_task_results: dict[str, dict[str, Any]] = {}
+        self._mcp_reserved_task_id = ""
         # Cognitive intelligence (lightweight heuristic engine)
         self._cognitive_engine: Any = None
         self._attention_ui: Any = None
@@ -1151,6 +1154,10 @@ class PilotServer:
             "execute": self._handle_execute,
             "resume_plan": self._handle_resume_plan,
             "resume_task": self._handle_resume_task,
+            "mcp_plan_task": self._handle_mcp_plan_task,
+            "mcp_submit_task": self._handle_mcp_submit_task,
+            "mcp_task_status": self._handle_mcp_task_status,
+            "mcp_cancel_task": self._handle_mcp_cancel_task,
             "export_session_chat": self._handle_export_session_chat,
             "confirm": self._handle_confirm,
             "rollback_plan": self._handle_rollback_plan,
@@ -1662,12 +1669,18 @@ class PilotServer:
         """Resolve an interaction source to its enforced gateway ceiling."""
         from pilot.security.gateway import DEFAULT_SOURCE_PROFILES, InvocationSource, TaskScopeOverride
 
-        invocation_source = (
-            InvocationSource.VOICE if source_name.strip().lower() == "voice" else InvocationSource.INTERACTIVE
-        )
-        if invocation_source != InvocationSource.VOICE:
+        source_key = source_name.strip().lower()
+        invocation_source = {
+            "voice": InvocationSource.VOICE,
+            "mcp": InvocationSource.MCP,
+        }.get(source_key, InvocationSource.INTERACTIVE)
+        if invocation_source not in {InvocationSource.VOICE, InvocationSource.MCP}:
             return invocation_source, None
-        profile = self.config.gateway.source_profiles.get("voice", DEFAULT_SOURCE_PROFILES["voice"])
+        profile_name = invocation_source.value
+        profile = self.config.gateway.source_profiles.get(
+            profile_name,
+            DEFAULT_SOURCE_PROFILES[profile_name],
+        )
         return invocation_source, TaskScopeOverride(
             max_tier=profile.max_tier,
             deny_action_types=profile.deny_action_types,
@@ -1739,6 +1752,18 @@ class PilotServer:
     async def _handle_execute(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Run one interactive request while exposing an out-of-band control slot."""
         requested_task_id = str(params.get("task_id") or uuid.uuid4())
+        if self._interactive_request_active:
+            return {
+                "status": "busy",
+                "message": "Heliox is already handling an interactive task.",
+                "task_id": requested_task_id,
+            }
+        if self._mcp_reserved_task_id and requested_task_id != self._mcp_reserved_task_id:
+            return {
+                "status": "busy",
+                "message": "Heliox is starting a local MCP task.",
+                "task_id": requested_task_id,
+            }
         source_name = str(params.get("source") or "text").strip().lower()
         interaction_id = str(params.get("_interaction_id") or "")
         resume_token = ""
@@ -2621,8 +2646,13 @@ class PilotServer:
                 }
                 await ws.send(_notification("critic_verdict", critic_verdict_payload))
 
+            mcp_requires_visible_approval = (
+                str(params.get("source") or "").strip().lower() == "mcp"
+            )
             needs_confirm = (
-                self._permission_checker.plan_requires_confirmation(plan) or world_model_interrupt
+                self._permission_checker.plan_requires_confirmation(plan)
+                or world_model_interrupt
+                or mcp_requires_visible_approval
             ) and not dry_run
             partially_approved = False
             if needs_confirm:
@@ -2658,13 +2688,18 @@ class PilotServer:
                         f"World model paused this plan at {risk_assessment.world_model_score:.0%} predicted risk: "
                         f"{reason_text}"
                     )
+                elif mcp_requires_visible_approval:
+                    world_model_reason = (
+                        "A local MCP client proposed this task. Heliox requires visible user approval "
+                        "for every MCP action before execution."
+                    )
                 confirmed, approved_indices, required_indices = await self._wait_for_confirmation(
                     plan_id,
                     plan,
                     ws,
                     reason=world_model_reason,
                     risk_assessment=risk_assessment.to_dict() if world_model_interrupt else None,
-                    force_all_actions=world_model_interrupt,
+                    force_all_actions=world_model_interrupt or mcp_requires_visible_approval,
                 )
 
                 if emit:
@@ -3298,6 +3333,224 @@ class PilotServer:
         task: asyncio.Task[None] = asyncio.create_task(_generate())
         self._companion_follow_up_tasks.add(task)
         task.add_done_callback(self._companion_follow_up_tasks.discard)
+
+    @staticmethod
+    def _mcp_task_input(params: dict[str, Any]) -> str:
+        value = str(params.get("input") or "").strip()
+        if not value:
+            raise ValueError("input is required")
+        if len(value) > 20_000:
+            raise ValueError("input exceeds the 20,000 character limit")
+        return value
+
+    async def _handle_mcp_plan_task(
+        self,
+        params: dict[str, Any],
+        ws: ServerConnection,
+    ) -> dict[str, Any]:
+        """Create a non-authoritative, side-effect-free preview for local MCP."""
+
+        self._require_rpc_role(ws, RpcClientRole.MCP_LOCAL)
+        if self._planner is None:
+            return {"status": "unavailable", "message": "Planner is not initialized"}
+        if self._interactive_request_active:
+            return {
+                "status": "busy",
+                "message": "Heliox is already handling an interactive task.",
+            }
+        try:
+            user_input = self._mcp_task_input(params)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+        plan = await self._planner.plan(
+            user_input,
+            session_id=str(params.get("session_id") or "mcp-preview"),
+        )
+        if plan.error:
+            return {"status": "error", "message": plan.error}
+
+        actions: list[dict[str, Any]] = []
+        for index, action in enumerate(plan.actions):
+            action_payload = action.model_dump(mode="json")
+            action_payload.update(
+                {
+                    "index": index,
+                    "permission_tier": action.permission_tier.name,
+                    "normally_requires_confirmation": action.requires_confirmation,
+                    "mcp_requires_confirmation": True,
+                    "irreversible": action.is_irreversible,
+                }
+            )
+            actions.append(action_payload)
+        return {
+            "status": "preview",
+            "explanation": plan.explanation,
+            "actions": actions,
+            "action_count": len(actions),
+            "requires_user_approval": bool(actions),
+            "authoritative": False,
+            "message": (
+                "This is an advisory preview. submit_task replans through the full Heliox safety "
+                "pipeline and requires visible approval for every action."
+            ),
+        }
+
+    async def _handle_mcp_submit_task(
+        self,
+        params: dict[str, Any],
+        ws: ServerConnection,
+    ) -> dict[str, Any]:
+        """Queue one local MCP request through the normal interactive pipeline."""
+
+        self._require_rpc_role(ws, RpcClientRole.MCP_LOCAL)
+        if self._durable_tasks is None:
+            return {"status": "unavailable", "message": "Durable task store is not initialized"}
+        if self._interactive_request_active or any(not task.done() for task in self._mcp_tasks.values()):
+            return {
+                "status": "busy",
+                "message": "Heliox is already handling an interactive task.",
+            }
+        try:
+            user_input = self._mcp_task_input(params)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+        task_id = str(uuid.uuid4())
+        session_suffix = _sanitize_summary(params.get("session_id") or "default", limit=80)
+        self._mcp_reserved_task_id = task_id
+
+        async def _run() -> dict[str, Any]:
+            try:
+                response = await self._handle_execute(
+                    {
+                        "input": user_input,
+                        "task_id": task_id,
+                        "session_id": f"mcp:{session_suffix}",
+                        "user_id": "mcp-local",
+                        "source": "mcp",
+                    },
+                    _BroadcastConnection(self._broadcast_notification),
+                )
+            except asyncio.CancelledError:
+                response = {
+                    "status": "cancelled",
+                    "task_id": task_id,
+                    "message": "The MCP task was cancelled before completion.",
+                }
+            except Exception:
+                logger.exception("Local MCP task %s failed", task_id)
+                response = {
+                    "status": "error",
+                    "task_id": task_id,
+                    "message": "The MCP task failed inside the Heliox daemon.",
+                }
+            finally:
+                if self._mcp_reserved_task_id == task_id:
+                    self._mcp_reserved_task_id = ""
+            self._mcp_task_results[task_id] = response
+            while len(self._mcp_task_results) > 100:
+                self._mcp_task_results.pop(next(iter(self._mcp_task_results)))
+            await self._broadcast_notification(
+                "mcp_task_update",
+                {
+                    "task_id": task_id,
+                    "status": response.get("status", "error"),
+                    "message": response.get("message", ""),
+                },
+            )
+            return response
+
+        task = asyncio.create_task(_run())
+        self._mcp_tasks[task_id] = task
+        task.add_done_callback(lambda _done: self._mcp_tasks.pop(task_id, None))
+        return {
+            "status": "submitted",
+            "task_id": task_id,
+            "requires_user_approval": True,
+            "message": (
+                "Task submitted. Review and approve the proposed actions in Heliox OS, then call "
+                "get_task_status for the verified result."
+            ),
+        }
+
+    async def _handle_mcp_task_status(
+        self,
+        params: dict[str, Any],
+        ws: ServerConnection,
+    ) -> dict[str, Any]:
+        """Return status only for tasks created by the local MCP bridge."""
+
+        self._require_rpc_role(ws, RpcClientRole.MCP_LOCAL)
+        task_id = str(params.get("task_id") or "").strip()
+        if not task_id:
+            return {"status": "error", "message": "task_id is required"}
+        if self._durable_tasks is None:
+            return {"status": "unavailable", "message": "Durable task store is not initialized"}
+
+        task = await self._durable_tasks.get(task_id)
+        if task is None:
+            if task_id in self._mcp_tasks:
+                return {"status": "submitted", "task_id": task_id}
+            cached = self._mcp_task_results.get(task_id)
+            if cached is not None:
+                return {**cached, "task_id": task_id}
+            return {"status": "not_found", "message": "No local MCP task has that id"}
+        if task.user_id != "mcp-local":
+            return {"status": "not_found", "message": "No local MCP task has that id"}
+
+        response: dict[str, Any] = {
+            "status": task.status.value,
+            "task_id": task.task_id,
+            "plan_id": task.plan_id,
+            "cancellation_requested": task.cancellation_requested,
+            "created_at": task.created_at,
+            "updated_at": task.updated_at,
+        }
+        if task.plan_id:
+            approval = await self._durable_tasks.get_approval(task.plan_id)
+            if approval is not None:
+                response["approval"] = {
+                    "status": approval.status.value,
+                    "request": approval.request,
+                    "expires_at": approval.expires_at,
+                }
+        if task.terminal_response is not None:
+            response["result"] = task.terminal_response
+        return response
+
+    async def _handle_mcp_cancel_task(
+        self,
+        params: dict[str, Any],
+        ws: ServerConnection,
+    ) -> dict[str, Any]:
+        """Request cancellation without giving MCP authority over UI tasks."""
+
+        self._require_rpc_role(ws, RpcClientRole.MCP_LOCAL)
+        task_id = str(params.get("task_id") or "").strip()
+        if not task_id:
+            return {"status": "error", "message": "task_id is required"}
+        if self._durable_tasks is None:
+            return {"status": "unavailable", "message": "Durable task store is not initialized"}
+
+        task = await self._durable_tasks.get(task_id)
+        if task is None or task.user_id != "mcp-local":
+            return {"status": "not_found", "message": "No local MCP task has that id"}
+        if task.is_terminal:
+            return {
+                "status": task.status.value,
+                "task_id": task_id,
+                "message": "The task is already terminal.",
+            }
+
+        await self._durable_tasks.request_cancel(task_id)
+        if self._active_task_id == task_id:
+            await self._handle_abort({}, None)
+        return {
+            "status": "cancellation_requested",
+            "task_id": task_id,
+            "message": "Heliox is stopping this MCP task at the safest available boundary.",
+        }
 
     async def _handle_resume_task(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Authenticate and continue a durable task after reconnect or restart."""
@@ -4132,6 +4385,15 @@ class PilotServer:
 
         if self._cancel_event and not self._cancel_event.is_set():
             self._cancel_event.set()
+            aborted_something = True
+
+        # A confirmation wait is outside _active_execution_task. Resolve the
+        # active prompt as denied so Stop/MCP cancellation returns immediately
+        # instead of leaving the request blocked until its five-minute timeout.
+        pending = self._pending_confirms.get(self._active_plan_id)
+        if pending is not None:
+            pending.confirmed = False
+            pending.event.set()
             aborted_something = True
 
         task = self._active_execution_task
