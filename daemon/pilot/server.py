@@ -1699,6 +1699,7 @@ class PilotServer:
             "success": TaskStatus.SUCCEEDED,
             "cancelled": TaskStatus.CANCELLED,
             "partial_failure": TaskStatus.PARTIAL,
+            "interrupted": TaskStatus.INTERRUPTED,
         }.get(response_status, TaskStatus.FAILED)
         if target == TaskStatus.SUCCEEDED and task.status == TaskStatus.EXECUTING:
             task = await self._durable_tasks.transition(
@@ -3502,6 +3503,7 @@ class PilotServer:
         await self._checkpoint_store.mark_status(plan_id, final_status)
 
         verification_payload: dict[str, Any] = {}
+        verification = None
         if not failed and len(combined_results) >= len(checkpoint.plan.actions):
             verification = await self._verifier.verify(checkpoint.plan, combined_results)
             verification_payload = verification.model_dump()
@@ -3509,15 +3511,37 @@ class PilotServer:
                 final_status = "partial_failure"
                 await self._checkpoint_store.mark_status(plan_id, "failed")
 
+        from pilot.response_contract import partial_failure_message, success_message
+
+        completed_all = len(combined_results) >= len(checkpoint.plan.actions)
+        if final_status in {"failed", "partial_failure"}:
+            response_status = "partial_failure"
+            terminal_message = partial_failure_message(combined_results, verification)
+        elif not completed_all:
+            response_status = "interrupted"
+            terminal_message = (
+                f"Task was interrupted after {len(combined_results)} of "
+                f"{len(checkpoint.plan.actions)} actions. No unfinished action was reported as complete."
+            )
+            await self._checkpoint_store.mark_status(plan_id, "interrupted")
+        else:
+            response_status = "success"
+            terminal_message = success_message(
+                checkpoint.plan,
+                combined_results,
+                verification,
+                dry_run=False,
+            )
+
         return {
-            "status": "partial_failure" if final_status in {"failed", "partial_failure"} else "success",
+            "status": response_status,
+            "message": terminal_message,
             "plan_id": plan_id,
             "resumed": True,
             "skipped_actions": completed_count,
             "executed_actions": len(results),
             "results": [result.model_dump() for result in combined_results],
             "verification": verification_payload,
-            "explanation": checkpoint.plan.explanation,
         }
 
     async def _record_permission_escalations(

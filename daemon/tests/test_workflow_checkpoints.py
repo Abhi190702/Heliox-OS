@@ -128,3 +128,39 @@ async def test_resume_plan_returns_success_when_checkpoint_already_complete(tmp_
     assert response["resumed"] is False
     assert response["message"] == "Plan already completed."
     server._executor.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_failed_resume_reports_actual_failure_instead_of_plan_intent(tmp_path):
+    store = WorkflowCheckpointStore(tmp_path / "checkpoints.db")
+    plan = ActionPlan(
+        actions=[_notify_action("one")],
+        explanation="notify successfully",
+        raw_input="send notification",
+    )
+    await store.start_plan("plan-1", "send notification", plan)
+
+    server = PilotServer(PilotConfig())
+    server._checkpoint_store = store
+    server._verifier = SimpleNamespace(verify=AsyncMock())
+
+    async def _execute(remaining_plan, **_kwargs):
+        return [
+            ActionResult(
+                action=remaining_plan.actions[0],
+                success=False,
+                error="Safety stop: interrupted action requires reconciliation.",
+            )
+        ]
+
+    server._executor = SimpleNamespace(execute=_execute)
+    ws = MagicMock()
+    ws.send = AsyncMock()
+
+    response = await server._handle_resume_plan({"plan_id": "plan-1"}, ws)
+
+    assert response["status"] == "partial_failure"
+    assert "interrupted action requires reconciliation" in response["message"]
+    assert response["message"] != plan.explanation
+    assert "explanation" not in response
+    server._verifier.verify.assert_not_awaited()
