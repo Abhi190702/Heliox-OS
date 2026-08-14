@@ -1621,6 +1621,7 @@ class PilotServer:
 
         immediate_local_actions = {
             ActionType.SYSTEM_INFO,
+            ActionType.SYSTEM_HEALTH_REVIEW,
             ActionType.CPU_USAGE,
             ActionType.MEMORY_USAGE,
             ActionType.DISK_USAGE,

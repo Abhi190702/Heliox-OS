@@ -8,6 +8,7 @@ from pilot.actions import (
     Action,
     ActionPlan,
     ActionType,
+    EmptyParams,
     OpenApplicationParams,
     ScreenVisionParams,
     SystemInfoParams,
@@ -77,6 +78,25 @@ def test_bounded_telemetry_plan_gets_immediate_local_companion_review():
             )
         ],
         explanation="Display current system information",
+    )
+
+    review = PilotServer._deterministic_companion_review(plan)
+
+    assert review is not None
+    assert review.decision == "CONTINUE"
+    assert "read-only" in review.reason
+
+
+def test_system_health_review_gets_immediate_local_companion_review():
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.SYSTEM_HEALTH_REVIEW,
+                target="system health",
+                parameters=EmptyParams(),
+            )
+        ],
+        explanation="Collect a read-only system health review",
     )
 
     review = PilotServer._deterministic_companion_review(plan)
