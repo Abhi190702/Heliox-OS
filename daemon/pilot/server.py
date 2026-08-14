@@ -575,6 +575,10 @@ class PilotServer:
         # Rotated on each daemon process start. neurod reads the separate
         # owner-only runtime file and never receives the UI token.
         self._neural_auth_token = secrets.token_urlsafe(32)
+        # The local MCP bridge receives its own least-privilege credential.
+        # It never receives the UI token and its RPC methods are allow-listed
+        # independently in security.rpc_identity.
+        self._mcp_auth_token = secrets.token_urlsafe(32)
 
     def _start_tts_warmup(self) -> None:
         """Warm the selected local voice without blocking daemon startup.
@@ -1457,6 +1461,7 @@ class PilotServer:
             provided_token,
             ui_token=self.config.server.auth_token,
             neural_token=self._neural_auth_token,
+            mcp_token=self._mcp_auth_token,
         )
         if role is None:
             await websocket.send(_error_response(first_req.id, -32001, "Invalid auth token"))
@@ -6818,15 +6823,19 @@ def handle_tool(tool_name, params):
         token_file.write_text(self.config.server.auth_token, encoding="utf-8")
         neural_token_file = RUNTIME_DIR / "neural_auth_token"
         neural_token_file.write_text(self._neural_auth_token, encoding="utf-8")
+        mcp_token_file = RUNTIME_DIR / "mcp_auth_token"
+        mcp_token_file.write_text(self._mcp_auth_token, encoding="utf-8")
         try:
             import os as _os
 
             _os.chmod(token_file, 0o600)
             _os.chmod(neural_token_file, 0o600)
+            _os.chmod(mcp_token_file, 0o600)
         except Exception:
             pass  # chmod not available on Windows — file is in user-private dir
         logger.info("Auth token written to %s", token_file)
         logger.info("Neural sidecar token written to %s", neural_token_file)
+        logger.info("Local MCP token written to %s", mcp_token_file)
 
         logger.info("Starting Pilot daemon on ws://%s:%d", host, port)
         self._server = await websockets.serve(

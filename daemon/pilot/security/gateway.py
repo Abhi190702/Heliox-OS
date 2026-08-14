@@ -84,6 +84,7 @@ class InvocationSource(StrEnum):
     VOICE = "voice"
     GESTURE = "gesture"
     NEURAL = "neural"
+    MCP = "mcp"
     SELF_HEALING = "self_healing"
     # Per-specialist-agent sources — see SECURITY.md's Agent Gateway section
     # for why these were added: previously only web_agent/autonomous/voice/
@@ -260,6 +261,26 @@ DEFAULT_SOURCE_PROFILES: dict[str, SourceProfile] = {
                 ActionType.OPEN_APPLICATION,
                 ActionType.NOTIFY,
             }
+        ],
+        allow_root=False,
+    ),
+    # Local MCP is an authenticated automation ingress, not a second UI.
+    # Every submitted action is separately forced through the visible UI
+    # approval gate by PilotServer. This ceiling also makes several classes
+    # of action unreachable even if a future planner or adapter regresses.
+    "mcp": SourceProfile(
+        max_tier={
+            ActionFamily.SHELL.value: int(PermissionTier.USER_WRITE),
+            ActionFamily.BROWSING.value: int(PermissionTier.USER_WRITE),
+            ActionFamily.SYSTEM_CONTROL.value: int(PermissionTier.USER_WRITE),
+            ActionFamily.OTHER.value: int(PermissionTier.SYSTEM_MODIFY),
+        },
+        deny_action_types=[
+            "browser_execute_js",
+            "power_shutdown",
+            "power_restart",
+            "power_logout",
+            "registry_write",
         ],
         allow_root=False,
     ),
