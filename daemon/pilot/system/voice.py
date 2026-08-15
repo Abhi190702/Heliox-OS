@@ -1038,11 +1038,13 @@ class _ContinuousRecorder:
             name="heliox-wasapi-microphone",
             daemon=True,
         )
-        self._soundcard_thread.start()
         self.input_device = None
         self.input_device_name = microphone.name
         self.capture_backend = "windows_wasapi"
         self.last_error = ""
+        # Publish initialized state before the native thread can report an
+        # immediate failure; otherwise this assignment can erase its error.
+        self._soundcard_thread.start()
         return True
 
     def stop(self) -> None:
