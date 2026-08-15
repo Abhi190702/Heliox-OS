@@ -8,8 +8,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from pilot.security import vault as vault_module
-from pilot.security.vault import KeyVault, VaultUnavailableError
+from pilot.security.vault import KNOWN_PROVIDERS, KeyVault, VaultUnavailableError
 from pilot.server import PilotServer
+
+
+def test_known_providers_cover_cloud_and_calendar_credentials():
+    assert {"openrouter", "caldav"} <= set(KNOWN_PROVIDERS)
 
 
 class _SecureBackend:

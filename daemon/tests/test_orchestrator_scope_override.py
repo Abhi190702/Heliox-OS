@@ -8,10 +8,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pilot.actions import Action, ActionPlan, ActionResult, ActionType, CodeExecParams
-from pilot.agents.base_agent import AgentRole
+from pilot.actions import Action, ActionPlan, ActionResult, ActionType, CalendarParams, CodeExecParams
+from pilot.agents.base_agent import AgentRole, BaseAgent
 from pilot.agents.orchestrator import AgentOrchestrator
-from pilot.security.gateway import TaskScopeOverride
+from pilot.config import PilotConfig
+from pilot.security.gateway import AgentGateway, InvocationSource, TaskScopeOverride
+from pilot.security.permissions import PermissionChecker
 
 
 def _make_action(action_type=ActionType.SYSTEM_INFO, **kwargs):
@@ -70,6 +72,35 @@ async def test_scope_override_defaults_to_none(orchestrator):
     agent.handle_task.assert_awaited_once()
     _, kwargs = agent.handle_task.call_args
     assert kwargs["scope_override"] is None
+
+
+@pytest.mark.asyncio
+async def test_scope_override_blocks_direct_protocol_specialist_before_dispatch(orchestrator):
+    config = PilotConfig()
+    gateway = AgentGateway(config, PermissionChecker(config))
+    orchestrator.set_agent_gateway(gateway)
+
+    action = Action(
+        action_type=ActionType.CALENDAR_DELETE_EVENT,
+        parameters=CalendarParams(event_uid="event-123"),
+    )
+    plan = ActionPlan(actions=[action], explanation="delete event", raw_input="delete event")
+    agent = MagicMock(spec=BaseAgent)
+    agent.role = AgentRole.CALENDAR
+    agent.handle_task = AsyncMock(return_value=[ActionResult(action=action, success=True, output="deleted")])
+    agent.get_invocation_source.return_value = InvocationSource.CALENDAR_AGENT
+    orchestrator._action_registry[action.action_type] = AgentRole.CALENDAR
+    orchestrator._agents[AgentRole.CALENDAR] = agent
+
+    results = await orchestrator.execute_plan(
+        "delete event",
+        plan,
+        scope_override=TaskScopeOverride(max_tier={"other": 2}),
+    )
+
+    assert results[0].success is False
+    assert "exceeds" in results[0].error
+    agent.handle_task.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -52,6 +52,13 @@ export interface PilotSettings {
   preview: {
     enabled: boolean;
   };
+  calendar: {
+    enabled: boolean;
+    caldav_url: string;
+    caldav_username: string;
+    caldav_password_provider: string;
+    ics_files: string[];
+  };
   voice: {
     input_device: string;
     tts_engine: string;
@@ -114,6 +121,13 @@ const defaultSettings: PilotSettings = {
   },
   preview: {
     enabled: false,
+  },
+  calendar: {
+    enabled: false,
+    caldav_url: "",
+    caldav_username: "",
+    caldav_password_provider: "caldav",
+    ics_files: [],
   },
   voice: {
     input_device: "auto",

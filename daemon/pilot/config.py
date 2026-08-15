@@ -618,10 +618,10 @@ def _validate_config_types(raw: dict) -> None:
             "rate_limit_rpm": int,
             "rate_limit_burst": int,
             "budget_enabled": bool,
-            "budget_monthly_limit_usd": float,
+            "budget_monthly_limit_usd": (int, float),
             "max_tokens_per_action": int,
             "max_tokens_per_task": int,
-            "max_usd_per_task": float,
+            "max_usd_per_task": (int, float),
             "max_consecutive_failures": int,
         },
         "security": {
@@ -713,6 +713,10 @@ def _validate_config_types(raw: dict) -> None:
             "confirm_timeout_seconds": (int, float),
             "advisory_timeout_seconds": (int, float),
         },
+        "preview": {
+            "enabled": bool,
+            "confirm_timeout_seconds": (int, float),
+        },
         "supervision": {
             "enabled": bool,
             "keyboard_mouse_hook_enabled": bool,
@@ -739,6 +743,13 @@ def _validate_config_types(raw: dict) -> None:
             "feeds": list,
             "poll_interval_hours": (int, float),
             "max_items_per_feed": int,
+        },
+        "calendar": {
+            "enabled": bool,
+            "caldav_url": str,
+            "caldav_username": str,
+            "caldav_password_provider": str,
+            "ics_files": list,
         },
         "redis": {
             "enabled": bool,
@@ -773,12 +784,25 @@ def _validate_config_types(raw: dict) -> None:
             "folders": list,
             "index_dir": str,
         },
+        "cognitive": {
+            "enabled": bool,
+        },
         "proxy": {
             "http": str,
             "https": str,
             "no_proxy": str,
         },
     }
+
+    allowed_top_level = set(expected_types) | {"first_run_complete"}
+    unknown_sections = sorted(set(raw) - allowed_top_level)
+    if unknown_sections:
+        error_msg = f"Invalid config section found: '{unknown_sections[0]}'. Please check for typos."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    if "first_run_complete" in raw and not isinstance(raw["first_run_complete"], bool):
+        raise ValueError("Invalid type: 'first_run_complete' must be bool.")
 
     for section, expected_keys in expected_types.items():
         if section in raw and isinstance(raw[section], dict):
@@ -791,7 +815,10 @@ def _validate_config_types(raw: dict) -> None:
 
                 # Catch invalid types
                 expected_type = expected_keys[actual_key]
-                if not isinstance(actual_value, expected_type):
+                numeric_type = expected_type in {int, float} or (
+                    isinstance(expected_type, tuple) and any(item in {int, float} for item in expected_type)
+                )
+                if not isinstance(actual_value, expected_type) or (numeric_type and isinstance(actual_value, bool)):
                     error_msg = (
                         f"Invalid type: '{section}.{actual_key}' must be "
                         f"{_format_type_name(expected_type)}, got "
@@ -1011,6 +1038,11 @@ def _merge_config(config: PilotConfig, raw: dict[str, Any]) -> PilotConfig:
             if hasattr(config.rss, k):
                 setattr(config.rss, k, v)
 
+    if "calendar" in raw:
+        for k, v in raw["calendar"].items():
+            if hasattr(config.calendar, k):
+                setattr(config.calendar, k, v)
+
     if "network" in raw:
         for k, v in raw["network"].items():
             if hasattr(config.network, k):
@@ -1059,6 +1091,11 @@ def _merge_config(config: PilotConfig, raw: dict[str, Any]) -> PilotConfig:
         for k, v in raw["semantic_search"].items():
             if hasattr(config.semantic_search, k):
                 setattr(config.semantic_search, k, v)
+
+    if "cognitive" in raw:
+        for k, v in raw["cognitive"].items():
+            if hasattr(config.cognitive, k):
+                setattr(config.cognitive, k, v)
 
     if "proxy" in raw and isinstance(raw["proxy"], dict):
         for k, v in raw["proxy"].items():

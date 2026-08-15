@@ -60,7 +60,7 @@ if TYPE_CHECKING:
     from pilot.agents.agent_mesh import AgentMesh
     from pilot.models.budget_tracker import BudgetTracker
     from pilot.models.router import ModelRouter
-    from pilot.security.gateway import TaskScopeOverride
+    from pilot.security.gateway import AgentGateway, TaskScopeOverride
 
 logger = logging.getLogger("pilot.agents.orchestrator")
 
@@ -92,6 +92,7 @@ class AgentOrchestrator:
         self._broadcast_fn: Callable[..., Coroutine] | None = None
         self._budget_tracker: BudgetTracker | None = None
         self._circuit_breaker: CircuitBreaker | None = None
+        self._agent_gateway: AgentGateway | None = None
         # ThreatContainmentBridge — injected via set_threat_bridge() in server.py
         self._threat_bridge: Any = None
 
@@ -120,6 +121,10 @@ class AgentOrchestrator:
     def set_circuit_breaker(self, breaker: CircuitBreaker) -> None:
         """Inject the circuit breaker. Called by server.py during startup."""
         self._circuit_breaker = breaker
+
+    def set_agent_gateway(self, gateway: AgentGateway) -> None:
+        """Guard specialists that perform work without the shared Executor."""
+        self._agent_gateway = gateway
 
     def set_threat_bridge(self, bridge: Any) -> None:
         """Inject the ThreatContainmentBridge and wire it to the ForensicsAgent.
@@ -490,6 +495,29 @@ class AgentOrchestrator:
                 explanation=f"{role.value} handling {len(batch_actions)} action(s)",
                 raw_input=user_input,
             )
+
+            # Some specialists integrate directly with a protocol/library
+            # instead of using Executor. They must still be constrained by
+            # the Agent Gateway and the caller's narrowed scope. Executor-
+            # backed agents perform this check inside Executor already.
+            if self._agent_gateway is not None and not hasattr(agent, "_executor"):
+                gateway_decision = await self._agent_gateway.authorize(
+                    sub_plan,
+                    agent.get_invocation_source(),
+                    scope_override=scope_override,
+                    plan_id=task_id,
+                )
+                if not gateway_decision.allowed:
+                    denial = "; ".join(gateway_decision.reasons) or "Denied by Agent Gateway"
+                    for idx in indices:
+                        all_results[idx] = ActionResult(
+                            action=plan.actions[idx],
+                            success=False,
+                            error=denial,
+                        )
+                    if cancel_event:
+                        cancel_event.set()
+                    break
 
             # Notify action starts
             if on_action_start:

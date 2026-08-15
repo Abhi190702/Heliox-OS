@@ -16,6 +16,7 @@
   import EvolutionHarnessPanel from "./EvolutionHarnessPanel.svelte";
   import AgentMeshPanel from "./AgentMeshPanel.svelte";
   import AirHandoffPanel from "./AirHandoffPanel.svelte";
+  import CalendarIntegrationPanel from "./CalendarIntegrationPanel.svelte";
   import GestureWorkflowBindings from "./GestureWorkflowBindings.svelte";
   import VoiceGestureWorkflowStatus from "./VoiceGestureWorkflowStatus.svelte";
   import SelfHealingPanel from "./SelfHealingPanel.svelte";
@@ -1868,6 +1869,7 @@
     </div>
   </section>
 
+  <CalendarIntegrationPanel />
   <AirHandoffPanel />
 </div>
 

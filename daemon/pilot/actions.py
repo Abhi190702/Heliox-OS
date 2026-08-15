@@ -845,6 +845,7 @@ class CalendarParams(BaseModel):
     description: str | None = None
     location: str | None = None
     calendar_id: str | None = None
+    event_uid: str | None = None
     # Reconciliation fields
     emails_json: str = ""
     lookahead_hours: int = 24

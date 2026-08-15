@@ -39,6 +39,23 @@ async def test_preview_enabled_update_is_applied_and_saved():
 
 
 @pytest.mark.asyncio
+async def test_unknown_config_key_is_rejected_by_rpc():
+    server = object.__new__(PilotServer)
+    config = PilotConfig()
+    config.save = MagicMock()
+    server.config = config
+
+    result = await server._handle_update_config(
+        {"section": "calendar", "values": {"caldav_usernme": "typo"}},
+        MagicMock(),
+    )
+
+    assert result["status"] == "error"
+    assert "calendar.caldav_usernme" in result["message"]
+    config.save.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("values", "message"),
     [

@@ -832,6 +832,7 @@ class PilotServer:
         self._orchestrator.set_broadcast(self._broadcast_notification)
         self._orchestrator.set_budget_tracker(self._budget_tracker)
         self._orchestrator.set_circuit_breaker(self._circuit_breaker)
+        self._orchestrator.set_agent_gateway(self._gateway)
         from pilot.agents.registry import AgentRegistry
 
         AgentRegistry.discover_agents()
@@ -1197,6 +1198,7 @@ class PilotServer:
             "store_api_key": self._handle_store_api_key,
             "delete_api_key": self._handle_delete_api_key,
             "list_api_keys": self._handle_list_api_keys,
+            "calendar_test_connection": self._handle_calendar_test_connection,
             "list_ollama_models": self._handle_list_ollama_models,
             "health": self._handle_health,
             "ready": self._handle_ready,
@@ -4611,7 +4613,15 @@ class PilotServer:
                     v = v.strip()
                 if section == "screen_vision" and k == "capture_interval_seconds":
                     v = float(v)
+                from pilot.config import _validate_config_types
+
+                try:
+                    _validate_config_types({section: {k: v}})
+                except ValueError as exc:
+                    return {"status": "error", "message": str(exc)}
                 setattr(target, k, v)
+            else:
+                return {"status": "error", "message": f"Invalid config key found: '{section}.{k}'."}
         self.config.save()
 
         if section == "voice" and ({"tts_engine", "tts_voice"} & values.keys()):
@@ -4628,6 +4638,18 @@ class PilotServer:
                 logger.info("Cloud client re-initialized for provider: %s", self.config.model.cloud_provider)
 
         return {"status": "ok"}
+
+    async def _handle_calendar_test_connection(self, params: dict, ws: ServerConnection) -> dict:
+        """Test the configured CalDAV account without mutating it."""
+        if self._orchestrator is None:
+            return {"status": "error", "message": "Agent system is not initialized", "calendars": []}
+        from pilot.agents.base_agent import AgentRole
+        from pilot.agents.calendar_agent import CalendarAgent
+
+        agent = self._orchestrator.get_agent(AgentRole.CALENDAR)
+        if not isinstance(agent, CalendarAgent):
+            return {"status": "error", "message": "Calendar agent is unavailable", "calendars": []}
+        return await agent.test_connection()
 
     async def _handle_reset_config(self, params: dict, ws: ServerConnection) -> dict:
         """Reset configuration to factory defaults."""
