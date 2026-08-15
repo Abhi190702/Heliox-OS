@@ -244,6 +244,28 @@ def test_docker_status_never_advertises_host_fallback(monkeypatch):
     assert status["fallback"] == "disabled"
 
 
+@pytest.mark.parametrize("timeout_call", [1, 2])
+def test_docker_status_degrades_cleanly_when_cli_times_out(monkeypatch, timeout_call):
+    runner = DockerEvolutionRunner()
+    monkeypatch.setattr(runner, "_docker_path", lambda: "docker")
+    calls = 0
+
+    def run(argv, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == timeout_call:
+            raise subprocess.TimeoutExpired(argv, 5)
+        return SimpleNamespace(returncode=0, stdout="27.0.0\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+
+    status = runner.status()
+
+    assert status["available"] is False
+    assert status["fallback"] == "disabled"
+    assert "respond" in status["reason"] or "inspect" in status["reason"]
+
+
 def test_docker_workdir_cannot_escape_candidate_mount():
     assert DockerEvolutionRunner._container_workdir(".") == "/workspace"
     assert DockerEvolutionRunner._container_workdir("daemon") == "/workspace/daemon"

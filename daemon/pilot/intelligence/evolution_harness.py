@@ -169,24 +169,30 @@ class DockerEvolutionRunner:
         docker = self._docker_path()
         if docker is None:
             return self._unavailable("Docker CLI is not installed")
-        server = subprocess.run(
-            [docker, "version", "--format", "{{.Server.Version}}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            env=self._client_environment(),
-            check=False,
-        )
+        try:
+            server = subprocess.run(
+                [docker, "version", "--format", "{{.Server.Version}}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=self._client_environment(),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return self._unavailable("Docker isolation engine did not respond")
         if server.returncode != 0:
             return self._unavailable("Docker isolation engine is not running")
-        image = subprocess.run(
-            [docker, "image", "inspect", self.image, "--format", "{{.Id}}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            env=self._client_environment(),
-            check=False,
-        )
+        try:
+            image = subprocess.run(
+                [docker, "image", "inspect", self.image, "--format", "{{.Id}}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=self._client_environment(),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return self._unavailable(f"Pre-approved local runner image {self.image!r} could not be inspected")
         if image.returncode != 0:
             return self._unavailable(f"Pre-approved local runner image {self.image!r} is not installed")
         return {
