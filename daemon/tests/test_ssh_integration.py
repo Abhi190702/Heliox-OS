@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from pilot.actions import Action, ActionPlan, ActionType
 from pilot.agents.ssh_agent import SshAgent
 from pilot.config import PilotConfig, SshHostConfig
 from pilot.server import PilotServer
@@ -128,3 +129,27 @@ async def test_connection_test_fails_closed_for_unknown_alias():
 
     assert result["status"] == "error"
     assert "unknown" in result["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_disabled_action_points_user_to_secure_settings():
+    config = PilotConfig()
+    router = MagicMock()
+    router.get_config.return_value = config
+    router.get_vault.return_value = SimpleNamespace(get_key=AsyncMock())
+    agent = SshAgent(router)
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.SSH_COMMAND,
+                target="",
+                parameters={"host": "build-box", "command": "uname -a"},
+            )
+        ]
+    )
+
+    result = await agent.handle_task("inspect build box", plan)
+
+    assert len(result) == 1
+    assert result[0].success is False
+    assert result[0].error == "SSH is disabled. Enable it in Settings > Integrations > SSH."

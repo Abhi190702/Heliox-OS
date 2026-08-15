@@ -191,7 +191,7 @@ class SshAgent(BaseAgent):
                 ActionResult(
                     action=a,
                     success=False,
-                    error="SSH is disabled. Enable it in config.toml under [ssh].",
+                    error="SSH is disabled. Enable it in Settings > Integrations > SSH.",
                 )
                 for a in my_actions
             ]
@@ -238,7 +238,7 @@ class SshAgent(BaseAgent):
                         success=False,
                         error=(
                             f"Unknown SSH host alias '{host_alias}'. "
-                            "Add it to config.ssh.allowed_hosts before using ssh_* actions."
+                            "Add it in Settings > Integrations > SSH before using ssh_* actions."
                         ),
                     )
                 )
@@ -250,7 +250,7 @@ class SshAgent(BaseAgent):
                     ActionResult(
                         action=action,
                         success=False,
-                        error=f"SSH host '{host_alias}' is missing private_key_provider in config.",
+                        error=f"SSH host '{host_alias}' has no private key saved in Settings.",
                     )
                 )
                 continue
