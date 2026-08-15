@@ -37,7 +37,9 @@ def _python_assignments(path: Path, names: set[str]) -> dict[str, object]:
 def collect_versions(root: Path) -> dict[str, str]:
     """Return every first-party version source that must stay synchronized."""
     daemon_project = _toml(root / "daemon" / "pyproject.toml")
-    daemon_init = _python_assignments(root / "daemon" / "pilot" / "__init__.py", {"__version__"})
+    daemon_init = _python_assignments(
+        root / "daemon" / "pilot" / "__init__.py", {"__version__"}
+    )
     changelog = _python_assignments(
         root / "daemon" / "pilot" / "changelog.py",
         {"VERSION", "CHANGELOG"},
@@ -50,12 +52,19 @@ def collect_versions(root: Path) -> dict[str, str]:
     tauri_config = _json(root / "tauri-app" / "src-tauri" / "tauri.conf.json")
 
     heliox_lock = next(
-        package for package in cargo_lock["package"] if package.get("name") == "heliox-os"
+        package
+        for package in cargo_lock["package"]
+        if package.get("name") == "heliox-os"
     )
     current_changelog = changelog.get("CHANGELOG")
     changelog_version = str(changelog.get("VERSION", ""))
-    if not isinstance(current_changelog, dict) or changelog_version not in current_changelog:
-        raise ValueError(f"CHANGELOG has no entry for current version {changelog_version!r}")
+    if (
+        not isinstance(current_changelog, dict)
+        or changelog_version not in current_changelog
+    ):
+        raise ValueError(
+            f"CHANGELOG has no entry for current version {changelog_version!r}"
+        )
 
     return {
         "daemon/pyproject.toml": str(daemon_project["project"]["version"]),
@@ -64,7 +73,9 @@ def collect_versions(root: Path) -> dict[str, str]:
         "tauri-app/package.json": str(tauri_package["version"]),
         "tauri-app/ui/package.json": str(ui_package["version"]),
         "tauri-app/ui/package-lock.json": str(ui_lock["version"]),
-        "tauri-app/ui/package-lock.json packages root": str(ui_lock["packages"][""]["version"]),
+        "tauri-app/ui/package-lock.json packages root": str(
+            ui_lock["packages"][""]["version"]
+        ),
         "tauri-app/src-tauri/Cargo.toml": str(cargo_manifest["package"]["version"]),
         "tauri-app/src-tauri/Cargo.lock": str(heliox_lock["version"]),
         "tauri-app/src-tauri/tauri.conf.json": str(tauri_config["version"]),
@@ -75,22 +86,30 @@ def validate_release(root: Path, tag: str = "") -> str:
     versions = collect_versions(root)
     unique = set(versions.values())
     if len(unique) != 1:
-        details = "\n".join(f"  {path}: {version}" for path, version in versions.items())
+        details = "\n".join(
+            f"  {path}: {version}" for path, version in versions.items()
+        )
         raise ValueError(f"Release versions are inconsistent:\n{details}")
 
     version = unique.pop()
     if not SEMVER_PATTERN.fullmatch(version):
-        raise ValueError(f"Release version is not valid semantic versioning: {version!r}")
+        raise ValueError(
+            f"Release version is not valid semantic versioning: {version!r}"
+        )
 
     if tag and tag != f"v{version}":
-        raise ValueError(f"Git tag {tag!r} does not match synchronized version v{version}")
+        raise ValueError(
+            f"Git tag {tag!r} does not match synchronized version v{version}"
+        )
 
     return version
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument(
+        "--root", type=Path, default=Path(__file__).resolve().parents[1]
+    )
     parser.add_argument("--tag", default="")
     args = parser.parse_args()
 
@@ -100,7 +119,9 @@ def main() -> int:
         print(f"release preflight failed: {exc}", file=sys.stderr)
         return 1
 
-    print(f"release version {version} verified across {len(collect_versions(args.root.resolve()))} sources")
+    print(
+        f"release version {version} verified across {len(collect_versions(args.root.resolve()))} sources"
+    )
     return 0
 
 
