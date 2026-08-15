@@ -1195,6 +1195,8 @@ class PilotServer:
             "store_api_key": self._handle_store_api_key,
             "delete_api_key": self._handle_delete_api_key,
             "list_api_keys": self._handle_list_api_keys,
+            "subscription_status": self._handle_subscription_status,
+            "subscription_login": self._handle_subscription_login,
             "calendar_test_connection": self._handle_calendar_test_connection,
             "email_test_connection": self._handle_email_test_connection,
             "ssh_list_hosts": self._handle_ssh_list_hosts,
@@ -4525,6 +4527,37 @@ class PilotServer:
             return {"status": "error", "message": f"Unknown config section: {section}"}
         for k, v in values.items():
             if hasattr(target, k):
+                if section == "model" and k == "provider":
+                    if v not in {"ollama", "local", "cloud", "subscription"}:
+                        return {
+                            "status": "error",
+                            "message": "model.provider must be ollama, local, cloud, or subscription",
+                        }
+                if section == "model" and k == "subscription_provider":
+                    if v not in {"codex", "claude"}:
+                        return {
+                            "status": "error",
+                            "message": "model.subscription_provider must be codex or claude",
+                        }
+                if section == "model" and k == "subscription_model":
+                    if not isinstance(v, str) or len(v.strip()) > 200:
+                        return {
+                            "status": "error",
+                            "message": "model.subscription_model must be a model name up to 200 characters",
+                        }
+                    v = v.strip()
+                if section == "model" and k == "subscription_timeout_seconds":
+                    if not isinstance(v, int) or isinstance(v, bool) or not 15 <= v <= 600:
+                        return {
+                            "status": "error",
+                            "message": "model.subscription_timeout_seconds must be from 15 to 600",
+                        }
+                if section == "model" and k == "subscription_max_prompt_chars":
+                    if not isinstance(v, int) or isinstance(v, bool) or not 1000 <= v <= 200000:
+                        return {
+                            "status": "error",
+                            "message": "model.subscription_max_prompt_chars must be from 1000 to 200000",
+                        }
                 if section == "security" and k == "root_enabled" and not isinstance(v, bool):
                     return {"status": "error", "message": "security.root_enabled must be a boolean"}
                 if section == "security" and k == "snapshot_on_destructive" and not isinstance(v, bool):
@@ -4642,6 +4675,21 @@ class PilotServer:
 
                 self._planner._model._cloud = CloudClient(self.config, self._vault)
                 logger.info("Cloud client re-initialized for provider: %s", self.config.model.cloud_provider)
+
+        if section == "model" and (
+            {
+                "provider",
+                "subscription_provider",
+                "subscription_model",
+                "subscription_timeout_seconds",
+                "subscription_max_prompt_chars",
+            }
+            & values.keys()
+        ):
+            from pilot.models.subscription_cli import SubscriptionCLIClient
+
+            if self._planner is not None:
+                self._planner._model._subscription = SubscriptionCLIClient(self.config)
 
         return {"status": "ok"}
 
@@ -5125,6 +5173,28 @@ class PilotServer:
                 else "Secure OS credential storage is unavailable; API keys cannot be persisted."
             ),
         }
+
+    # -- Subscription-authenticated official CLIs --
+
+    def _subscription_client(self):
+        from pilot.models.subscription_cli import SubscriptionCLIClient
+
+        if self._planner is not None:
+            return self._planner._model._subscription
+        return SubscriptionCLIClient(self.config)
+
+    async def _handle_subscription_status(self, params: dict, ws: ServerConnection) -> dict:
+        """Report CLI installation and subscription login without exposing account data."""
+
+        provider = str(params.get("provider") or self.config.model.subscription_provider)
+        refresh = bool(params.get("refresh", False))
+        return await self._subscription_client().status(provider, refresh=refresh)
+
+    async def _handle_subscription_login(self, params: dict, ws: ServerConnection) -> dict:
+        """Start the official provider login flow; Heliox never handles its credentials."""
+
+        provider = str(params.get("provider") or self.config.model.subscription_provider)
+        return await self._subscription_client().start_login(provider)
 
     # -- Ollama model discovery --
 

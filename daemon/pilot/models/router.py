@@ -13,6 +13,7 @@ from pilot.models.cache import LLMCache
 from pilot.models.cloud import CloudClient, safe_provider_error
 from pilot.models.ollama import OllamaClient
 from pilot.models.rate_limiter import TokenBucketRateLimiter
+from pilot.models.subscription_cli import SubscriptionCLIClient
 
 if TYPE_CHECKING:
     from pilot.config import PilotConfig
@@ -38,6 +39,7 @@ class ModelRouter:
         self._vault = vault
         self._ollama = OllamaClient(config.model.ollama_base_url, config)
         self._cloud: CloudClient | None = None
+        self._subscription = SubscriptionCLIClient(config)
         self._llamacpp: object | None = None
         self._resolved_ollama_model: str | None = None
         self._cloud_unavailable_until = 0.0
@@ -131,9 +133,16 @@ class ModelRouter:
             provider_key = (
                 self._config.model.cloud_provider
                 if self._config.model.provider == "cloud"
-                else self._config.model.provider
+                else (
+                    self._config.model.subscription_provider
+                    if self._config.model.provider == "subscription"
+                    else self._config.model.provider
+                )
             )
-            model_name = self._config.model.cloud_model or self._config.model.ollama_model
+            if self._config.model.provider == "subscription":
+                model_name = self._config.model.subscription_model or "cli-default"
+            else:
+                model_name = self._config.model.cloud_model or self._config.model.ollama_model
 
             asyncio.create_task(
                 self._budget_tracker.record_usage(
@@ -162,6 +171,19 @@ class ModelRouter:
 
         # Skip cache when streaming - can't cache partial tokens
         if not stream_callback:
+            if provider == "subscription":
+                model = self._config.model.subscription_model or "cli-default"
+                response = await self._cache.get(
+                    prompt,
+                    model,
+                    f"subscription:{self._config.model.subscription_provider}",
+                    temperature,
+                    json_mode,
+                    system,
+                )
+                if response is not None:
+                    return response
+
             # Try cloud backend first if configured
             if provider == "cloud" and self._cloud:
                 model = self._config.model.cloud_model or "unknown"
@@ -211,7 +233,7 @@ class ModelRouter:
                         return response
 
             # Fallback: try ollama if not already tried
-            if provider != "ollama" and await self._ollama.is_available():
+            if provider not in ("ollama", "subscription") and await self._ollama.is_available():
                 model = await self._resolve_ollama_model()
 
                 response = await self._cache.get(
@@ -227,7 +249,7 @@ class ModelRouter:
                     return response
 
             # Final fallback: cloud API
-            if self._cloud and provider not in ("ollama", "local"):
+            if self._cloud and provider not in ("ollama", "local", "subscription"):
                 model = self._config.model.cloud_model or "unknown"
 
                 response = await self._cache.get(
@@ -244,6 +266,27 @@ class ModelRouter:
 
         # Now do the actual generation with rate limiting
         await self._rate_limiter.acquire()
+
+        if provider == "subscription":
+            model = self._config.model.subscription_model or "cli-default"
+            response = await self._subscription.generate(
+                prompt,
+                system=system,
+                json_mode=json_mode,
+                temperature=temperature,
+                stream_callback=stream_callback,
+            )
+            if not stream_callback:
+                await self._cache.set(
+                    prompt,
+                    model,
+                    f"subscription:{self._config.model.subscription_provider}",
+                    temperature,
+                    json_mode,
+                    response,
+                    system,
+                )
+            return response
 
         # Cloud provider
         if provider == "cloud" and self._cloud:
@@ -438,7 +481,10 @@ class ModelRouter:
 
             return response
 
-        raise RuntimeError("No model backend available. Start Ollama or configure a cloud API key.")
+        raise RuntimeError(
+            "No model backend available. Start Ollama, configure a cloud API key, "
+            "or connect a supported subscription CLI."
+        )
 
     def _open_cloud_circuit(self, reason: str, *, seconds: float = 60.0) -> None:
         self._cloud_unavailable_reason = reason

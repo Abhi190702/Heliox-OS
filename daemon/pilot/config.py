@@ -78,6 +78,14 @@ class ModelConfig:
     idle_unload_seconds: int = 60
     cloud_provider: str = ""  # "openai" | "openrouter" | "claude" | "gemini" | "meta"
     cloud_model: str = ""
+    # Subscription-backed official coding-agent CLIs.  Heliox never reads or
+    # stores their OAuth credentials; the selected CLI owns authentication.
+    subscription_provider: str = "codex"  # "codex" | "claude"
+    subscription_model: str = ""  # blank uses the CLI/account default
+    subscription_timeout_seconds: int = 120
+    # Keep the Heliox payload bounded before the coding-agent harness adds its
+    # own context.  Refuse oversize calls instead of silently spending quota.
+    subscription_max_prompt_chars: int = 48000
     # Rate limiting — applied to every LLM call via ModelRouter
     rate_limit_enabled: bool = True
     rate_limit_rpm: int = 60  # sustained requests per minute
@@ -625,6 +633,10 @@ def _validate_config_types(raw: dict) -> None:
             "idle_unload_seconds": int,
             "cloud_provider": str,
             "cloud_model": str,
+            "subscription_provider": str,
+            "subscription_model": str,
+            "subscription_timeout_seconds": int,
+            "subscription_max_prompt_chars": int,
             "rate_limit_enabled": bool,
             "rate_limit_rpm": int,
             "rate_limit_burst": int,

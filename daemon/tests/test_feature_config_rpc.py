@@ -56,6 +56,58 @@ async def test_unknown_config_key_is_rejected_by_rpc():
 
 
 @pytest.mark.asyncio
+async def test_subscription_provider_update_is_validated_and_saved():
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+
+    result = await server._handle_update_config(
+        {
+            "section": "model",
+            "values": {
+                "provider": "subscription",
+                "subscription_provider": "codex",
+                "subscription_model": "  gpt-test  ",
+                "subscription_timeout_seconds": 90,
+                "subscription_max_prompt_chars": 24000,
+            },
+        },
+        MagicMock(),
+    )
+
+    assert result["status"] == "ok"
+    assert config.model.provider == "subscription"
+    assert config.model.subscription_provider == "codex"
+    assert config.model.subscription_model == "gpt-test"
+    config.save.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ({"provider": "browser_cookie"}, "model.provider"),
+        ({"subscription_provider": "unknown"}, "subscription_provider"),
+        ({"subscription_timeout_seconds": 5}, "subscription_timeout_seconds"),
+        ({"subscription_max_prompt_chars": 999}, "subscription_max_prompt_chars"),
+    ],
+)
+async def test_subscription_provider_update_rejects_unsafe_values(values, message):
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+
+    result = await server._handle_update_config(
+        {"section": "model", "values": values},
+        MagicMock(),
+    )
+
+    assert result["status"] == "error"
+    assert message in result["message"]
+    config.save.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("values", "message"),
     [
