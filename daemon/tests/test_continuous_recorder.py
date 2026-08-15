@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
+import warnings
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -133,3 +136,47 @@ def test_publish_drops_late_frame_after_event_loop_closes():
     recorder._publish_audio_block(_silent_frame())
 
     recorder._loop.call_soon_threadsafe.assert_not_called()
+
+
+def test_windows_wasapi_reports_discontinuity_only_once(monkeypatch):
+    class FakeSoundcardWarning(RuntimeWarning):
+        pass
+
+    class FakeRecorder:
+        calls = 0
+
+        def record(self, *, numframes):
+            self.calls += 1
+            warnings.warn("data discontinuity in recording", FakeSoundcardWarning, stacklevel=2)
+            if self.calls >= 3:
+                raise RuntimeError("capture ended")
+            return np.zeros((numframes, 1), dtype=np.float32)
+
+    capture = FakeRecorder()
+
+    class FakeContext:
+        def __enter__(self):
+            return capture
+
+        def __exit__(self, *_args):
+            return None
+
+    microphone = SimpleNamespace(name="Test microphone", recorder=lambda **_kwargs: FakeContext())
+    fake_soundcard = SimpleNamespace(
+        SoundcardRuntimeWarning=FakeSoundcardWarning,
+        all_microphones=lambda **_kwargs: [microphone],
+        default_microphone=lambda: microphone,
+    )
+    monkeypatch.setitem(sys.modules, "soundcard", fake_soundcard)
+    recorder = _ContinuousRecorder()
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        assert recorder._start_windows_wasapi() is True
+        recorder._soundcard_thread.join(timeout=1)
+
+    discontinuities = [item for item in captured if issubclass(item.category, FakeSoundcardWarning)]
+    assert len(discontinuities) == 1
+    assert recorder.frames_received == 2
+    assert recorder.last_error == "capture ended"
+    recorder.stop()

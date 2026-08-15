@@ -13,6 +13,7 @@ import re
 import tempfile
 import threading
 import time
+import warnings
 import wave
 from pathlib import Path
 from typing import Any
@@ -1011,15 +1012,24 @@ class _ContinuousRecorder:
         stop_event = threading.Event()
 
         def _pump() -> None:
-            try:
-                while not stop_event.is_set():
-                    data = recorder.record(numframes=self.frame_size)
-                    mono = np.asarray(data[:, 0], dtype=np.float32)
-                    block = (np.clip(mono, -1.0, 1.0) * 32767.0).astype(np.int16)
-                    self._publish_audio_block(block)
-            except Exception as error:
-                self.last_error = str(error)
-                logger.warning("Native Windows microphone stream failed", exc_info=True)
+            # SoundCard warns on recoverable WASAPI buffer discontinuities. A
+            # single warning is useful evidence; hundreds of identical lines
+            # hide actual capture failures in the daemon log.
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "once",
+                    message=r"data discontinuity in recording",
+                    category=sc.SoundcardRuntimeWarning,
+                )
+                try:
+                    while not stop_event.is_set():
+                        data = recorder.record(numframes=self.frame_size)
+                        mono = np.asarray(data[:, 0], dtype=np.float32)
+                        block = (np.clip(mono, -1.0, 1.0) * 32767.0).astype(np.int16)
+                        self._publish_audio_block(block)
+                except Exception as error:
+                    self.last_error = str(error)
+                    logger.warning("Native Windows microphone stream failed", exc_info=True)
 
         self._soundcard_recorder = recorder_context
         self._soundcard_stop = stop_event
