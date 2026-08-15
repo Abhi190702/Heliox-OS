@@ -28,23 +28,15 @@ def validate_wheel(path: Path) -> None:
         names = set(wheel.namelist())
         missing = sorted(REQUIRED_FILES - names)
         if missing:
-            raise ValueError(
-                f"wheel is missing required release files: {', '.join(missing)}"
-            )
+            raise ValueError(f"wheel is missing required release files: {', '.join(missing)}")
 
-        metadata_names = [
-            name for name in names if name.endswith(".dist-info/METADATA")
-        ]
+        metadata_names = [name for name in names if name.endswith(".dist-info/METADATA")]
         if len(metadata_names) != 1:
-            raise ValueError(
-                "wheel must contain exactly one distribution METADATA file"
-            )
+            raise ValueError("wheel must contain exactly one distribution METADATA file")
         metadata = wheel.read(metadata_names[0]).decode("utf-8")
         for requirement in REQUIRED_REQUIREMENTS:
             if f"Requires-Dist: {requirement}" not in metadata:
-                raise ValueError(
-                    f"wheel is missing the {requirement!r} end-user dependency"
-                )
+                raise ValueError(f"wheel is missing the {requirement!r} end-user dependency")
 
         registry = json.loads(wheel.read(f"{PACKAGE_PREFIX}/registry.json"))
         for plugin in registry.get("plugins", []):
@@ -55,9 +47,7 @@ def validate_wheel(path: Path) -> None:
             for file_entry in plugin["package"]["files"]:
                 expected = (bundled_root / str(file_entry["path"])).as_posix()
                 if expected not in names:
-                    raise ValueError(
-                        f"wheel is missing bundled marketplace file: {expected}"
-                    )
+                    raise ValueError(f"wheel is missing bundled marketplace file: {expected}")
 
         if wheel.getinfo("pilot/security/risk_gate_weights.npz").file_size == 0:
             raise ValueError("bundled learned-risk world-model weights are empty")

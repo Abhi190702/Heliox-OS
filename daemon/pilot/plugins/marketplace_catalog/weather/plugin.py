@@ -53,6 +53,11 @@ def handle_tool(tool_name: str, params: dict) -> dict:
                     "condition": description.get("value", "Unknown"),
                 }
             )
-        return {"status": "success", "city": city, "forecast": forecast, "source": "wttr.in"}
+        return {
+            "status": "success",
+            "city": city,
+            "forecast": forecast,
+            "source": "wttr.in",
+        }
 
     return {"error": f"Unknown tool: {tool_name}"}

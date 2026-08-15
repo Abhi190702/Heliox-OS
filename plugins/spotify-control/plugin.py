@@ -27,11 +27,7 @@ def _request(endpoint: str, *, method: str = "GET") -> dict:
     try:
         with urllib.request.urlopen(request, timeout=8) as response:
             payload = response.read()
-            return (
-                json.loads(payload.decode("utf-8"))
-                if payload
-                else {"status": "success"}
-            )
+            return json.loads(payload.decode("utf-8")) if payload else {"status": "success"}
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         return {"error": f"Spotify API returned HTTP {exc.code}: {detail}"}

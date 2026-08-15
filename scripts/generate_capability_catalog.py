@@ -164,9 +164,7 @@ def _plugin_catalog() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
                 "version": manifest.get("version", ""),
                 "description": manifest.get("description", ""),
                 "author": manifest.get("author", ""),
-                "catalog": "marketplace"
-                if "marketplace_catalog" in path.parts
-                else "builtin",
+                "catalog": "marketplace" if "marketplace_catalog" in path.parts else "builtin",
                 "runtime_type": manifest.get("runtime_type", ""),
                 "source_manifest": relative,
                 "tools": [
@@ -188,9 +186,7 @@ async def build_catalog() -> dict[str, Any]:
     providers, mesh_summary = await _provider_map()
     plugins, plugin_sources = _plugin_catalog()
     version_config = json.loads(
-        (REPO_ROOT / "tauri-app" / "src-tauri" / "tauri.conf.json").read_text(
-            encoding="utf-8"
-        )
+        (REPO_ROOT / "tauri-app" / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8")
     )
 
     actions: list[dict[str, Any]] = []

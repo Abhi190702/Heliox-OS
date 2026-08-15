@@ -48,9 +48,7 @@ def releases() -> list[dict[str, object]]:
                 "features": features,
                 "status": status,
                 "release_url": (
-                    f"{REPOSITORY}/releases/tag/v{version}"
-                    if status == "published"
-                    else None
+                    f"{REPOSITORY}/releases/tag/v{version}" if status == "published" else None
                 ),
                 "source_url": f"{REPOSITORY}/tree/main",
             }
@@ -142,8 +140,7 @@ def render_json_feed(items: list[dict[str, object]]) -> dict[str, object]:
                 "date_published": f"{item['date']}T00:00:00Z",
                 "tags": ["release", "heliox-os"],
                 "content_text": "\n".join(
-                    f"{feature['name']}: {feature['description']}"
-                    for feature in item["features"]
+                    f"{feature['name']}: {feature['description']}" for feature in item["features"]
                 ),
             }
             for item in published
@@ -166,16 +163,10 @@ def render_rss(items: list[dict[str, object]]) -> bytes:
         ET.SubElement(channel, tag).text = text
     for item in (entry for entry in items if entry["status"] == "published"):
         node = ET.SubElement(channel, "item")
-        ET.SubElement(
-            node, "title"
-        ).text = f"Heliox OS {item['version']} — {item['title']}"
+        ET.SubElement(node, "title").text = f"Heliox OS {item['version']} — {item['title']}"
         ET.SubElement(node, "link").text = str(item["release_url"])
-        ET.SubElement(
-            node, "guid", {"isPermaLink": "false"}
-        ).text = f"heliox-{item['version']}"
-        published = datetime.fromisoformat(str(item["date"])).replace(
-            tzinfo=timezone.utc
-        )
+        ET.SubElement(node, "guid", {"isPermaLink": "false"}).text = f"heliox-{item['version']}"
+        published = datetime.fromisoformat(str(item["date"])).replace(tzinfo=timezone.utc)
         ET.SubElement(node, "pubDate").text = format_datetime(published)
         ET.SubElement(node, "description").text = str(item["summary"])
     ET.indent(rss, space="  ")
@@ -193,9 +184,7 @@ def write_outputs(output_dir: Path) -> None:
         "generated_from": "daemon/pilot/changelog.py",
         "releases": items,
     }
-    (output_dir / "changelog.md").write_text(
-        render_markdown(items), encoding="utf-8", newline="\n"
-    )
+    (output_dir / "changelog.md").write_text(render_markdown(items), encoding="utf-8", newline="\n")
     (output_dir / "releases.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",

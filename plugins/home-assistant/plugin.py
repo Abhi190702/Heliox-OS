@@ -15,9 +15,7 @@ def _settings() -> tuple[str, str]:
     )
 
 
-def _request(
-    endpoint: str, *, method: str = "GET", body: dict | None = None
-) -> dict | list:
+def _request(endpoint: str, *, method: str = "GET", body: dict | None = None) -> dict | list:
     url, token = _settings()
     if not url or not token:
         return {"error": "HA_URL and HA_TOKEN environment variables are required"}
@@ -49,11 +47,7 @@ def handle_tool(tool_name: str, params: dict) -> dict:
         states = _request("/states")
         if isinstance(states, dict):
             return states
-        lights = [
-            state
-            for state in states
-            if str(state.get("entity_id", "")).startswith("light.")
-        ]
+        lights = [state for state in states if str(state.get("entity_id", "")).startswith("light.")]
         return {"status": "success", "lights": lights, "count": len(lights)}
 
     if tool_name == "ha_set_light":

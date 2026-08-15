@@ -37,14 +37,10 @@ def _percent_reduction(before: float, after: float) -> float:
 
 def build_proof() -> str:
     capabilities = _load_json(REPO_ROOT / "capabilities.json")
-    legacy_latency = _load_json(
-        REPO_ROOT / "docs" / "evidence" / "react-latency-2026-08-12.json"
-    )
+    legacy_latency = _load_json(REPO_ROOT / "docs" / "evidence" / "react-latency-2026-08-12.json")
     benchmark_path = _latest_benchmark_path()
     benchmarks = _load_json(benchmark_path)
-    ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
+    ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     ci_operating_systems = _matrix_values(ci_workflow, "os")
     python_versions = _matrix_values(ci_workflow, "python-version")
 

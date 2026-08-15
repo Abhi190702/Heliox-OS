@@ -43,13 +43,9 @@ async def build_bundle() -> dict:
             "Local software benchmark bundle; no claim of model-provider, network, browser page-load, "
             "microphone, camera, speaker, gaze, gesture, EEG, or human accuracy"
         ),
-        "guarded_cpu_request": await benchmark_guarded_request(
-            iterations=100, warmup=10
-        ),
+        "guarded_cpu_request": await benchmark_guarded_request(iterations=100, warmup=10),
         "local_status_suite": await benchmark_status(iterations=50, warmup=5),
-        "event_loop_responsiveness": await benchmark_event_loop(
-            heartbeat_interval_ms=10.0
-        ),
+        "event_loop_responsiveness": await benchmark_event_loop(heartbeat_interval_ms=10.0),
         "intent_dispatch": benchmark_intents(),
         "learned_risk_world_model": benchmark_world_model(iterations=1000),
     }
@@ -68,15 +64,10 @@ def main() -> int:
     args = parser.parse_args()
     report = asyncio.run(build_bundle())
     output = args.output or (
-        REPO_ROOT
-        / "docs"
-        / "evidence"
-        / f"software-benchmarks-{report['captured_on']}.json"
+        REPO_ROOT / "docs" / "evidence" / f"software-benchmarks-{report['captured_on']}.json"
     )
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n"
-    )
+    output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(f"Wrote benchmark evidence to {output}")
     return 0
 

@@ -206,9 +206,7 @@ def print_result_rich(
     input_table.add_row("🎤 Voice", f'"{voice_text}"')
     input_table.add_row("🤚 Gesture", gesture_name if gesture_name else "none")
     input_table.add_row("📊 Voice Conf", f"{voice_confidence * 100:.0f}%")
-    console.print(
-        Panel(input_table, title="[bold blue]📥 Input[/bold blue]", border_style="blue")
-    )
+    console.print(Panel(input_table, title="[bold blue]📥 Input[/bold blue]", border_style="blue"))
 
     # ── Fusion result section ──
     fusion_table = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
@@ -216,17 +214,13 @@ def print_result_rich(
     fusion_table.add_column("Value", style="white")
     fusion_table.add_row("💬 Command", f"[bold green]{intent.command}[/bold green]")
     fusion_table.add_row("🔀 Fusion Type", intent.fusion_type)
-    fusion_table.add_row(
-        "⚡ Confidence", f"[bold]{intent.confidence * 100:.0f}%[/bold]"
-    )
+    fusion_table.add_row("⚡ Confidence", f"[bold]{intent.confidence * 100:.0f}%[/bold]")
 
     if gesture_name and gesture_info:
         fusion_table.add_row("✋ Modifier", gesture_info.get("modifier", "n/a"))
 
     if intent.metadata.get("time_delta_ms"):
-        fusion_table.add_row(
-            "⏱️  Time Delta", f"{intent.metadata['time_delta_ms']:.0f}ms"
-        )
+        fusion_table.add_row("⏱️  Time Delta", f"{intent.metadata['time_delta_ms']:.0f}ms")
 
     console.print(
         Panel(
@@ -370,9 +364,7 @@ async def test_batch(args: argparse.Namespace) -> None:
     ]
 
     if RICH_AVAILABLE:
-        console.print(
-            f"\n[bold cyan]🧪 Batch Testing {len(lines)} commands...[/bold cyan]\n"
-        )
+        console.print(f"\n[bold cyan]🧪 Batch Testing {len(lines)} commands...[/bold cyan]\n")
 
     results = []
     for line in lines:
@@ -398,9 +390,7 @@ async def test_batch(args: argparse.Namespace) -> None:
             )
 
     if RICH_AVAILABLE and not args.json:
-        table = Table(
-            title="Batch Intent Test Results", box=box.ROUNDED, show_lines=True
-        )
+        table = Table(title="Batch Intent Test Results", box=box.ROUNDED, show_lines=True)
         table.add_column("Voice Input", style="cyan", max_width=25)
         table.add_column("Gesture", style="magenta", max_width=12)
         table.add_column("Fused Command", style="green", max_width=30)
@@ -411,11 +401,7 @@ async def test_batch(args: argparse.Namespace) -> None:
 
         for r in results:
             risk_color = (
-                "red"
-                if "High" in r["risk"]
-                else "yellow"
-                if "Medium" in r["risk"]
-                else "green"
+                "red" if "High" in r["risk"] else "yellow" if "Medium" in r["risk"] else "green"
             )
             table.add_row(
                 r["voice"],
