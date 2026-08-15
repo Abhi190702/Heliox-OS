@@ -14,7 +14,6 @@ import asyncio
 import json
 import logging
 import uuid
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -22,16 +21,15 @@ import websockets
 from mcp.server import MCPServer
 from mcp_types import ToolAnnotations
 
+from pilot import __version__
 from pilot.config import RUNTIME_DIR, PilotConfig
 
 logger = logging.getLogger("pilot.mcp")
 
 
 def _package_version() -> str:
-    try:
-        return version("pilot-daemon")
-    except PackageNotFoundError:
-        return "0+source"
+    """Return the source/package version used by the running MCP process."""
+    return __version__
 
 
 _READ_ONLY = ToolAnnotations(

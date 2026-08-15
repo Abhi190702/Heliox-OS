@@ -9,9 +9,14 @@ import pytest
 import websockets
 from mcp import Client
 
+from pilot import __version__
 from pilot.config import PilotConfig
-from pilot.mcp_server import DaemonRpcError, HelioxDaemonClient, create_mcp_server
+from pilot.mcp_server import DaemonRpcError, HelioxDaemonClient, _package_version, create_mcp_server
 from pilot.server import PilotServer
+
+
+def test_local_mcp_version_matches_running_heliox_package() -> None:
+    assert _package_version() == __version__
 
 
 class _RecordingDaemon:
