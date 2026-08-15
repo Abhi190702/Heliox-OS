@@ -196,7 +196,7 @@ Read [SECURITY.md](SECURITY.md) for the threat model, rollback boundaries, super
    - macOS Intel: `Heliox-OS_<version>_x64.dmg`
    - Linux: `.AppImage`, `.deb`, or `.rpm`
 3. Install and open Heliox OS.
-4. Select a local model or add a provider key in Settings.
+4. Select a local model, add a provider key, or connect an eligible Codex/Claude Code subscription in Settings.
 
 The desktop application requires Python 3.11 or newer and starts the local daemon automatically. First launch may take longer while Heliox creates its environment and downloads optional components. The UI continues reconnecting during initialization.
 
@@ -270,10 +270,14 @@ User configuration is stored at `~/.config/heliox-os/config.toml`. Most settings
 
 ```toml
 [model]
-provider = "ollama"          # "ollama" or "cloud"
+provider = "ollama"          # "ollama", "cloud", or "subscription"
 ollama_model = "llama3.1:8b"
 cloud_provider = "gemini"    # "gemini", "openai", "openrouter", "claude", or "meta"
 cloud_model = ""             # OpenRouter defaults to "openrouter/auto"; try "deepseek/deepseek-v4-pro"
+subscription_provider = "codex" # "codex" or "claude"
+subscription_model = ""      # blank uses the official CLI default
+subscription_timeout_seconds = 120
+subscription_max_prompt_chars = 48000
 
 [security]
 root_enabled = false
@@ -292,6 +296,31 @@ tts_engine = "kokoro_tts"
 ```
 
 OpenRouter uses its OpenAI-compatible endpoint. Settings and first-run setup offer automatic routing, DeepSeek V4 Pro, the latest DeepSeek V4 Flash alias, and other current aliases; an exact OpenRouter catalog model ID can also be entered manually. Provider keys remain in the operating-system credential store.
+
+### Use an existing Codex or Claude subscription
+
+Install and sign in through the provider's official CLI (`codex login` or
+`claude auth login`), then choose **Existing AI subscription** in first-run
+setup or Settings. Heliox does not copy browser sessions, read OAuth files, or
+store these credentials. The CLI runs as a text-only model helper in a sterile
+temporary directory; Codex is read-only and ephemeral, while Claude has tools,
+browser integration, slash commands, and session persistence disabled. Heliox
+still owns schema validation, policy, approval, execution, and verification.
+
+The provider CLI adds its own instruction overhead. Settings separates the
+Heliox prompt estimate from provider-reported input, cached input, uncached
+input, and output. Exact repeated requests use Heliox's response cache and do
+not consume provider quota. The prompt-context cap prevents unbounded history;
+simple deterministic commands continue to use local fast paths with zero model
+calls. Subscription allowance and model availability remain governed by the
+user's provider plan, not by Heliox.
+
+Run the optional planning-only benchmark from `daemon/` to measure latency,
+plan quality, and reported usage without executing any proposed action:
+
+```bash
+python benchmarks/subscription_planning_suite.py --provider codex
+```
 
 Kokoro, Pocket TTS, gaze, gesture tracking, and the learned-risk model are CPU-capable; CUDA is not required. Optional models still consume storage, memory, CPU time, and download bandwidth.
 

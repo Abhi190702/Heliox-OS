@@ -206,6 +206,23 @@ API keys are retrieved from the operating-system credential store; provider
 authentication, credit, rate-limit, timeout, and service errors are redacted
 before they reach the UI.
 
+The separate `subscription` adapter delegates authentication and inference to
+an installed official Codex or Claude Code CLI. Heliox never parses or copies
+the CLI's OAuth state. Each inference starts in a fresh sterile directory:
+Codex is ephemeral with user config/rules ignored and a read-only sandbox;
+Claude disables tools, browser integration, slash commands, and session
+persistence. Any emitted tool activity is rejected. The returned text still
+passes through the ordinary Planner schema, deterministic policy, approval,
+Executor, and Verifier; a coding-agent subscription is model access, not a
+second execution authority.
+
+Subscription requests reuse the exact-response cache, deduplicate repeated
+system content, cap serialized context, and expose provider-reported cached and
+uncached token usage separately from the Heliox prompt estimate. Cache hits
+record zero provider usage. `benchmarks/subscription_planning_suite.py` runs
+fixed, side-effect-free plan evaluations and never validates, approves, or
+executes the proposed actions.
+
 Only an explicit `success` terminal status renders as a result. Partial,
 blocked, and failed work renders as an error; cancellation, interruption, and
 live replanning render as neutral system states. Complex cloud planning has a

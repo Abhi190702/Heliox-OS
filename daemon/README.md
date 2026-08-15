@@ -39,6 +39,24 @@ OpenAI, OpenRouter, Claude, and Meta; OpenRouter accepts automatic routing or
 an exact catalog model ID such as DeepSeek V4 Pro. Provider keys remain in the
 operating-system credential store.
 
+Planning can also use an existing Codex/ChatGPT or Claude Code subscription
+through that provider's official CLI. Heliox delegates login to the CLI and
+never reads its OAuth state. The adapter is text-only and cannot execute tools:
+Codex runs ephemeral in a sterile read-only directory with user rules ignored;
+Claude runs without tools, browser integration, slash commands, or persistent
+sessions. Returned plans still pass through the normal policy, approval,
+execution, and verification pipeline.
+
+An opt-in benchmark measures this path without executing actions:
+
+```bash
+python benchmarks/subscription_planning_suite.py --provider codex
+```
+
+The report separates Heliox prompt size from provider input, cached input,
+uncached input, output, and latency. Running it consumes the provider account's
+subscription allowance.
+
 See the [main README](../README.md) and
 [Architecture](../docs/ARCHITECTURE.md) for the full runtime contract.
 

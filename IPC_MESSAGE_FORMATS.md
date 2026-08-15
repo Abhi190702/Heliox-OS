@@ -12,7 +12,7 @@ The Heliox OS UI and daemon communicate over a local WebSocket using the [JSON-R
 | Request timeout | 5 minutes |
 | Reconnect interval | 3 seconds (auto-reconnect on close) |
 
-The daemon currently registers **178 WebSocket RPC methods**. That is the API
+The daemon currently registers **180 WebSocket RPC methods**. That is the API
 surface count, not the action catalog: Heliox exposes **157 action
 types** through the guarded planner/executor system. This document names every
 registered RPC method; grouped tables are used where several methods share one
@@ -307,7 +307,11 @@ Return the daemon's full runtime configuration.
     "mode": "lightweight",
     "gpu_memory_limit_mb": 0,
     "cloud_provider": "",
-    "cloud_model": ""
+    "cloud_model": "",
+    "subscription_provider": "codex",
+    "subscription_model": "",
+    "subscription_timeout_seconds": 120,
+    "subscription_max_prompt_chars": 48000
   },
   "security": {
     "root_enabled": false,
@@ -495,6 +499,29 @@ Discover locally available Ollama models.
 
 **Params:** `{}`
 **Result:** `{ "models": ["llama3.1:8b", "mistral:7b"], "available": true }`
+
+#### `subscription_status`
+
+Probe one official local CLI without exposing account identity or credentials.
+Codex counts as a subscription only when `codex login status` reports a ChatGPT
+login; an API-key login is deliberately not relabelled as subscription access.
+
+**Params:** `{ "provider": "codex"|"claude", "refresh": true }`
+
+**Result:** installation, authentication, subscription, version, safe status
+message, last-call usage, and daemon-session usage. Usage separates provider
+input, cached input, uncached input, output, Heliox prompt characters, and the
+Heliox prompt-token estimate when the CLI reports those fields.
+
+#### `subscription_login`
+
+Start the provider's official browser login command in the background. Heliox
+does not receive the browser callback or credential. The UI must call
+`subscription_status` after the user completes the provider-owned flow.
+
+**Params:** `{ "provider": "codex"|"claude" }`
+
+**Result:** `{ "status": "started"|"missing"|"error", "message": "..." }`
 
 #### `extract_file_text`
 Extract text from a user-selected file for UI context injection.

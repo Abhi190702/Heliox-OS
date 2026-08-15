@@ -144,6 +144,23 @@ grant permission, remove deterministic warnings, or execute by itself.
 See [Architecture](docs/ARCHITECTURE.md) for the complete data flow and
 persistent-store boundaries.
 
+### Subscription-authenticated model CLIs
+
+Codex and Claude Code subscription support is a model boundary, not an
+execution boundary. Authentication remains owned by the installed official
+CLI. Heliox removes API-key environment overrides, never reads the CLI's OAuth
+files or browser state, and returns only a redacted connection status to the
+UI.
+
+Each request uses a fresh temporary working directory. Codex is invoked in an
+ephemeral read-only sandbox with user configuration and repository rules
+ignored. Claude is invoked without tools, Chrome integration, slash commands,
+or session persistence. Heliox rejects any Codex event representing command,
+file, MCP, browser-search, or dynamic-tool activity. Output is treated as
+untrusted model text and must pass the same structured Planner, policy,
+approval, Executor, and Verifier contracts as every other provider. Prompt and
+process output sizes, runtime, and serialized context are bounded.
+
 ---
 
 ## 🚪 Agent Gateway: Scoped Permissions & Audit
