@@ -567,6 +567,9 @@ class PilotServer:
         self._rss_agent: Any = None
         # ── LAN Mesh Network ──
         self._mesh: Any = None
+        # Separate least-privileged LAN service for encrypted phone handoffs.
+        self._air_handoff_manager: Any = None
+        self._air_handoff_server: Any = None
         # ── Threat Containment Bridge (Issue #365) ──
         self._threat_bridge: Any = None
         # ── Authenticated WebSocket clients ──
@@ -649,6 +652,17 @@ class PilotServer:
         from pilot.workflows.checkpoints import WorkflowCheckpointStore
 
         self._vault = KeyVault(self.config)
+        from pilot.air_handoff import AirHandoffManager, AirHandoffServer
+
+        self._air_handoff_manager = AirHandoffManager(
+            self._vault,
+            max_transfer_bytes=self.config.air_handoff.max_transfer_mb * 1024 * 1024,
+        )
+        self._air_handoff_server = AirHandoffServer(
+            self._air_handoff_manager,
+            host="0.0.0.0",
+            port=self.config.air_handoff.port,
+        )
         model_router = ModelRouter(self.config, self._vault)
         self._model_router = model_router
         await model_router.initialize()
@@ -1313,6 +1327,15 @@ class PilotServer:
             # ── LAN Mesh Network ──
             "mesh_peers": self._handle_mesh_peers,
             "mesh_status": self._handle_mesh_status,
+            # Encrypted one-target desktop-to-phone Air Handoff.
+            "air_handoff_status": self._handle_air_handoff_status,
+            "air_handoff_set_enabled": self._handle_air_handoff_set_enabled,
+            "air_handoff_start_pairing": self._handle_air_handoff_start_pairing,
+            "air_handoff_cancel_pairing": self._handle_air_handoff_cancel_pairing,
+            "air_handoff_revoke_device": self._handle_air_handoff_revoke_device,
+            "air_handoff_grab": self._handle_air_handoff_grab,
+            "air_handoff_drop": self._handle_air_handoff_drop,
+            "air_handoff_cancel": self._handle_air_handoff_cancel,
             "resolve_git_conflict": self._handle_resolve_git_conflict,
             "apply_git_resolution": self._handle_apply_git_resolution,
             # ── Plan History Audit Log ──
@@ -4486,6 +4509,12 @@ class PilotServer:
             self.config.save()
             return {"status": "ok"}
 
+        if section == "air_handoff":
+            return {
+                "status": "error",
+                "message": "Use air_handoff_set_enabled so receiver state changes atomically",
+            }
+
         target = getattr(self.config, section, None)
         if target is None:
             return {"status": "error", "message": f"Unknown config section: {section}"}
@@ -4602,6 +4631,10 @@ class PilotServer:
 
     async def _handle_reset_config(self, params: dict, ws: ServerConnection) -> dict:
         """Reset configuration to factory defaults."""
+
+        if self._air_handoff_server and self._air_handoff_server.running:
+            await self._air_handoff_manager.cancel_draft()
+            await self._air_handoff_server.stop()
 
         default_config = PilotConfig()
 
@@ -7112,6 +7145,14 @@ def handle_tool(tool_name, params):
         if self._mesh:
             asyncio.create_task(self._mesh.start())
 
+        if self.config.air_handoff.enabled and self._air_handoff_server:
+            try:
+                await self._air_handoff_server.start()
+            except Exception:
+                logger.exception("Air Handoff failed to start; disabling the receiver")
+                self.config.air_handoff.enabled = False
+                self.config.save()
+
         if hasattr(self, "_new_features_announcement") and self._new_features_announcement:
             await asyncio.sleep(1)
             await self._broadcast_notification(
@@ -7128,6 +7169,8 @@ def handle_tool(tool_name, params):
         # ── Stop LAN mesh ──
         if self._mesh:
             await self._mesh.stop()
+        if self._air_handoff_server:
+            await self._air_handoff_server.stop()
         if self._orchestrator:
             await self._orchestrator.stop_all()
             await self._orchestrator.stop()
@@ -7244,6 +7287,117 @@ def handle_tool(tool_name, params):
         return {"status": "ok"}
 
     # ── LAN Mesh Network Handlers ──
+
+    async def _air_handoff_state(self) -> dict[str, Any]:
+        """Return the complete local receiver state for the trusted UI."""
+        if self._air_handoff_manager is None or self._air_handoff_server is None:
+            return {
+                "enabled": False,
+                "running": False,
+                "message": "Air Handoff is not initialized",
+            }
+        state = await self._air_handoff_manager.status()
+        state.update(
+            {
+                "enabled": bool(self.config.air_handoff.enabled),
+                "running": bool(self._air_handoff_server.running),
+                "receiver_url": (self._air_handoff_server.base_url if self._air_handoff_server.running else None),
+                "port": self.config.air_handoff.port,
+            }
+        )
+        return state
+
+    async def _publish_air_handoff_state(self) -> dict[str, Any]:
+        state = await self._air_handoff_state()
+        await self._broadcast_notification("air_handoff_state", state)
+        return state
+
+    async def _handle_air_handoff_status(self, params: dict, ws: ServerConnection) -> dict[str, Any]:
+        return await self._air_handoff_state()
+
+    async def _handle_air_handoff_set_enabled(self, params: dict, ws: ServerConnection) -> dict[str, Any]:
+        enabled = params.get("enabled")
+        if not isinstance(enabled, bool):
+            return {"status": "error", "message": "enabled must be a boolean"}
+        if self._air_handoff_manager is None or self._air_handoff_server is None:
+            return {"status": "error", "message": "Air Handoff is not initialized"}
+        if enabled and not self._vault.available:
+            return {
+                "status": "error",
+                "message": "Secure OS credential storage is required for Air Handoff",
+            }
+        try:
+            if enabled:
+                await self._air_handoff_server.start()
+            else:
+                await self._air_handoff_manager.cancel_draft()
+                await self._air_handoff_server.stop()
+            self.config.air_handoff.enabled = enabled
+            self.config.save()
+        except Exception as exc:
+            logger.exception("Could not change Air Handoff receiver state")
+            return {"status": "error", "message": str(exc)}
+        state = await self._publish_air_handoff_state()
+        return {"status": "ok", **state}
+
+    async def _handle_air_handoff_start_pairing(self, params: dict, ws: ServerConnection) -> dict[str, Any]:
+        if not self.config.air_handoff.enabled or not self._air_handoff_server.running:
+            return {"status": "error", "message": "Enable Air Handoff before pairing"}
+        try:
+            pairing = self._air_handoff_manager.start_pairing(self._air_handoff_server.base_url)
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+        await self._publish_air_handoff_state()
+        return {"status": "ok", **pairing}
+
+    async def _handle_air_handoff_cancel_pairing(self, params: dict, ws: ServerConnection) -> dict[str, Any]:
+        self._air_handoff_manager.cancel_pairing()
+        await self._publish_air_handoff_state()
+        return {"status": "ok"}
+
+    async def _handle_air_handoff_revoke_device(self, params: dict, ws: ServerConnection) -> dict[str, Any]:
+        device_id = str(params.get("device_id", ""))
+        try:
+            await self._air_handoff_manager.revoke_device(device_id)
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+        await self._publish_air_handoff_state()
+        return {"status": "ok"}
+
+    async def _handle_air_handoff_grab(self, params: dict, ws: ServerConnection) -> dict[str, Any]:
+        if not self.config.air_handoff.enabled or not self._air_handoff_server.running:
+            return {"status": "error", "message": "Air Handoff is not enabled"}
+        kind = str(params.get("kind", "screenshot"))
+        try:
+            if kind == "screenshot":
+                draft = await self._air_handoff_manager.grab_screenshot()
+            elif kind == "text":
+                draft = await self._air_handoff_manager.grab_text(
+                    str(params.get("text", "")),
+                    filename=str(params.get("filename", "heliox-note.txt")),
+                )
+            elif kind == "file":
+                draft = await self._air_handoff_manager.grab_file(str(params.get("path", "")))
+            else:
+                return {"status": "error", "message": "Unsupported handoff kind"}
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+        await self._publish_air_handoff_state()
+        return {"status": "ok", "draft": draft}
+
+    async def _handle_air_handoff_drop(self, params: dict, ws: ServerConnection) -> dict[str, Any]:
+        target_device_id = str(params.get("target_device_id", ""))
+        try:
+            transfer = await self._air_handoff_manager.drop(target_device_id)
+        except Exception as exc:
+            return {"status": "error", "message": str(exc)}
+        await self._publish_air_handoff_state()
+        return {"status": "ok", "transfer": transfer}
+
+    async def _handle_air_handoff_cancel(self, params: dict, ws: ServerConnection) -> dict[str, Any]:
+        await self._air_handoff_manager.cancel_draft()
+        await self._publish_air_handoff_state()
+        return {"status": "ok"}
 
     async def _handle_mesh_peers(self, params: dict, ws: ServerConnection) -> dict:
         """Return a list of currently connected LAN peers.

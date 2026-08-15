@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#070913" />
+    <title>Heliox Air Handoff</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="orb" aria-hidden="true"></div>
+        <div>
+          <p class="eyebrow">HELIOX OS</p>
+          <h1>Air Handoff</h1>
+        </div>
+        <span id="connection-state" class="state">Not paired</span>
+      </header>
+
+      <section id="pair-card" class="card">
+        <p class="kicker">PAIR THIS PHONE</p>
+        <h2>Receive what you grab</h2>
+        <p class="muted">
+          Scan the pairing QR shown by Heliox on your computer. The secret stays in the QR fragment and
+          is used to establish an encrypted device credential.
+        </p>
+        <label>
+          Phone name
+          <input id="device-name" maxlength="80" autocomplete="name" />
+        </label>
+        <button id="pair-button" type="button">Pair securely</button>
+        <p id="pair-error" class="error" role="alert"></p>
+      </section>
+
+      <section id="receive-card" class="card hidden">
+        <div class="receive-heading">
+          <div>
+            <p class="kicker">READY</p>
+            <h2>Open your palm near Heliox</h2>
+          </div>
+          <button id="forget-button" class="quiet" type="button">Forget</button>
+        </div>
+        <p class="muted">
+          Heliox only sends content after it is visibly grabbed and dropped to this paired phone.
+        </p>
+        <div id="empty-state" class="empty">
+          <div class="hand" aria-hidden="true">✋</div>
+          <p>Waiting for a secure handoff…</p>
+        </div>
+        <div id="transfer-list" class="transfers"></div>
+        <p id="receive-error" class="error" role="alert"></p>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

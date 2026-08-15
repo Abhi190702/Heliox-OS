@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:handoff": "node scripts/build-air-handoff-receiver.mjs",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test:unit": "vitest",
@@ -19,6 +20,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/svelte": "^5.4.2",
     "@tsconfig/svelte": "^5.0.0",
+    "@types/qrcode": "^1.5.6",
     "jsdom": "^29.1.1",
     "postcss": "8.5.26",
     "prettier": "3.9.6",
@@ -34,6 +36,9 @@
     "@lucide/svelte": "1.31.0",
     "@mediapipe/hands": "0.4.1675469240",
     "@mediapipe/tasks-vision": "^0.10.35",
+    "@noble/ciphers": "2.3.0",
+    "@noble/curves": "2.3.0",
+    "@noble/hashes": "2.3.0",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.0.0",
     "@tauri-apps/plugin-notification": "^2.0.0",
@@ -41,6 +46,7 @@
     "dompurify": "3.4.13",
     "highlight.js": "^11.11.1",
     "marked": "^18.0.3",
+    "qrcode": "^1.5.4",
     "svelte-chartjs": "^4.0.1",
     "svelte-i18n": "^4.0.1"
   },

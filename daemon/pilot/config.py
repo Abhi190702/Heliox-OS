@@ -490,6 +490,19 @@ class NetworkConfig:
 
 
 @dataclass
+class AirHandoffConfig:
+    """Opt-in LAN receiver for encrypted, one-target phone handoffs.
+
+    This is intentionally separate from the peer-compute mesh. The receiver
+    exposes no execution tools and starts only after the user enables it.
+    """
+
+    enabled: bool = False
+    port: int = 8787
+    max_transfer_mb: int = 25
+
+
+@dataclass
 class SshHostConfig:
     """One allowed SSH destination (referenced by alias in ssh_* actions)."""
 
@@ -540,6 +553,7 @@ class PilotConfig:
     calendar: CalendarConfig = field(default_factory=CalendarConfig)
     semantic_search: SemanticSearchConfig = field(default_factory=SemanticSearchConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
+    air_handoff: AirHandoffConfig = field(default_factory=AirHandoffConfig)
     ssh: SshConfig = field(default_factory=SshConfig)
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     restrictions: Restrictions = field(default_factory=Restrictions)
@@ -743,6 +757,11 @@ def _validate_config_types(raw: dict) -> None:
             "peer_timeout_s": int,
             "skill_sync_enabled": bool,
             "collab_exec_enabled": bool,
+        },
+        "air_handoff": {
+            "enabled": bool,
+            "port": int,
+            "max_transfer_mb": int,
         },
         "ssh": {
             "enabled": bool,
@@ -996,6 +1015,16 @@ def _merge_config(config: PilotConfig, raw: dict[str, Any]) -> PilotConfig:
         for k, v in raw["network"].items():
             if hasattr(config.network, k):
                 setattr(config.network, k, v)
+
+    if "air_handoff" in raw:
+        for k, v in raw["air_handoff"].items():
+            if hasattr(config.air_handoff, k):
+                if k == "port":
+                    setattr(config.air_handoff, k, max(1024, min(65535, int(v))))
+                elif k == "max_transfer_mb":
+                    setattr(config.air_handoff, k, max(1, min(250, int(v))))
+                else:
+                    setattr(config.air_handoff, k, bool(v))
 
     if "ssh" in raw and isinstance(raw["ssh"], dict):
         ssh_raw = raw["ssh"]
