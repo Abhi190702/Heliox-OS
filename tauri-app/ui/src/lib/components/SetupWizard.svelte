@@ -20,6 +20,11 @@
   let cloudProvider = $state("");
   let cloudModel = $state("");
   let cloudApiKey = $state("");
+  let subscriptionProvider = $state<"codex" | "claude">("codex");
+  let subscriptionModel = $state("");
+  let subscriptionChecking = $state(false);
+  let subscriptionMessage = $state("");
+  let subscriptionConnected = $state(false);
   let protectedFolders = $state("");
   let protectedPackages = $state("firefox, nautilus");
 
@@ -38,7 +43,42 @@
     } finally {
       loadingModels = false;
     }
+    await refreshSubscriptionStatus(false);
   });
+
+  async function refreshSubscriptionStatus(refresh = true) {
+    subscriptionChecking = true;
+    try {
+      const result = await call<{ subscription: boolean; message: string }>("subscription_status", {
+        provider: subscriptionProvider,
+        refresh,
+      });
+      subscriptionConnected = result.subscription;
+      subscriptionMessage = result.message;
+    } catch (error) {
+      subscriptionConnected = false;
+      subscriptionMessage = error instanceof Error ? error.message : "Cannot connect to the Heliox daemon.";
+    } finally {
+      subscriptionChecking = false;
+    }
+  }
+
+  async function changeSubscriptionProvider(provider: "codex" | "claude") {
+    subscriptionProvider = provider;
+    subscriptionModel = "";
+    subscriptionConnected = false;
+    await refreshSubscriptionStatus(true);
+  }
+
+  async function startSubscriptionLogin() {
+    subscriptionMessage = "";
+    try {
+      const result = await call<{ message: string }>("subscription_login", { provider: subscriptionProvider });
+      subscriptionMessage = result.message;
+    } catch (error) {
+      subscriptionMessage = error instanceof Error ? error.message : "Could not start the official sign-in flow.";
+    }
+  }
 
   async function finish() {
     if (finishing) return;
@@ -52,6 +92,8 @@
         ollama_model: ollamaModel,
         cloud_provider: cloudProvider,
         cloud_model: cloudModel,
+        subscription_provider: subscriptionProvider,
+        subscription_model: subscriptionModel,
       });
 
       const folders = protectedFolders
@@ -77,6 +119,15 @@
         });
         if (result.status !== "ok") {
           throw new Error(result.message || "The API key could not be stored securely.");
+        }
+      }
+
+      if (modelProvider === "subscription") {
+        await refreshSubscriptionStatus(true);
+        if (!subscriptionConnected) {
+          throw new Error(
+            `${subscriptionProvider === "codex" ? "Codex" : "Claude Code"} must be installed and signed in through an eligible subscription before setup can finish.`,
+          );
         }
       }
 
@@ -146,6 +197,13 @@
                   <span>Uses OpenAI, OpenRouter, Claude, or Gemini. Requires API key.</span>
                 </div>
               </label>
+              <label class="radio-option" class:selected={modelProvider === "subscription"}>
+                <input type="radio" bind:group={modelProvider} value="subscription" />
+                <div>
+                  <strong>Existing Subscription</strong>
+                  <span>Use the official Codex or Claude Code CLI login. No API key is stored by Heliox.</span>
+                </div>
+              </label>
             </div>
           </div>
 
@@ -173,7 +231,7 @@
                 <span class="hint warning">Ollama is not running. Start it first, or choose Cloud.</span>
               {/if}
             </div>
-          {:else}
+          {:else if modelProvider === "cloud"}
             <div class="field">
               <label for="cloud-provider">Cloud Provider</label>
               <select id="cloud-provider" bind:value={cloudProvider} onchange={() => (cloudModel = "")}>
@@ -219,6 +277,60 @@
                 >
               </div>
             {/if}
+          {:else}
+            <div class="field">
+              <span class="field-label">Subscription Provider</span>
+              <div class="radio-group compact">
+                <label class="radio-option" class:selected={subscriptionProvider === "codex"}>
+                  <input
+                    type="radio"
+                    name="subscription-provider"
+                    checked={subscriptionProvider === "codex"}
+                    onchange={() => changeSubscriptionProvider("codex")}
+                  />
+                  <div>
+                    <strong>Codex</strong>
+                    <span>ChatGPT plan through the official Codex CLI.</span>
+                  </div>
+                </label>
+                <label class="radio-option" class:selected={subscriptionProvider === "claude"}>
+                  <input
+                    type="radio"
+                    name="subscription-provider"
+                    checked={subscriptionProvider === "claude"}
+                    onchange={() => changeSubscriptionProvider("claude")}
+                  />
+                  <div>
+                    <strong>Claude Code</strong>
+                    <span>Claude subscription through the official Claude Code CLI.</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <div class="field">
+              <label for="subscription-model">Model</label>
+              <input
+                id="subscription-model"
+                type="text"
+                bind:value={subscriptionModel}
+                placeholder={subscriptionProvider === "codex" ? "Default Codex model" : "Default Claude model"}
+              />
+              <span class="hint">Leave blank for the CLI default or enter a model included by your plan.</span>
+            </div>
+            <div class="subscription-connection" class:connected={subscriptionConnected}>
+              <strong>{subscriptionConnected ? "Connected" : "Connection required"}</strong>
+              <span>{subscriptionChecking ? "Checking the official CLI..." : subscriptionMessage}</span>
+              <div class="subscription-buttons">
+                <button type="button" class="btn-inline" onclick={startSubscriptionLogin}>Connect</button>
+                <button type="button" class="btn-inline secondary" onclick={() => refreshSubscriptionStatus(true)}
+                  >Refresh</button
+                >
+              </div>
+            </div>
+            <p class="note">
+              Heliox uses a tool-free, read-only planning process. The official CLI owns credentials and plan limits;
+              Heliox does not copy browser sessions or OAuth tokens.
+            </p>
           {/if}
         </div>
       {:else if step === 2}
@@ -260,11 +372,23 @@
           <div class="summary">
             <div class="summary-item">
               <span class="summary-label">Provider</span>
-              <span>{modelProvider === "ollama" ? `Ollama` : `Cloud (${cloudProvider})`}</span>
+              <span
+                >{modelProvider === "ollama"
+                  ? "Ollama"
+                  : modelProvider === "cloud"
+                    ? `Cloud (${cloudProvider})`
+                    : `Subscription (${subscriptionProvider === "codex" ? "Codex" : "Claude Code"})`}</span
+              >
             </div>
             <div class="summary-item">
               <span class="summary-label">Model</span>
-              <span>{modelProvider === "ollama" ? ollamaModel : cloudProvider}</span>
+              <span
+                >{modelProvider === "ollama"
+                  ? ollamaModel
+                  : modelProvider === "cloud"
+                    ? cloudModel || cloudProvider
+                    : subscriptionModel || "Provider default"}</span
+              >
             </div>
             <div class="summary-item">
               <span class="summary-label">Protected Folders</span>
@@ -545,6 +669,53 @@
   .radio-option span {
     font-size: 11px;
     color: var(--text-muted);
+  }
+
+  .radio-group.compact {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .subscription-connection {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 12px;
+    padding: 12px;
+    color: var(--warning);
+    background: var(--bg-primary);
+    border: 1px solid var(--warning);
+    border-radius: var(--radius-sm);
+  }
+
+  .subscription-connection.connected {
+    color: var(--success);
+    border-color: var(--success);
+  }
+
+  .subscription-connection span {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .subscription-buttons {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .btn-inline {
+    padding: 5px 10px;
+    color: white;
+    background: var(--accent);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+  }
+
+  .btn-inline.secondary {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
   }
 
   .checkbox-label {

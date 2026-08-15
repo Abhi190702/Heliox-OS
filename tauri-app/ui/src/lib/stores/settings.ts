@@ -10,6 +10,10 @@ export interface PilotSettings {
     gpu_memory_limit_mb: number;
     cloud_provider: string;
     cloud_model: string;
+    subscription_provider: "codex" | "claude";
+    subscription_model: string;
+    subscription_timeout_seconds: number;
+    subscription_max_prompt_chars: number;
     // Rate limiting
     rate_limit_enabled: boolean;
     rate_limit_rpm: number;
@@ -104,6 +108,10 @@ const defaultSettings: PilotSettings = {
     gpu_memory_limit_mb: 0,
     cloud_provider: "",
     cloud_model: "",
+    subscription_provider: "codex",
+    subscription_model: "",
+    subscription_timeout_seconds: 120,
+    subscription_max_prompt_chars: 48000,
     rate_limit_enabled: true,
     rate_limit_rpm: 60,
     rate_limit_burst: 5,

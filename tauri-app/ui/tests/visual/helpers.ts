@@ -120,6 +120,8 @@ export async function mockTauriIpc(page: Page): Promise<void> {
           request.method === "gesture_workflow_bindings_update" ||
           request.method === "agent_mesh_status" ||
           request.method === "agent_routing" ||
+          request.method === "subscription_status" ||
+          request.method === "subscription_login" ||
           request.method.startsWith("air_handoff_")
         ) {
           let result: Record<string, unknown>;
@@ -215,6 +217,25 @@ export async function mockTauriIpc(page: Page): Promise<void> {
                   },
                 ],
               },
+            };
+          } else if (request.method === "subscription_status") {
+            result = {
+              provider: request.params?.provider ?? "codex",
+              installed: true,
+              authenticated: true,
+              subscription: true,
+              version: "codex-cli 0.144.5",
+              message: "Connected through the Codex ChatGPT subscription login.",
+              last_usage: {
+                input_tokens: 13876,
+                cached_input_tokens: 8960,
+                output_tokens: 12,
+              },
+            };
+          } else if (request.method === "subscription_login") {
+            result = {
+              status: "started",
+              message: "The official browser sign-in flow was started.",
             };
           } else if (request.method.startsWith("risk_gate_")) {
             result = {

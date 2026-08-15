@@ -74,6 +74,23 @@ test.describe("Settings Panel", () => {
     await expect(section).toHaveScreenshot("settings-cloud-section.png");
   });
 
+  test("subscription provider exposes verified login, model, and token controls", async ({ page }) => {
+    const section = page.locator(".subscription-panel");
+    await section.scrollIntoViewIfNeeded();
+    await section.getByRole("button", { name: "Codex", exact: true }).click();
+    await expect(section).toContainText("Subscription connected");
+    await expect(section).toContainText("Codex ChatGPT subscription login");
+    await expect(section.getByPlaceholder("Default Codex model")).toBeVisible();
+    await expect(section).toContainText("13876 input");
+    await expect(section).toContainText("8960 cached");
+
+    await section.getByRole("button", { name: "Claude Code" }).click();
+    await expect(section.getByPlaceholder("Default Claude model")).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__last_ws_send__))
+      .toMatchObject({ method: "subscription_status", params: { provider: "claude" } });
+  });
+
   test("toggle active state renders correctly", async ({ page }) => {
     // Click the Root Access toggle and verify the active CSS class is applied
     const rootToggle = page.locator(".setting-row").filter({ hasText: "Root Access" }).locator(".toggle");
