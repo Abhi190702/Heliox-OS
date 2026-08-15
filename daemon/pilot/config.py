@@ -454,6 +454,16 @@ class CalendarConfig:
 
 
 @dataclass
+class EmailConfig:
+    enabled: bool = False
+    imap_host: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    username: str = ""
+    password_provider: str = "email"
+
+
+@dataclass
 class SemanticSearchConfig:
     enabled: bool = False
     folders: list[str] = field(default_factory=list)  # List of directories to index
@@ -551,6 +561,7 @@ class PilotConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     rss: RSSConfig = field(default_factory=RSSConfig)
     calendar: CalendarConfig = field(default_factory=CalendarConfig)
+    email: EmailConfig = field(default_factory=EmailConfig)
     semantic_search: SemanticSearchConfig = field(default_factory=SemanticSearchConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     air_handoff: AirHandoffConfig = field(default_factory=AirHandoffConfig)
@@ -750,6 +761,14 @@ def _validate_config_types(raw: dict) -> None:
             "caldav_username": str,
             "caldav_password_provider": str,
             "ics_files": list,
+        },
+        "email": {
+            "enabled": bool,
+            "imap_host": str,
+            "smtp_host": str,
+            "smtp_port": int,
+            "username": str,
+            "password_provider": str,
         },
         "redis": {
             "enabled": bool,
@@ -1042,6 +1061,11 @@ def _merge_config(config: PilotConfig, raw: dict[str, Any]) -> PilotConfig:
         for k, v in raw["calendar"].items():
             if hasattr(config.calendar, k):
                 setattr(config.calendar, k, v)
+
+    if "email" in raw:
+        for k, v in raw["email"].items():
+            if hasattr(config.email, k):
+                setattr(config.email, k, v)
 
     if "network" in raw:
         for k, v in raw["network"].items():

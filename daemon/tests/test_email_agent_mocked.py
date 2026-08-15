@@ -3,8 +3,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pilot.actions import Action, ActionPlan, ActionType, EmailParams
+from pilot.actions import Action, ActionPlan, ActionType, CalendarParams, EmailParams
 from pilot.agents.email_agent import EmailAgent
+from pilot.config import PilotConfig
 
 
 def extract_email_body(msg_str: str) -> str:
@@ -107,3 +108,48 @@ async def test_reply_flow(email_agent, imap_mock, smtp_mock):
     # Verify smtp_mock got the LLM generated reply
     assert len(smtp_mock) == 1
     assert "Mocked LLM reply." in extract_email_body(smtp_mock[0]["msg"])
+
+
+@pytest.mark.asyncio
+async def test_calendar_fetch_reaches_calendar_handler(email_agent):
+    params = CalendarParams(emails_json="[]", lookahead_hours=24)
+    plan = ActionPlan(actions=[Action(action_type=ActionType.CALENDAR_FETCH, parameters=params)])
+
+    results = await email_agent.handle_task("find calendar invitations", plan)
+
+    assert results[0].success is True
+    assert json.loads(results[0].output) == []
+
+
+@pytest.mark.asyncio
+async def test_daemon_agent_resolves_credentials_from_keyring(imap_mock):
+    router = AsyncMock()
+    config = PilotConfig()
+    config.email.enabled = True
+    config.email.imap_host = "imap.fake.com"
+    config.email.smtp_host = "smtp.fake.com"
+    config.email.username = "user"
+    vault = AsyncMock()
+    vault.get_key.return_value = "saved-password"
+    agent = EmailAgent(router, config=config, vault=vault)
+    params = EmailParams(mailbox="INBOX", max_emails=1)
+    plan = ActionPlan(actions=[Action(action_type=ActionType.EMAIL_FETCH, parameters=params)])
+
+    results = await agent.handle_task("fetch mail", plan)
+
+    assert results[0].success is True
+    vault.get_key.assert_awaited_once_with("email")
+
+
+@pytest.mark.asyncio
+async def test_daemon_agent_fails_closed_when_email_is_disabled():
+    config = PilotConfig()
+    vault = AsyncMock()
+    agent = EmailAgent(AsyncMock(), config=config, vault=vault)
+    plan = ActionPlan(actions=[Action(action_type=ActionType.EMAIL_FETCH, parameters=EmailParams())])
+
+    results = await agent.handle_task("fetch mail", plan)
+
+    assert results[0].success is False
+    assert results[0].error == "Email integration is disabled in Settings"
+    vault.get_key.assert_not_awaited()

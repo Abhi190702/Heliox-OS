@@ -59,6 +59,14 @@ export interface PilotSettings {
     caldav_password_provider: string;
     ics_files: string[];
   };
+  email: {
+    enabled: boolean;
+    imap_host: string;
+    smtp_host: string;
+    smtp_port: number;
+    username: string;
+    password_provider: string;
+  };
   voice: {
     input_device: string;
     tts_engine: string;
@@ -128,6 +136,14 @@ const defaultSettings: PilotSettings = {
     caldav_username: "",
     caldav_password_provider: "caldav",
     ics_files: [],
+  },
+  email: {
+    enabled: false,
+    imap_host: "",
+    smtp_host: "",
+    smtp_port: 587,
+    username: "",
+    password_provider: "email",
   },
   voice: {
     input_device: "auto",

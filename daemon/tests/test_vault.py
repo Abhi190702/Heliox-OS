@@ -13,7 +13,7 @@ from pilot.server import PilotServer
 
 
 def test_known_providers_cover_cloud_and_calendar_credentials():
-    assert {"openrouter", "caldav"} <= set(KNOWN_PROVIDERS)
+    assert {"openrouter", "caldav", "email"} <= set(KNOWN_PROVIDERS)
 
 
 class _SecureBackend:

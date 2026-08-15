@@ -7,9 +7,11 @@ Specialises in:
 
 Security model
 --------------
-Credentials are passed per-action inside ``EmailParams`` and are **never**
-persisted to disk by this agent.  Users should store their App Password in
-the Heliox OS encrypted vault and inject it at call time.
+The daemon resolves the user's app password from the operating-system keyring
+only when an IMAP/SMTP connection is opened.  It is never written into a plan,
+history record, configuration file, or log.  Explicit ``EmailParams``
+credentials remain supported only for direct library consumers that construct
+this agent without the daemon's config and vault dependencies.
 
 All outbound send/reply actions are tagged ``requires_confirmation=True`` so
 the security gate will always prompt the user before anything is transmitted.
@@ -36,8 +38,10 @@ from pilot.actions import ActionPlan, ActionResult, ActionType, CalendarParams, 
 from pilot.agents.base_agent import AgentCapability, AgentRole, AgentStatus, BaseAgent
 
 if TYPE_CHECKING:
+    from pilot.config import PilotConfig
     from pilot.models.router import ModelRouter
     from pilot.security.gateway import TaskScopeOverride
+    from pilot.security.vault import KeyVault
 
 logger = logging.getLogger("pilot.agents.email_agent")
 
@@ -57,8 +61,15 @@ _MAX_BODY_CHARS = 2_000
 class EmailAgent(BaseAgent):
     """Specialist agent for reading and sending emails via IMAP/SMTP."""
 
-    def __init__(self, model_router: ModelRouter) -> None:
+    def __init__(
+        self,
+        model_router: ModelRouter,
+        config: PilotConfig | None = None,
+        vault: KeyVault | None = None,
+    ) -> None:
         super().__init__(role=AgentRole.COMMUNICATION, model_router=model_router)
+        self._config = config
+        self._vault = vault
 
     # ── Capabilities ──────────────────────────────────────────────────────────
 
@@ -124,9 +135,8 @@ class EmailAgent(BaseAgent):
     ) -> list[ActionResult]:
         """Dispatch each email action to the appropriate handler.
 
-        Note: this agent talks to IMAP/SMTP directly, not through the
-        shared Executor, so scope_override has nothing to apply to here —
-        accepted only for interface consistency with BaseAgent.handle_task.
+        AgentOrchestrator gates these direct IMAP/SMTP calls and applies the
+        caller's scope override before dispatch.
         """
         start = time.time()
         self.status = AgentStatus.BUSY
@@ -139,31 +149,29 @@ class EmailAgent(BaseAgent):
         results: list[ActionResult] = []
         for action in my_actions:
             params = action.parameters
-            if not isinstance(params, EmailParams):
-                results.append(
-                    ActionResult(
-                        action=action,
-                        success=False,
-                        error="EmailAgent requires EmailParams",
-                    )
-                )
-                continue
 
             try:
-                if action.action_type == ActionType.EMAIL_FETCH:
-                    result = await self._fetch_emails(action, params)
-                elif action.action_type == ActionType.EMAIL_SUMMARIZE:
-                    result = await self._summarize_emails(action, params)
-                elif action.action_type in (ActionType.EMAIL_REPLY, ActionType.API_SEND_EMAIL):
-                    result = await self._send_email(action, params)
-                elif action.action_type == ActionType.CALENDAR_FETCH:
-                    if not isinstance(params, CalendarParams):
-                        result = ActionResult(action=action, success=False, error="CalendarParams required")
+                if action.action_type in {
+                    ActionType.EMAIL_FETCH,
+                    ActionType.EMAIL_SUMMARIZE,
+                    ActionType.EMAIL_REPLY,
+                    ActionType.API_SEND_EMAIL,
+                }:
+                    if not isinstance(params, EmailParams):
+                        result = ActionResult(action=action, success=False, error="EmailParams required")
+                    elif action.action_type == ActionType.EMAIL_SUMMARIZE:
+                        result = await self._summarize_emails(action, params)
                     else:
-                        result = await self._fetch_calendar_events(action, params)
-                elif action.action_type == ActionType.CALENDAR_RECONCILE:
+                        resolved = await self._with_saved_credentials(params)
+                        if action.action_type == ActionType.EMAIL_FETCH:
+                            result = await self._fetch_emails(action, resolved)
+                        else:
+                            result = await self._send_email(action, resolved)
+                elif action.action_type in {ActionType.CALENDAR_FETCH, ActionType.CALENDAR_RECONCILE}:
                     if not isinstance(params, CalendarParams):
                         result = ActionResult(action=action, success=False, error="CalendarParams required")
+                    elif action.action_type == ActionType.CALENDAR_FETCH:
+                        result = await self._fetch_calendar_events(action, params)
                     else:
                         result = await self._reconcile_calendar(action, params)
                 else:
@@ -182,6 +190,48 @@ class EmailAgent(BaseAgent):
         self._record_task(duration_ms, all(r.success for r in results))
         self.status = AgentStatus.IDLE
         return results
+
+    async def _with_saved_credentials(self, params: EmailParams) -> EmailParams:
+        """Resolve mail credentials without putting a password into a plan."""
+        if self._config is None or self._vault is None:
+            # Compatibility for direct library users; the Heliox daemon always
+            # injects config + vault through agent auto-registration.
+            return params
+        if not self._config.email.enabled:
+            raise ValueError("Email integration is disabled in Settings")
+        provider = self._config.email.password_provider or "email"
+        password = await self._vault.get_key(provider)
+        if not password:
+            raise ValueError("No email app password is saved in the operating-system keyring")
+        return params.model_copy(
+            update={
+                "imap_host": self._config.email.imap_host,
+                "smtp_host": self._config.email.smtp_host,
+                "smtp_port": self._config.email.smtp_port,
+                "username": self._config.email.username,
+                "app_password": password,
+            }
+        )
+
+    async def test_connection(self) -> dict[str, Any]:
+        """Authenticate to IMAP without reading or changing any messages."""
+        try:
+            params = await self._with_saved_credentials(EmailParams())
+            if not params.imap_host or not params.username or not params.app_password:
+                raise ValueError("IMAP host, username, and a saved app password are required")
+            context = ssl.create_default_context()
+            mail = imaplib.IMAP4_SSL(params.imap_host, ssl_context=context)
+            try:
+                mail.login(params.username, params.app_password)
+            finally:
+                try:
+                    mail.logout()
+                except Exception:  # noqa: BLE001
+                    pass
+            return {"status": "ok"}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Email connection test failed: %s", exc)
+            return {"status": "error", "message": str(exc)}
 
     # ── IMAP: fetch unread emails ─────────────────────────────────────────────
 

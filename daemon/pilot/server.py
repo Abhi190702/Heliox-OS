@@ -1199,6 +1199,7 @@ class PilotServer:
             "delete_api_key": self._handle_delete_api_key,
             "list_api_keys": self._handle_list_api_keys,
             "calendar_test_connection": self._handle_calendar_test_connection,
+            "email_test_connection": self._handle_email_test_connection,
             "list_ollama_models": self._handle_list_ollama_models,
             "health": self._handle_health,
             "ready": self._handle_ready,
@@ -4613,6 +4614,9 @@ class PilotServer:
                     v = v.strip()
                 if section == "screen_vision" and k == "capture_interval_seconds":
                     v = float(v)
+                if section == "email" and k == "smtp_port":
+                    if not isinstance(v, int) or isinstance(v, bool) or not 1 <= v <= 65535:
+                        return {"status": "error", "message": "email.smtp_port must be from 1 to 65535"}
                 from pilot.config import _validate_config_types
 
                 try:
@@ -4649,6 +4653,25 @@ class PilotServer:
         agent = self._orchestrator.get_agent(AgentRole.CALENDAR)
         if not isinstance(agent, CalendarAgent):
             return {"status": "error", "message": "Calendar agent is unavailable", "calendars": []}
+        return await agent.test_connection()
+
+    async def _handle_email_test_connection(self, params: dict, ws: ServerConnection) -> dict:
+        """Test saved IMAP credentials without reading or changing messages."""
+        if self._orchestrator is None:
+            return {"status": "error", "message": "Agent system is not initialized"}
+        from pilot.agents.base_agent import AgentRole
+        from pilot.agents.email_agent import EmailAgent
+
+        agent = next(
+            (
+                candidate
+                for candidate in self._orchestrator.get_agents(AgentRole.COMMUNICATION)
+                if isinstance(candidate, EmailAgent)
+            ),
+            None,
+        )
+        if not isinstance(agent, EmailAgent):
+            return {"status": "error", "message": "Email agent is unavailable"}
         return await agent.test_connection()
 
     async def _handle_reset_config(self, params: dict, ws: ServerConnection) -> dict:

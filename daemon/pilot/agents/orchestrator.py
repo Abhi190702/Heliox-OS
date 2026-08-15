@@ -215,6 +215,10 @@ class AgentOrchestrator:
         """Get a registered agent by role."""
         return self._agents.get(role)
 
+    def get_agents(self, role: AgentRole) -> tuple[BaseAgent, ...]:
+        """Return every specialist sharing a role, including mesh providers."""
+        return tuple(agent for agent in self._mesh.executable_agents() if agent.role == role)
+
     def auto_register_all_agents(
         self,
         executor: Any = None,

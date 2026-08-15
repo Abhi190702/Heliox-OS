@@ -19,6 +19,14 @@ def test_calendar_preview_and_cognitive_config_round_trip_through_merge():
             "caldav_password_provider": "caldav",
             "ics_files": ["local.ics"],
         },
+        "email": {
+            "enabled": True,
+            "imap_host": "imap.example.test",
+            "smtp_host": "smtp.example.test",
+            "smtp_port": 587,
+            "username": "person@example.test",
+            "password_provider": "email",
+        },
         "preview": {"enabled": True, "confirm_timeout_seconds": 45},
         "cognitive": {"enabled": False},
     }
@@ -29,6 +37,8 @@ def test_calendar_preview_and_cognitive_config_round_trip_through_merge():
     assert config.calendar.enabled is True
     assert config.calendar.caldav_url == "https://calendar.example.test/dav"
     assert config.calendar.ics_files == ["local.ics"]
+    assert config.email.enabled is True
+    assert config.email.smtp_port == 587
     assert config.preview.enabled is True
     assert config.preview.confirm_timeout_seconds == 45
     assert config.cognitive.enabled is False
