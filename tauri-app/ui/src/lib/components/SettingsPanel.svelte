@@ -15,6 +15,7 @@
   import StrategyEvolutionPanel from "./StrategyEvolutionPanel.svelte";
   import EvolutionHarnessPanel from "./EvolutionHarnessPanel.svelte";
   import AgentMeshPanel from "./AgentMeshPanel.svelte";
+  import AirHandoffPanel from "./AirHandoffPanel.svelte";
   import GestureWorkflowBindings from "./GestureWorkflowBindings.svelte";
   import VoiceGestureWorkflowStatus from "./VoiceGestureWorkflowStatus.svelte";
   import SelfHealingPanel from "./SelfHealingPanel.svelte";
@@ -1866,6 +1867,8 @@
       <button class="btn-save" onclick={testNotification}>{$_("settings.test_popup")}</button>
     </div>
   </section>
+
+  <AirHandoffPanel />
 </div>
 
 <style>

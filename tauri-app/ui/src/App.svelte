@@ -14,6 +14,7 @@
   import SetupWizard from "./lib/components/SetupWizard.svelte";
   import VoiceControl from "./lib/components/VoiceControl.svelte";
   import GestureControl from "./lib/components/GestureControl.svelte";
+  import AirHandoffControl from "./lib/components/AirHandoffControl.svelte";
   import AmbientHUD from "./lib/components/AmbientHUD.svelte";
   import ArcReactor from "./lib/components/ArcReactor.svelte";
   import NeuralBackground from "./lib/components/NeuralBackground.svelte";
@@ -360,6 +361,7 @@
               onActiveChange={(active) => (cameraControlsActive = active)}
             />
           </div>
+          <AirHandoffControl />
           <div class="export-controls">
             <button class="tab" type="button" onclick={() => session.exportChat("json")}>{$_("app.export_json")}</button
             >

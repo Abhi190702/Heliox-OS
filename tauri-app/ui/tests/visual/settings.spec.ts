@@ -34,6 +34,18 @@ test.describe("Settings Panel", () => {
     });
   });
 
+  test("Air Handoff stays opt-in and produces a local pairing QR", async ({ page }) => {
+    const section = page.locator(".handoff-card");
+    await expect(section.getByRole("heading", { name: "Air Handoff" })).toBeVisible();
+    await expect(section.getByRole("switch")).not.toBeChecked();
+
+    await section.getByRole("switch").click();
+    await expect(section.getByText("LAN receiver online")).toBeVisible();
+    await section.getByRole("button", { name: "Pair a phone" }).click();
+    await expect(section.getByAltText("Air Handoff phone pairing QR code")).toBeVisible();
+    await expect(section.getByText("The one-time pairing link expires in five minutes.")).toBeVisible();
+  });
+
   test("appearance section matches baseline", async ({ page }) => {
     const section = page.locator(".settings-group").filter({ hasText: "Appearance" });
     await expect(section).toBeVisible();

@@ -119,7 +119,8 @@ export async function mockTauriIpc(page: Page): Promise<void> {
           request.method === "gesture_workflow_bindings_get" ||
           request.method === "gesture_workflow_bindings_update" ||
           request.method === "agent_mesh_status" ||
-          request.method === "agent_routing"
+          request.method === "agent_routing" ||
+          request.method.startsWith("air_handoff_")
         ) {
           let result: Record<string, unknown>;
           if (request.method === "auth") {
@@ -310,6 +311,31 @@ export async function mockTauriIpc(page: Page): Promise<void> {
               bindings: policy.bindings,
               supported_gestures: ["palm", "swipe_up", "thumbs_up"],
             };
+          } else if (request.method.startsWith("air_handoff_")) {
+            const state = ((window as any).__air_handoff_state__ ??= {
+              enabled: false,
+              running: false,
+              receiver_url: null,
+              paired_devices: [],
+              pairing: null,
+              draft: null,
+              ready_transfers: 0,
+              secure_storage_available: true,
+            });
+            if (request.method === "air_handoff_set_enabled") {
+              state.enabled = Boolean(request.params?.enabled);
+              state.running = state.enabled;
+              state.receiver_url = state.enabled ? "http://192.168.1.25:8787" : null;
+            } else if (request.method === "air_handoff_start_pairing") {
+              state.pairing = {
+                session_id: "pair_test",
+                expires_at: Date.now() / 1000 + 300,
+                pairing_url: "http://192.168.1.25:8787/#pair=test-secret",
+              };
+            } else if (request.method === "air_handoff_cancel_pairing") {
+              state.pairing = null;
+            }
+            result = { status: "ok", ...state, ...(state.pairing ?? {}) };
           } else {
             result = {
               status: "ok",

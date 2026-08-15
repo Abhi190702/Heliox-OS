@@ -97,6 +97,7 @@
     submitGestureWorkflow,
   } from "../gesture/workflowBindingRuntime";
   import { LatestAsyncDispatcher } from "../gesture/latestAsyncDispatcher";
+  import { airHandoff } from "../stores/airHandoff";
 
   // ── Props ──
   let {
@@ -1159,17 +1160,8 @@
             const boundGoal = !pendingWorkflowId ? gestureWorkflowBindings[gesture.name] : undefined;
             if (controlIntent !== "unknown" && pendingWorkflowId) {
               void dispatchWorkflowControl(controlIntent, pendingWorkflowId);
-            } else if (boundGoal) {
-              // A user-bound gesture starts a workflow instead of its
-              // normal default action — see GestureWorkflowConfig in
-              // config.py and the Settings gesture-workflow bindings editor.
-              void startBoundWorkflow(boundGoal, gesture.name);
-              gestureHistory = [...gestureHistory.slice(-4), gesture.name];
             } else {
-              executeGestureAction(gesture.name);
-              gestureHistory = [...gestureHistory.slice(-4), gesture.name];
-              onGesture(gesture.name);
-              trackGestureForCalibration(gesture.name, gesture.metricValue ?? 0);
+              void dispatchRecognizedGesture(gesture, boundGoal);
             }
           }
         }
@@ -1593,6 +1585,39 @@
     session.addSystemMessage(
       `${emoji} ${gesture.replace(/_/g, " ")} recognized · no default action runs. Bind this gesture in Settings to use it.`,
     );
+  }
+
+  async function dispatchRecognizedGesture(gesture: Gesture, boundGoal?: string) {
+    if ($airHandoff.gestureArmed) {
+      try {
+        const consumed = await airHandoff.handleGesture(gesture.name);
+        if (consumed) {
+          session.addSystemMessage($airHandoff.message || "Air Handoff gesture accepted.");
+          gestureHistory = [...gestureHistory.slice(-4), gesture.name];
+          onGesture(gesture.name);
+          trackGestureForCalibration(gesture.name, gesture.metricValue ?? 0);
+          return;
+        }
+      } catch (cause) {
+        session.addSystemMessage(
+          `Air Handoff stopped safely: ${cause instanceof Error ? cause.message : "unknown error"}`,
+        );
+        return;
+      }
+    }
+
+    if (boundGoal) {
+      // User-authored workflow bindings retain normal priority, except when
+      // the user has explicitly armed a one-shot Air Handoff gesture.
+      await startBoundWorkflow(boundGoal, gesture.name);
+      gestureHistory = [...gestureHistory.slice(-4), gesture.name];
+      return;
+    }
+
+    executeGestureAction(gesture.name);
+    gestureHistory = [...gestureHistory.slice(-4), gesture.name];
+    onGesture(gesture.name);
+    trackGestureForCalibration(gesture.name, gesture.metricValue ?? 0);
   }
 
   // ── Canvas Drawing ──
