@@ -12,7 +12,7 @@ The Heliox OS UI and daemon communicate over a local WebSocket using the [JSON-R
 | Request timeout | 5 minutes |
 | Reconnect interval | 3 seconds (auto-reconnect on close) |
 
-The daemon currently registers **163 WebSocket RPC methods**. That is the API
+The daemon currently registers **178 WebSocket RPC methods**. That is the API
 surface count, not the action catalog: Heliox exposes **157 action
 types** through the guarded planner/executor system. This document names every
 registered RPC method; grouped tables are used where several methods share one
@@ -482,13 +482,13 @@ Return formatted host uptime such as `"3h 12m"` or `"2d 4h 8m"`.
 Return platform information.
 
 **Params:** `{}`
-**Result:** `{ "platform": { ... }, "capabilities_count": 156 }`
+**Result:** `{ "platform": { ... }, "capabilities_count": 157 }`
 
 #### `capabilities`
 List all available action types.
 
 **Params:** `{}`
-**Result:** `{ "action_types": ["file_read", "file_write", ...], "count": 156 }`
+**Result:** `{ "action_types": ["file_read", "file_write", ...], "count": 157 }`
 
 #### `list_ollama_models`
 Discover locally available Ollama models.
@@ -501,6 +501,42 @@ Extract text from a user-selected file for UI context injection.
 
 **Params:** `{ "path": "C:/path/to/document.pdf" }`
 **Result:** `{ "status": "ok", "text": "...", ... }` or a clear unsupported/read error.
+
+### Secure productivity integrations
+
+These desktop-only methods configure integrations without putting credentials
+in plans or configuration files. Secrets are stored in the operating-system
+keyring and are unavailable to the MCP and neural sidecar roles.
+
+| Method | Contract |
+|---|---|
+| `calendar_test_connection` | Authenticate to the enabled HTTPS CalDAV account and list calendar names without changing events. |
+| `email_test_connection` | Authenticate to the enabled IMAP account without reading or changing messages. |
+| `ssh_list_hosts` | Return allowlisted aliases and credential-readiness booleans; never key material or provider identifiers. |
+| `ssh_set_enabled` | Persist the global SSH integration switch without deleting saved hosts. |
+| `ssh_save_host` | Validate and persist one host alias; store its private key/passphrase only in the OS keyring. |
+| `ssh_delete_host` | Remove one alias and its associated keyring credentials. |
+| `ssh_test_connection` | Authenticate to one allowlisted alias without executing a remote command. |
+
+SSH commands and scripts remain approval-gated system-modification actions even
+after a connection test succeeds.
+
+### Air Handoff
+
+Air Handoff is an opt-in, same-LAN, one-target transfer surface. Pairing uses an
+ephemeral QR payload; content is encrypted per paired device, and the receiver
+exposes no computer-control tools.
+
+| Method | Contract |
+|---|---|
+| `air_handoff_status` | Return receiver state, paired devices, and the current draft metadata. |
+| `air_handoff_set_enabled` | Atomically persist the switch and start/stop the local receiver. |
+| `air_handoff_start_pairing` | Create a short-lived QR pairing payload. |
+| `air_handoff_cancel_pairing` | Expire the current pairing offer. |
+| `air_handoff_revoke_device` | Revoke one paired receiver by daemon-issued device ID. |
+| `air_handoff_grab` | Stage a screenshot, bounded text value, or immutable file snapshot. |
+| `air_handoff_drop` | Encrypt and deliver the staged draft to one explicitly selected device. |
+| `air_handoff_cancel` | Discard the staged draft without sending it. |
 
 ---
 
