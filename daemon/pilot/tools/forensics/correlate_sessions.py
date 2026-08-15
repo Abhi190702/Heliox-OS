@@ -23,7 +23,7 @@ def correlate_sessions(events: list[dict[str, Any]]) -> dict[str, list[dict[str,
                 {
                     "timestamp": ev["timestamp"],
                     "event_type": ev.get("event_type", "general"),
-                    "description": ev.get("description", ev["message"]),
+                    "description": ev.get("description") or ev.get("message", ""),
                     "process": ev.get("original_event", {}).get("process", ev.get("process", "unknown")),
                 }
             )

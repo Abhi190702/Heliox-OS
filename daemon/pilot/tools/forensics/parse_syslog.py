@@ -134,7 +134,7 @@ def parse_syslog_file(filepath: str, query: str | None = None, time_window: str 
                         continue
 
                 events.append(parsed)
-    except Exception:
-        pass
+    except OSError as exc:
+        raise OSError(f"Could not read log file '{filepath}': {exc}") from exc
 
     return events

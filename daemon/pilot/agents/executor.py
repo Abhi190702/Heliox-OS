@@ -2742,7 +2742,6 @@ class Executor:
                 candidates = [
                     "/var/log/auth.log",
                     "/var/log/secure",
-                    "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx",
                 ]
                 log_path = next((c for c in candidates if os.path.exists(c)), "auth.log")
                 log_type = "auth"
@@ -2755,24 +2754,18 @@ class Executor:
                 log_path = next((c for c in candidates if os.path.exists(c)), "nginx.log")
                 log_type = "nginx"
 
-        # Fallback: if the file does not exist, let's create a rich mock file in the workspace
+        # Never manufacture evidence. Older builds created a realistic-looking
+        # sample log here and then reported its anomalies as if they came from
+        # the user's machine. Missing or unsupported sources must fail clearly.
         if not os.path.exists(log_path):
-            mock_content = (
-                "May 25 14:01:05 server sshd[1234]: Accepted publickey for admin from 192.168.1.50 port 55670 ssh2\n"
-                "May 25 14:02:10 server sudo:    admin : TTY=pts/1 ; PWD=/home/admin ; USER=root ; COMMAND=/bin/systemctl restart nginx\n"
-                "May 25 14:03:15 server sshd[1235]: Failed password for admin from 192.168.1.100 port 49152 ssh2\n"
-                "May 25 14:03:20 server sshd[1235]: Failed password for admin from 192.168.1.100 port 49153 ssh2\n"
-                "May 25 14:03:25 server sshd[1235]: Failed password for invalid user guest from 192.168.1.100 port 49154 ssh2\n"
-                "May 25 14:03:30 server sshd[1235]: Failed password for invalid user admin from 192.168.1.100 port 49155 ssh2\n"
-                "May 25 14:03:35 server sshd[1235]: Failed password for admin from 192.168.1.100 port 49156 ssh2\n"
-                "May 25 14:05:00 server systemd[1]: nginx.service: Scheduled restart job, restart counter is at 1.\n"
-                "May 25 14:05:02 server systemd[1]: nginx.service: Scheduled restart job, restart counter is at 2.\n"
-                "May 25 14:05:04 server systemd[1]: nginx.service: Scheduled restart job, restart counter is at 3.\n"
-                "May 25 14:05:06 server systemd[1]: nginx.service: Scheduled restart job, restart counter is at 4.\n"
-                "May 25 14:05:08 server systemd[1]: nginx.service: Scheduled restart job, restart counter is at 5.\n"
+            raise FileNotFoundError(
+                f"Log source was not found: {log_path}. Provide an existing text log or export Windows Event Viewer data "
+                "as .txt/.csv first."
             )
-            with open(log_path, "w", encoding="utf-8") as f:
-                f.write(mock_content)
+        if str(log_path).lower().endswith(".evtx"):
+            raise ValueError(
+                "Binary .evtx files are not parsed directly; export the Event Viewer log as .txt or .csv first"
+            )
 
         # 2. Parse the log file
         events = await asyncio.to_thread(
