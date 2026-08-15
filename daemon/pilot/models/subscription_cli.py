@@ -479,6 +479,10 @@ class SubscriptionCLIClient:
         task = asyncio.current_task()
         if task is not None:
             self._request_usage[task] = dict(self.last_usage)
+        # Status responses carry usage counters. Discard the pre-generation
+        # authentication probe so the next ordinary status request cannot
+        # return stale quota information for up to the cache TTL.
+        self._status_cache.pop(provider, None)
 
         if stream_callback:
             await stream_callback(response)
@@ -527,6 +531,7 @@ class SubscriptionCLIClient:
             text = result.stdout.strip()
             if not text:
                 raise RuntimeError(_safe_failure("claude", result.stderr, returncode=result.returncode)) from None
+            self.last_usage = {}
             return text
         if payload.get("is_error"):
             raise RuntimeError(_safe_failure("claude", str(payload.get("result", ""))))

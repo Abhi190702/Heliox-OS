@@ -131,6 +131,7 @@ async def test_codex_generation_uses_sterile_read_only_ephemeral_contract(monkey
     client = SubscriptionCLIClient(config)
     monkeypatch.setattr(client, "_resolve_executable", lambda provider: "codex")
     client.status = AsyncMock(return_value={"subscription": True})
+    client._status_cache["codex"] = (0.0, {"last_usage": {"input_tokens": 1}})
     stdout = "\n".join(
         [
             json.dumps({"type": "turn.started"}),
@@ -163,6 +164,7 @@ async def test_codex_generation_uses_sterile_read_only_ephemeral_contract(monkey
     assert client.last_usage["uncached_input_tokens"] == 23
     assert client.last_usage["heliox_prompt_chars"] > 0
     assert client.generation_count == 1
+    assert "codex" not in client._status_cache
 
 
 @pytest.mark.asyncio
@@ -259,6 +261,22 @@ async def test_claude_generation_disables_tools_and_persistence(monkeypatch):
     assert "Do not inspect files" not in sent_prompt
     assert args[args.index("--system-prompt") + 1].startswith("You are a text-only")
     assert client.last_usage["heliox_estimated_prompt_tokens"] > 0
+
+
+@pytest.mark.asyncio
+async def test_claude_plain_text_fallback_never_reuses_previous_usage(monkeypatch):
+    config = PilotConfig()
+    config.model.subscription_provider = "claude"
+    client = SubscriptionCLIClient(config)
+    client.last_usage = {"input_tokens": 9_999}
+    monkeypatch.setattr(client, "_resolve_executable", lambda provider: "claude")
+    client.status = AsyncMock(return_value={"subscription": True})
+    client._run_process = AsyncMock(return_value=CLIResult(0, "plain response", ""))
+
+    assert await client.generate("Respond plainly") == "plain response"
+
+    assert "input_tokens" not in client.last_usage
+    assert client.last_usage["heliox_prompt_chars"] > 0
 
 
 @pytest.mark.asyncio
