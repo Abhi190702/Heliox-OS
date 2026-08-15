@@ -81,7 +81,8 @@ test.describe("Settings Panel", () => {
     await expect(section).toContainText("Subscription connected");
     await expect(section).toContainText("Codex ChatGPT subscription login");
     await expect(section.getByPlaceholder("Default Codex model")).toBeVisible();
-    await expect(section).toContainText("13876 input");
+    await expect(section).toContainText("13876 provider input");
+    await expect(section).toContainText("4916 uncached");
     await expect(section).toContainText("8960 cached");
 
     await section.getByRole("button", { name: "Claude Code" }).click();

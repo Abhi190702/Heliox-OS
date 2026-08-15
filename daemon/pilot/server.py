@@ -4553,10 +4553,10 @@ class PilotServer:
                             "message": "model.subscription_timeout_seconds must be from 15 to 600",
                         }
                 if section == "model" and k == "subscription_max_prompt_chars":
-                    if not isinstance(v, int) or isinstance(v, bool) or not 1000 <= v <= 200000:
+                    if not isinstance(v, int) or isinstance(v, bool) or not 16000 <= v <= 200000:
                         return {
                             "status": "error",
-                            "message": "model.subscription_max_prompt_chars must be from 1000 to 200000",
+                            "message": "model.subscription_max_prompt_chars must be from 16000 to 200000",
                         }
                 if section == "security" and k == "root_enabled" and not isinstance(v, bool):
                     return {"status": "error", "message": "security.root_enabled must be a boolean"}

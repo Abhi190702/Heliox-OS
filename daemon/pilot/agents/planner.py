@@ -1019,6 +1019,18 @@ class Planner:
                         max_tokens=max(256, action_token_cap - 64),
                     )
 
+                model_config = getattr(config, "model", None)
+                if getattr(model_config, "provider", "") == "subscription":
+                    # Fit history before handing it to the CLI instead of
+                    # letting the adapter reject an oversized serialized
+                    # prompt. Reserve a small margin for role labels and the
+                    # Codex inline text-only guard.
+                    prompt_char_cap = int(getattr(model_config, "subscription_max_prompt_chars", 48_000))
+                    new_messages = fit_messages_to_token_budget(
+                        new_messages,
+                        max_tokens=max(256, prompt_char_cap // 4 - 128),
+                    )
+
                 raw_response = await self._model.generate(
                     new_messages, json_mode=True, temperature=0.1, stream_callback=stream_callback
                 )

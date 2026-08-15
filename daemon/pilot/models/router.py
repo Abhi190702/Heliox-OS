@@ -127,9 +127,20 @@ class ModelRouter:
             temperature=temperature,
             stream_callback=stream_callback,
         )
+        subscription_usage = (
+            self._subscription.consume_request_usage() if self._config.model.provider == "subscription" else None
+        )
 
         if self._budget_tracker:
             out_tokens = len(result) // 4
+            usage_input_tokens = in_tokens_estimate
+            if self._config.model.provider == "subscription":
+                # Subscription CLIs report their real harness-inclusive usage.
+                # Exact Heliox cache hits consume no provider quota at all.
+                if subscription_usage is None:
+                    return result
+                usage_input_tokens = subscription_usage.get("input_tokens", in_tokens_estimate)
+                out_tokens = subscription_usage.get("output_tokens", out_tokens)
             provider_key = (
                 self._config.model.cloud_provider
                 if self._config.model.provider == "cloud"
@@ -148,7 +159,7 @@ class ModelRouter:
                 self._budget_tracker.record_usage(
                     provider_key,
                     model_name,
-                    in_tokens_estimate,
+                    usage_input_tokens,
                     out_tokens,
                 )
             )

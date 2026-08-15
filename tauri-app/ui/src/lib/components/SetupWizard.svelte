@@ -46,7 +46,7 @@
     await refreshSubscriptionStatus(false);
   });
 
-  async function refreshSubscriptionStatus(refresh = true) {
+  async function refreshSubscriptionStatus(refresh = true): Promise<boolean> {
     subscriptionChecking = true;
     try {
       const result = await call<{ subscription: boolean; message: string }>("subscription_status", {
@@ -55,9 +55,11 @@
       });
       subscriptionConnected = result.subscription;
       subscriptionMessage = result.message;
+      return result.subscription;
     } catch (error) {
       subscriptionConnected = false;
       subscriptionMessage = error instanceof Error ? error.message : "Cannot connect to the Heliox daemon.";
+      return false;
     } finally {
       subscriptionChecking = false;
     }
@@ -86,6 +88,15 @@
     finishError = "";
 
     try {
+      if (modelProvider === "subscription") {
+        const connected = await refreshSubscriptionStatus(true);
+        if (!connected) {
+          throw new Error(
+            `${subscriptionProvider === "codex" ? "Codex" : "Claude Code"} must be installed and signed in through an eligible subscription before setup can finish.`,
+          );
+        }
+      }
+
       // These now save to localStorage instantly (non-blocking daemon sync)
       await settings.updateSection("model", {
         provider: modelProvider,
@@ -119,15 +130,6 @@
         });
         if (result.status !== "ok") {
           throw new Error(result.message || "The API key could not be stored securely.");
-        }
-      }
-
-      if (modelProvider === "subscription") {
-        await refreshSubscriptionStatus(true);
-        if (!subscriptionConnected) {
-          throw new Error(
-            `${subscriptionProvider === "codex" ? "Codex" : "Claude Code"} must be installed and signed in through an eligible subscription before setup can finish.`,
-          );
         }
       }
 

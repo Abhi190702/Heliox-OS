@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import tempfile
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -52,10 +53,15 @@ class CLIResult:
     stderr: str
 
 
-def _serialize_messages(prompt: str | list[dict[str, Any]], system: str) -> str:
+def _serialize_messages(
+    prompt: str | list[dict[str, Any]],
+    system: str,
+    *,
+    include_guard: bool = True,
+) -> str:
     """Serialize chat messages compactly without repeating system content."""
 
-    parts = [_TEXT_ONLY_INSTRUCTION]
+    parts = [_TEXT_ONLY_INSTRUCTION] if include_guard else []
     system_text = system.strip()
     if system_text:
         parts.append(f"SYSTEM\n{system_text}")
@@ -72,6 +78,67 @@ def _serialize_messages(prompt: str | list[dict[str, Any]], system: str) -> str:
                 continue
             parts.append(f"{role}\n{content}")
     return "\n\n".join(parts)
+
+
+def _fit_messages_to_char_budget(
+    prompt: str | list[dict[str, Any]],
+    system: str,
+    max_chars: int,
+    *,
+    include_guard: bool,
+) -> str | list[dict[str, Any]]:
+    """Drop oldest optional chat context to meet the exact serialized cap."""
+
+    if isinstance(prompt, str):
+        return prompt
+    indexed = [(index, message.copy()) for index, message in enumerate(prompt)]
+    if len(_serialize_messages([item[1] for item in indexed], system, include_guard=include_guard)) <= max_chars:
+        return [item[1] for item in indexed]
+
+    latest_index = indexed[-1][0] if indexed else -1
+    system_index = next(
+        (index for index, message in indexed if message.get("role") == "system" and not message.get("is_summary")),
+        None,
+    )
+    goal_index = next((index for index, message in indexed if message.get("type") == "goal"), None)
+    protected = {index for index in (system_index, latest_index) if index is not None}
+    removable = [index for index, _ in indexed if index not in protected and index != goal_index]
+    if goal_index is not None and goal_index not in protected:
+        removable.append(goal_index)
+
+    removed: set[int] = set()
+    for index in removable:
+        removed.add(index)
+        candidate = [message for original, message in indexed if original not in removed]
+        if len(_serialize_messages(candidate, system, include_guard=include_guard)) <= max_chars:
+            return candidate
+
+    mandatory = [(original, message) for original, message in indexed if original not in removed]
+    serialized = _serialize_messages([item[1] for item in mandatory], system, include_guard=include_guard)
+    if len(serialized) <= max_chars or not mandatory:
+        return [item[1] for item in mandatory]
+
+    latest_position = next(
+        (position for position, item in enumerate(mandatory) if item[0] == latest_index),
+        len(mandatory) - 1,
+    )
+    original_latest = mandatory[latest_position][1]
+    content = str(original_latest.get("content", ""))
+    low, high = 0, len(content)
+    best = ""
+    while low <= high:
+        length = (low + high) // 2
+        trimmed = original_latest.copy()
+        trimmed["content"] = content[-length:] if length else ""
+        candidate = [item[1] for item in mandatory]
+        candidate[latest_position] = trimmed
+        if len(_serialize_messages(candidate, system, include_guard=include_guard)) <= max_chars:
+            best = str(trimmed["content"])
+            low = length + 1
+        else:
+            high = length - 1
+    mandatory[latest_position][1]["content"] = best
+    return [item[1] for item in mandatory]
 
 
 def _safe_failure(provider: str, stderr: str, *, returncode: int | None = None) -> str:
@@ -101,6 +168,17 @@ class SubscriptionCLIClient:
         self._status_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._login_watchers: set[asyncio.Task[None]] = set()
         self.last_usage: dict[str, int] = {}
+        self.total_usage: dict[str, int] = {}
+        self.generation_count = 0
+        self._request_usage: weakref.WeakKeyDictionary[asyncio.Task[Any], dict[str, int]] = weakref.WeakKeyDictionary()
+
+    def consume_request_usage(self) -> dict[str, int] | None:
+        """Return usage for this asyncio request without cross-call races."""
+
+        task = asyncio.current_task()
+        if task is None:
+            return None
+        return self._request_usage.pop(task, None)
 
     @staticmethod
     def _resolve_executable(provider: str) -> str | None:
@@ -215,16 +293,11 @@ class SubscriptionCLIClient:
                 payload = json.loads(auth_result.stdout)
                 authenticated = bool(payload.get("loggedIn") or payload.get("logged_in"))
                 auth_method = str(
-                    payload.get("authMethod")
-                    or payload.get("auth_method")
-                    or payload.get("subscriptionType")
-                    or ""
+                    payload.get("authMethod") or payload.get("auth_method") or payload.get("subscriptionType") or ""
                 ).lower()
                 subscription = authenticated and "api" not in auth_method
             except (json.JSONDecodeError, TypeError):
-                authenticated = auth_result.returncode == 0 and (
-                    "logged in" in lowered or "authenticated" in lowered
-                )
+                authenticated = auth_result.returncode == 0 and ("logged in" in lowered or "authenticated" in lowered)
                 subscription = authenticated and "api key" not in lowered
 
         display = "Codex" if selected == "codex" else "Claude Code"
@@ -246,6 +319,7 @@ class SubscriptionCLIClient:
             "version": version_result.stdout.strip().splitlines()[0] if version_result.stdout.strip() else "",
             "message": message,
             "last_usage": dict(self.last_usage),
+            "session_usage": dict(self.total_usage),
         }
         self._status_cache[selected] = (now, result)
         return dict(result)
@@ -304,8 +378,18 @@ class SubscriptionCLIClient:
         if not status.get("subscription"):
             raise RuntimeError(status.get("message") or "Subscription authentication is required.")
 
-        serialized = _serialize_messages(prompt, system)
+        # Claude receives the guard through --system-prompt, so omitting it
+        # from stdin avoids paying for the same instruction twice. Codex has
+        # no equivalent system flag and retains the inline guard.
         max_chars = self._config.model.subscription_max_prompt_chars
+        include_guard = provider == "codex"
+        prompt = _fit_messages_to_char_budget(
+            prompt,
+            system,
+            max_chars,
+            include_guard=include_guard,
+        )
+        serialized = _serialize_messages(prompt, system, include_guard=include_guard)
         if len(serialized) > max_chars:
             raise RuntimeError(
                 f"Subscription prompt is {len(serialized)} characters, exceeding the configured "
@@ -382,6 +466,20 @@ class SubscriptionCLIClient:
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+        self.generation_count += 1
+        self.last_usage["heliox_prompt_chars"] = len(serialized)
+        self.last_usage["heliox_estimated_prompt_tokens"] = (len(serialized) + 3) // 4
+        if "input_tokens" in self.last_usage:
+            self.last_usage["uncached_input_tokens"] = max(
+                0,
+                self.last_usage["input_tokens"] - self.last_usage.get("cached_input_tokens", 0),
+            )
+        for key in ("input_tokens", "cached_input_tokens", "uncached_input_tokens", "output_tokens"):
+            self.total_usage[key] = self.total_usage.get(key, 0) + self.last_usage.get(key, 0)
+        task = asyncio.current_task()
+        if task is not None:
+            self._request_usage[task] = dict(self.last_usage)
+
         if stream_callback:
             await stream_callback(response)
         return response
@@ -434,9 +532,7 @@ class SubscriptionCLIClient:
             raise RuntimeError(_safe_failure("claude", str(payload.get("result", ""))))
         usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
         self.last_usage = {
-            key: int(value)
-            for key, value in usage.items()
-            if isinstance(value, int) and not isinstance(value, bool)
+            key: int(value) for key, value in usage.items() if isinstance(value, int) and not isinstance(value, bool)
         }
         structured = payload.get("structured_output")
         if json_mode and structured is not None:

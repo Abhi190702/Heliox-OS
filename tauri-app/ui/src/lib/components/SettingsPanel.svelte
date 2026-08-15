@@ -130,6 +130,7 @@
     version?: string;
     message: string;
     last_usage?: Record<string, number>;
+    session_usage?: Record<string, number>;
   };
   let subscriptionStatus = $state<SubscriptionStatus | null>(null);
   let subscriptionStatusLoading = $state(false);
@@ -1614,120 +1615,6 @@
     {/if}
   </section>
 
-  <section class="settings-group subscription-panel">
-    <h3>Existing AI subscription</h3>
-    <div class="subscription-notice">
-      Heliox invokes the official local CLI in a tool-free, read-only planning sandbox. Codex or Claude owns the login;
-      Heliox never reads browser cookies, OAuth tokens, or API keys.
-    </div>
-
-    <div class="setting-row">
-      <div class="setting-info">
-        <span class="setting-label">Subscription provider</span>
-        <span class="setting-desc">Use a ChatGPT Codex or Claude Code subscription already signed in on this PC.</span>
-      </div>
-      <div class="btn-group">
-        <button
-          class:active={$settings.model.subscription_provider === "codex"}
-          onclick={() => setSubscriptionProvider("codex")}>Codex</button
-        >
-        <button
-          class:active={$settings.model.subscription_provider === "claude"}
-          onclick={() => setSubscriptionProvider("claude")}>Claude Code</button
-        >
-      </div>
-    </div>
-
-    <div class="setting-row">
-      <div class="setting-info subscription-status-copy">
-        <span class="setting-label">Connection</span>
-        {#if subscriptionStatusLoading}
-          <span class="setting-desc">Checking the official CLI...</span>
-        {:else if subscriptionStatus}
-          <span
-            class:status-ok={subscriptionStatus.subscription}
-            class:status-warning={!subscriptionStatus.subscription}
-          >
-            {subscriptionStatus.subscription ? "Subscription connected" : "Not connected"}
-            {subscriptionStatus.version ? ` · ${subscriptionStatus.version}` : ""}
-          </span>
-          <span class="setting-desc">{subscriptionStatus.message}</span>
-        {:else}
-          <span class="setting-desc">Status has not been checked.</span>
-        {/if}
-      </div>
-      <div class="subscription-actions">
-        <button class="btn-save" onclick={startSubscriptionLogin} disabled={subscriptionStatusLoading}>
-          {subscriptionStatus?.authenticated ? "Reconnect" : "Connect"}
-        </button>
-        <button
-          class="btn-secondary"
-          onclick={() => refreshSubscriptionStatus($settings.model.subscription_provider, true)}
-          disabled={subscriptionStatusLoading}>Refresh</button
-        >
-      </div>
-    </div>
-    {#if subscriptionActionMessage}
-      <p class="subscription-message" role="status">{subscriptionActionMessage}</p>
-    {/if}
-
-    <div class="setting-row">
-      <div class="setting-info">
-        <span class="setting-label">Model</span>
-        <span class="setting-desc">Leave blank for the CLI default, or enter any model supported by your plan.</span>
-      </div>
-      <input
-        type="text"
-        class="input-md subscription-model-input"
-        value={$settings.model.subscription_model}
-        onchange={updateSubscriptionModel}
-        placeholder={$settings.model.subscription_provider === "codex" ? "Default Codex model" : "Default Claude model"}
-      />
-    </div>
-
-    <div class="setting-row">
-      <div class="setting-info">
-        <span class="setting-label">Planning timeout</span>
-        <span class="setting-desc">Stops a stalled CLI request; allowed range is 15–600 seconds.</span>
-      </div>
-      <input
-        type="number"
-        class="input-sm"
-        value={$settings.model.subscription_timeout_seconds}
-        onchange={updateSubscriptionTimeout}
-        min="15"
-        max="600"
-      />
-    </div>
-
-    <div class="setting-row">
-      <div class="setting-info">
-        <span class="setting-label">Prompt context cap</span>
-        <span class="setting-desc"
-          >Limits Heliox context before each request. Lower values reduce usage; 48,000 characters is the balanced
-          default.</span
-        >
-      </div>
-      <input
-        type="number"
-        class="input-sm"
-        value={$settings.model.subscription_max_prompt_chars}
-        onchange={updateSubscriptionPromptCap}
-        min="1000"
-        max="200000"
-        step="1000"
-      />
-    </div>
-
-    {#if subscriptionStatus?.last_usage && Object.keys(subscriptionStatus.last_usage).length > 0}
-      <div class="usage-strip">
-        Last call: {subscriptionStatus.last_usage.input_tokens ?? 0} input · {subscriptionStatus.last_usage
-          .cached_input_tokens ?? 0}
-        cached · {subscriptionStatus.last_usage.output_tokens ?? 0} output tokens
-      </div>
-    {/if}
-  </section>
-
   <section class="settings-group">
     <h3>{$_("settings.cloud_api")}</h3>
 
@@ -1840,6 +1727,130 @@
         </div>
       </div>
     {/each}
+  </section>
+
+  <section class="settings-group subscription-panel">
+    <h3>Existing AI subscription</h3>
+    <div class="subscription-notice">
+      Heliox invokes the official local CLI in a tool-free, read-only planning sandbox. Codex or Claude owns the login;
+      Heliox never reads browser cookies, OAuth tokens, or API keys.
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Subscription provider</span>
+        <span class="setting-desc">Use a ChatGPT Codex or Claude Code subscription already signed in on this PC.</span>
+      </div>
+      <div class="btn-group">
+        <button
+          class:active={$settings.model.subscription_provider === "codex"}
+          onclick={() => setSubscriptionProvider("codex")}>Codex</button
+        >
+        <button
+          class:active={$settings.model.subscription_provider === "claude"}
+          onclick={() => setSubscriptionProvider("claude")}>Claude Code</button
+        >
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info subscription-status-copy">
+        <span class="setting-label">Connection</span>
+        {#if subscriptionStatusLoading}
+          <span class="setting-desc">Checking the official CLI...</span>
+        {:else if subscriptionStatus}
+          <span
+            class:status-ok={subscriptionStatus.subscription}
+            class:status-warning={!subscriptionStatus.subscription}
+          >
+            {subscriptionStatus.subscription ? "Subscription connected" : "Not connected"}
+            {subscriptionStatus.version ? ` · ${subscriptionStatus.version}` : ""}
+          </span>
+          <span class="setting-desc">{subscriptionStatus.message}</span>
+        {:else}
+          <span class="setting-desc">Status has not been checked.</span>
+        {/if}
+      </div>
+      <div class="subscription-actions">
+        <button class="btn-save" onclick={startSubscriptionLogin} disabled={subscriptionStatusLoading}>
+          {subscriptionStatus?.authenticated ? "Reconnect" : "Connect"}
+        </button>
+        <button
+          class="btn-secondary"
+          onclick={() => refreshSubscriptionStatus($settings.model.subscription_provider, true)}
+          disabled={subscriptionStatusLoading}>Refresh</button
+        >
+      </div>
+    </div>
+    {#if subscriptionActionMessage}
+      <p class="subscription-message" role="status">{subscriptionActionMessage}</p>
+    {/if}
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Model</span>
+        <span class="setting-desc">Leave blank for the CLI default, or enter any model supported by your plan.</span>
+      </div>
+      <input
+        type="text"
+        class="input-md subscription-model-input"
+        value={$settings.model.subscription_model}
+        onchange={updateSubscriptionModel}
+        placeholder={$settings.model.subscription_provider === "codex" ? "Default Codex model" : "Default Claude model"}
+      />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Planning timeout</span>
+        <span class="setting-desc">Stops a stalled CLI request; allowed range is 15–600 seconds.</span>
+      </div>
+      <input
+        type="number"
+        class="input-sm"
+        value={$settings.model.subscription_timeout_seconds}
+        onchange={updateSubscriptionTimeout}
+        min="15"
+        max="600"
+      />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Prompt context cap</span>
+        <span class="setting-desc"
+          >Limits Heliox context before each request. Lower values reduce usage; 48,000 characters is the balanced
+          default.</span
+        >
+      </div>
+      <input
+        type="number"
+        class="input-sm"
+        value={$settings.model.subscription_max_prompt_chars}
+        onchange={updateSubscriptionPromptCap}
+        min="16000"
+        max="200000"
+        step="1000"
+      />
+    </div>
+
+    {#if subscriptionStatus?.last_usage && Object.keys(subscriptionStatus.last_usage).length > 0}
+      <div class="usage-strip">
+        Last call: {subscriptionStatus.last_usage.input_tokens ?? 0} provider input · {subscriptionStatus.last_usage
+          .uncached_input_tokens ??
+          subscriptionStatus.last_usage.input_tokens ??
+          0}
+        uncached · {subscriptionStatus.last_usage.cached_input_tokens ?? 0} cached · {subscriptionStatus.last_usage
+          .output_tokens ?? 0} output. Heliox supplied about {subscriptionStatus.last_usage
+          .heliox_estimated_prompt_tokens ?? 0} prompt tokens.
+      </div>
+    {/if}
+    {#if subscriptionStatus?.session_usage && Object.keys(subscriptionStatus.session_usage).length > 0}
+      <div class="usage-strip">
+        This Heliox session: {subscriptionStatus.session_usage.input_tokens ?? 0} provider input · {subscriptionStatus
+          .session_usage.cached_input_tokens ?? 0} cached · {subscriptionStatus.session_usage.output_tokens ?? 0} output tokens.
+      </div>
+    {/if}
   </section>
 
   <section class="settings-group audit-log-section">

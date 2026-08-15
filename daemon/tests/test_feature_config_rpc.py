@@ -89,7 +89,7 @@ async def test_subscription_provider_update_is_validated_and_saved():
         ({"provider": "browser_cookie"}, "model.provider"),
         ({"subscription_provider": "unknown"}, "subscription_provider"),
         ({"subscription_timeout_seconds": 5}, "subscription_timeout_seconds"),
-        ({"subscription_max_prompt_chars": 999}, "subscription_max_prompt_chars"),
+        ({"subscription_max_prompt_chars": 15999}, "subscription_max_prompt_chars"),
     ],
 )
 async def test_subscription_provider_update_rejects_unsafe_values(values, message):

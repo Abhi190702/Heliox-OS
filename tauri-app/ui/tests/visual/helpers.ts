@@ -229,6 +229,15 @@ export async function mockTauriIpc(page: Page): Promise<void> {
               last_usage: {
                 input_tokens: 13876,
                 cached_input_tokens: 8960,
+                uncached_input_tokens: 4916,
+                output_tokens: 12,
+                heliox_prompt_chars: 242,
+                heliox_estimated_prompt_tokens: 61,
+              },
+              session_usage: {
+                input_tokens: 13876,
+                cached_input_tokens: 8960,
+                uncached_input_tokens: 4916,
                 output_tokens: 12,
               },
             };
