@@ -121,6 +121,8 @@ No comparison declares a universal winner. See the [transparent cost page](https
 | Plugin ecosystem       | Reviewed GitHub marketplace, signed local plugins, per-file hashes, capability manifests, and constrained native/WASM brokers                              |
 | Neural research        | BrainFlow synthetic, recorded EEG playback, public EEGBCI benchmarking, calibrated SSVEP selection, replay-safe Tier 0/1 goals, and explicit staged autonomous task launch |
 | MCP interfaces         | Public read-only documentation MCP plus a local, separately authenticated stdio bridge whose tasks use visible Heliox approvals                           |
+| Air Handoff            | Opt-in same-LAN phone pairing and one-target encrypted transfer of a held screenshot, text value, or immutable file snapshot; never a remote-control path |
+| Secure integrations    | Settings-managed CalDAV, IMAP/SMTP, and allowlisted SSH connections with secrets kept in the operating-system credential store                            |
 
 ## Architecture
 
@@ -139,6 +141,7 @@ flowchart LR
     NeuralSelect --> Gateway
     MCPHost[Local MCP host] --> MCPBridge[Least-privilege stdio bridge]
     MCPBridge --> Safety
+    Safety --> Handoff[Explicit one-target Air Handoff]
 ```
 
 The desktop is a Tauri/Svelte application. A local Python daemon owns planning, permissions, specialist routing, execution, verification, durable state, memory, and model adapters. Browser, OS, integration, plugin, and research paths enter the same safety and audit backbone.
@@ -165,6 +168,7 @@ Core guarantees:
 - Real cancellation of in-flight commands and durable reconciliation after reconnect or restart.
 - Learned risk, cognitive estimates, adaptation, and neural input cannot grant permission or remove deterministic warnings.
 - OS credential stores for API keys; credentials are never written to `.env` or included in plans.
+- Air Handoff is off by default; a paired phone can receive only content explicitly held and dropped to it, never daemon RPC or desktop-control authority.
 - Gesture cursor control is off by default and exits on an open palm, stop control, or disabled setting.
 
 | Tier | Level         | Default behavior | Examples                                             |
@@ -302,6 +306,7 @@ Kokoro, Pocket TTS, gaze, gesture tracking, and the learned-risk model are CPU-c
 | Voice and TTS           | Routing, fallback, interruption, and cancellation tests; microphone accuracy and audible quality require human checks                      |
 | Neural intent           | Synthetic BrainFlow and recorded EEG paths are tested. A user may stage up to eight text-authored goals and use calibrated focus/select to launch one through normal autonomous decomposition, specialist routing, permissions, approvals, and verification. No live headset accuracy, unrestricted thought reading, medical use, or physical authority is established. |
 | Cognitive HUD           | Behavioural estimates from local interaction signals, not physiological or medical measurements                                            |
+| Air Handoff             | Automated pairing, cryptography, replay, expiry, file-snapshot, and browser-receiver tests pass. A real phone, LAN/firewall, QR scan, and mobile download still require a human hardware/network check. |
 
 <a id="troubleshooting"></a>
 

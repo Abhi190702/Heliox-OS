@@ -19,6 +19,7 @@ We actively maintain and patch the `main` branch only.
 
 This policy covers the following Heliox OS components:
 
+- **Air Handoff** — an opt-in same-LAN receiver isolated from daemon RPC, with one-target encrypted transfer, replay resistance, expiry, and device revocation
 - **Local MCP Bridge** — a separately authenticated stdio client with a narrow RPC allowlist and mandatory visible approvals
 - **🧱 Sandbox Execution** — isolated environments where code and plans are executed safely
 - **🔑 Permission Tiers** — the five-tier permission system with confirmation gates and rollback support
@@ -213,6 +214,24 @@ approval path.
 Voice, gesture, and gaze are input modalities rather than domain specialists.
 Their invocation profiles cross-cut whatever specialist ultimately handles the
 requested action.
+
+### Air Handoff boundary
+
+Air Handoff does not expose remote computer control. Its receiver binds on a
+separate port and implements only pairing, device-authenticated polling,
+encrypted download, and acknowledgement. It never accepts daemon RPC, action,
+approval, configuration, or credential methods. Pairing secrets remain in a QR
+URL fragment; authenticated X25519/HKDF pairing wraps an independently generated
+device secret, and paired requests use timestamped nonce-bound HMAC signatures.
+Metadata and payload bytes are AES-GCM encrypted for exactly one selected
+device. Device secrets are stored only in the OS credential store.
+
+The feature is off by default. Pairing offers expire after five minutes and
+transfers after ten; nonces cannot be replayed, devices can be revoked, and a
+drop requires an explicit staged screenshot, bounded text value, or immutable
+file snapshot. The receiver enforces a configurable transfer-size ceiling and
+restrictive browser security headers. Gesture handoff is inert until the user
+arms a one-shot desktop control, and cancellation clears the staged draft.
 
 ---
 

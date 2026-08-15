@@ -55,23 +55,13 @@ pip install "pilot-daemon[ssh]"
 
 ### Configure allowed hosts
 
-Enable SSH and define aliases in `config.toml`:
-
-```toml
-[ssh]
-enabled = true
-connect_timeout_seconds = 10
-allowed_hosts = [
-  { name = "prod-1", hostname = "10.0.0.10", port = 22, username = "ubuntu", private_key_provider = "ssh_prod_1_key", strict_host_key_checking = true },
-]
-```
-
-### Store SSH keys
-
-Store the private-key PEM through the authenticated `store_api_key` RPC with
-`provider=<private_key_provider>`. The daemon persists it in the operating
-system credential store: Windows Credential Manager, macOS Keychain, or a
-Secret-Service-compatible Linux keyring.
+Open **Settings > Integrations > SSH**, add a named host alias, hostname, port,
+username, private-key PEM, and optional passphrase, then use **Test connection**.
+Strict known-host verification is enabled by default. The authenticated daemon
+stores only non-secret host metadata in `config.toml`; private keys and
+passphrases go directly to Windows Credential Manager, macOS Keychain, or a
+Secret-Service-compatible Linux keyring. Raw credential-storage RPCs are not a
+supported user setup path.
 
 Keys and passphrases are never logged and are retrieved only when needed. SSH
 actions retain the dedicated `ssh_agent` gateway profile, exact host allowlist,

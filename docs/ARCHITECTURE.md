@@ -7,7 +7,7 @@ This document describes the current `main` source runtime (package version
 
 ## System boundaries
 
-Heliox is split into five trust boundaries:
+Heliox is split into six trust boundaries:
 
 1. **Tauri desktop shell and Svelte UI** collect explicit text, voice, gesture,
    gaze, camera, and settings input. The UI is not the execution authority.
@@ -29,6 +29,11 @@ Heliox is split into five trust boundaries:
    Submitted work enters the normal daemon path and always pauses for visible
    approval in the desktop UI. The public documentation MCP is a separate,
    read-only website endpoint with no local-daemon credential or control path.
+6. **Air Handoff receiver** is an opt-in, same-LAN HTTP surface on a separate
+   port from daemon JSON-RPC. A paired phone may poll, download, and acknowledge
+   only an explicitly dropped transfer addressed to its device ID. It cannot
+   inspect plans, invoke actions, approve tasks, or obtain the desktop RPC
+   credential. Transfer metadata and bytes remain application-layer encrypted.
 
 Raw camera frames, audio, hand or face landmarks, screen pixels, and binary
 payloads are excluded from the experience and learning stores by default.
@@ -45,6 +50,8 @@ flowchart LR
     MCPHost["Local MCP host"] --> MCPBridge["stdio MCP bridge"]
     MCPBridge --> MCPTask["MCP task preview, submit, poll or cancel"]
     MCPTask --> Planner
+    Policy --> HandoffDraft["Explicit held screenshot, text, or file snapshot"]
+    HandoffDraft --> Phone["One selected paired phone"]
     Interaction --> Ledger["Append-only experience ledger"]
     Ledger --> Context["Temporal context assembler"]
     Context --> Planner["Planner and strategy assignment"]
@@ -100,6 +107,23 @@ current state and forces every proposed action through the existing visible
 confirmation dialog. There is no MCP confirmation primitive, so the calling
 model cannot authorize its own effects. Cancellation also resolves a waiting
 approval as denied, avoiding an orphaned five-minute confirmation wait.
+
+### Air Handoff lifecycle
+
+Air Handoff is disabled by default. Enabling it starts a dedicated receiver on
+the configured high port. A five-minute QR offer carries a high-entropy pairing
+secret in the URL fragment, so the secret is not sent as an HTTP request. The
+phone and daemon authenticate an ephemeral X25519 exchange and derive keys with
+HKDF; long-lived device secrets are retained only through the OS keyring.
+
+The user then explicitly holds a screenshot, bounded text value, or immutable
+snapshot of a selected file. A drop names exactly one paired device, encrypts
+metadata and payload with AES-GCM for that device, and expires after ten
+minutes. Timestamped, nonce-bound HMAC requests reject replays. Revocation,
+acknowledgement, cancellation, expiry, size limits, restrictive browser headers,
+and file snapshotting are enforced by the receiver. Gesture control is one-shot
+and must be armed in the desktop UI: fist holds, palm/palm-push drops, and
+palm-pull cancels; ordinary gesture mappings are otherwise unchanged.
 
 ## Intelligence and reliability layers
 
