@@ -832,7 +832,7 @@ class PilotServer:
         self._orchestrator.set_broadcast(self._broadcast_notification)
         self._orchestrator.set_budget_tracker(self._budget_tracker)
         self._orchestrator.set_circuit_breaker(self._circuit_breaker)
-        self._orchestrator.set_agent_gateway(self._gateway)
+        self._orchestrator.set_agent_gateway(self._agent_gateway)
         from pilot.agents.registry import AgentRegistry
 
         AgentRegistry.discover_agents()
