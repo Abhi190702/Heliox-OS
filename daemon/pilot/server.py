@@ -953,13 +953,10 @@ class PilotServer:
         except Exception:
             logger.warning("SubconsciousAgent init failed (non-critical)", exc_info=True)
 
-        # Cognitive Hub — unified cognitive intelligence features
+        # Release announcement only. The canonical live cognitive runtime is
+        # initialized in the CognitiveEngine block below.
         try:
             from pilot.changelog import announce_new_features, mark_version_seen
-            from pilot.cognitive.hub import CognitiveHub
-
-            self._cognitive_hub = CognitiveHub()
-            logger.info("CognitiveHub initialized")
 
             announcement = announce_new_features()
             if announcement:
@@ -967,7 +964,7 @@ class PilotServer:
                 self._new_features_announcement = announcement
                 mark_version_seen()
         except Exception:
-            logger.warning("CognitiveHub init failed (non-critical)", exc_info=True)
+            logger.warning("Feature announcement initialization failed (non-critical)", exc_info=True)
             self._new_features_announcement = None
 
         # Screen Vision Agent — continuous screen awareness (AUTO-START for JARVIS mode)
