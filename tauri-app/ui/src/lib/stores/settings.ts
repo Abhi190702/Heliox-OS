@@ -67,6 +67,19 @@ export interface PilotSettings {
     username: string;
     password_provider: string;
   };
+  ssh: {
+    enabled: boolean;
+    connect_timeout_seconds: number;
+    allowed_hosts: Array<{
+      name: string;
+      hostname: string;
+      port: number;
+      username: string;
+      private_key_provider: string;
+      passphrase_provider: string;
+      strict_host_key_checking: boolean;
+    }>;
+  };
   voice: {
     input_device: string;
     tts_engine: string;
@@ -144,6 +157,11 @@ const defaultSettings: PilotSettings = {
     smtp_port: 587,
     username: "",
     password_provider: "email",
+  },
+  ssh: {
+    enabled: false,
+    connect_timeout_seconds: 10,
+    allowed_hosts: [],
   },
   voice: {
     input_device: "auto",

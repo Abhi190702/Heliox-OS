@@ -91,6 +91,67 @@ class SshAgent(BaseAgent):
     def can_handle(self, action_type: ActionType) -> bool:
         return action_type in SSH_ACTION_TYPES
 
+    async def test_connection(self, host_alias: str) -> dict[str, Any]:
+        """Authenticate to an allowlisted host without executing a command."""
+        if not self._model:
+            return {"status": "error", "message": "SSH agent is unavailable"}
+
+        config = self._model.get_config()
+        vault = self._model.get_vault()
+        if not getattr(config, "ssh", None) or not config.ssh.enabled:
+            return {"status": "error", "message": "SSH is disabled in Settings"}
+
+        host_cfg = next((host for host in config.ssh.allowed_hosts if host.name == host_alias), None)
+        if host_cfg is None:
+            return {"status": "error", "message": f"Unknown SSH host alias '{host_alias}'"}
+        if not host_cfg.private_key_provider:
+            return {"status": "error", "message": "The SSH host has no saved private-key provider"}
+
+        key_pem = await vault.get_key(host_cfg.private_key_provider)
+        if not key_pem:
+            return {"status": "error", "message": "No private key is saved for this SSH host"}
+        passphrase = None
+        if host_cfg.passphrase_provider:
+            passphrase = await vault.get_key(host_cfg.passphrase_provider)
+
+        try:
+            import paramiko  # type: ignore
+
+            pkey = _load_private_key(paramiko, key_pem, passphrase)
+            client = paramiko.SSHClient()
+            try:
+                client.load_system_host_keys()
+                if host_cfg.strict_host_key_checking:
+                    client.set_missing_host_key_policy(paramiko.RejectPolicy())
+                else:
+                    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                client.connect(
+                    hostname=host_cfg.hostname,
+                    port=host_cfg.port,
+                    username=host_cfg.username,
+                    pkey=pkey,
+                    timeout=config.ssh.connect_timeout_seconds,
+                    banner_timeout=config.ssh.connect_timeout_seconds,
+                    auth_timeout=config.ssh.connect_timeout_seconds,
+                )
+            finally:
+                client.close()
+        except ImportError:
+            return {
+                "status": "error",
+                "message": "Paramiko is not installed. Install pilot-daemon[ssh].",
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SSH connection test failed for alias %s: %s", host_alias, exc)
+            return {"status": "error", "message": str(exc)}
+
+        return {
+            "status": "ok",
+            "alias": host_cfg.name,
+            "hostname": host_cfg.hostname,
+            "strict_host_key_checking": host_cfg.strict_host_key_checking,
+        }
+
     async def handle_task(
         self,
         user_input: str,
@@ -98,9 +159,8 @@ class SshAgent(BaseAgent):
         context: dict[str, Any] | None = None,
         scope_override: TaskScopeOverride | None = None,
     ) -> list[ActionResult]:
-        # This agent connects via paramiko directly, not through the shared
-        # Executor, so scope_override has nothing to apply to here —
-        # accepted only for interface consistency with BaseAgent.handle_task.
+        # AgentOrchestrator gates this direct Paramiko path before dispatch and
+        # applies the caller's scope override.
         import time
 
         start = time.time()

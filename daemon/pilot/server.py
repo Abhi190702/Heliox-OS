@@ -1197,6 +1197,11 @@ class PilotServer:
             "list_api_keys": self._handle_list_api_keys,
             "calendar_test_connection": self._handle_calendar_test_connection,
             "email_test_connection": self._handle_email_test_connection,
+            "ssh_list_hosts": self._handle_ssh_list_hosts,
+            "ssh_set_enabled": self._handle_ssh_set_enabled,
+            "ssh_save_host": self._handle_ssh_save_host,
+            "ssh_delete_host": self._handle_ssh_delete_host,
+            "ssh_test_connection": self._handle_ssh_test_connection,
             "list_ollama_models": self._handle_list_ollama_models,
             "health": self._handle_health,
             "ready": self._handle_ready,
@@ -4670,6 +4675,130 @@ class PilotServer:
         if not isinstance(agent, EmailAgent):
             return {"status": "error", "message": "Email agent is unavailable"}
         return await agent.test_connection()
+
+    async def _handle_ssh_list_hosts(self, params: dict, ws: ServerConnection) -> dict:
+        """List SSH aliases and credential readiness without exposing secrets."""
+        hosts = []
+        for host in self.config.ssh.allowed_hosts:
+            has_key = bool(host.private_key_provider and await self._vault.get_key(host.private_key_provider))
+            hosts.append(
+                {
+                    "name": host.name,
+                    "hostname": host.hostname,
+                    "port": host.port,
+                    "username": host.username,
+                    "strict_host_key_checking": host.strict_host_key_checking,
+                    "has_private_key": has_key,
+                    "has_passphrase": bool(
+                        host.passphrase_provider and await self._vault.get_key(host.passphrase_provider)
+                    ),
+                }
+            )
+        return {"status": "ok", "enabled": self.config.ssh.enabled, "hosts": hosts}
+
+    async def _handle_ssh_set_enabled(self, params: dict, ws: ServerConnection) -> dict:
+        """Enable or disable remote SSH actions without changing saved hosts."""
+        enabled = params.get("enabled")
+        if not isinstance(enabled, bool):
+            return {"status": "error", "message": "enabled must be a boolean"}
+        self.config.ssh.enabled = enabled
+        self.config.save()
+        return {"status": "ok", "enabled": enabled}
+
+    async def _handle_ssh_save_host(self, params: dict, ws: ServerConnection) -> dict:
+        """Save one allowlisted SSH host and its secrets in the OS keyring."""
+        import re
+
+        from pilot.config import SshHostConfig
+        from pilot.security.vault import VaultUnavailableError
+
+        name = str(params.get("name", "")).strip()
+        hostname = str(params.get("hostname", "")).strip()
+        username = str(params.get("username", "")).strip()
+        port = params.get("port", 22)
+        strict = params.get("strict_host_key_checking", True)
+        private_key = str(params.get("private_key", ""))
+        passphrase = str(params.get("passphrase", ""))
+        enabled = params.get("enabled", True)
+
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", name):
+            return {
+                "status": "error",
+                "message": "Alias must use 1-64 letters, numbers, dots, dashes, or underscores",
+            }
+        if not hostname or len(hostname) > 253 or any(char.isspace() for char in hostname):
+            return {"status": "error", "message": "A valid hostname or IP address is required"}
+        if not username or len(username) > 128 or any(char.isspace() for char in username):
+            return {"status": "error", "message": "A valid SSH username is required"}
+        if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+            return {"status": "error", "message": "SSH port must be from 1 to 65535"}
+        if not isinstance(strict, bool) or not isinstance(enabled, bool):
+            return {"status": "error", "message": "SSH switches must be boolean values"}
+        if len(private_key) > 131_072 or len(passphrase) > 1024:
+            return {"status": "error", "message": "SSH credential input is too large"}
+
+        existing = next((host for host in self.config.ssh.allowed_hosts if host.name == name), None)
+        key_provider = existing.private_key_provider if existing else f"ssh:{name}:private-key"
+        passphrase_provider = existing.passphrase_provider if existing else ""
+        has_saved_key = bool(key_provider and await self._vault.get_key(key_provider))
+        if not private_key and not has_saved_key:
+            return {"status": "error", "message": "A private key is required for a new SSH host"}
+
+        try:
+            if private_key:
+                await self._vault.store_key(key_provider, private_key)
+            if passphrase:
+                passphrase_provider = f"ssh:{name}:passphrase"
+                await self._vault.store_key(passphrase_provider, passphrase)
+        except VaultUnavailableError as exc:
+            return {"status": "error", "message": str(exc), "available": False}
+
+        host_config = SshHostConfig(
+            name=name,
+            hostname=hostname,
+            port=port,
+            username=username,
+            private_key_provider=key_provider,
+            passphrase_provider=passphrase_provider,
+            strict_host_key_checking=strict,
+        )
+        self.config.ssh.allowed_hosts = [host for host in self.config.ssh.allowed_hosts if host.name != name] + [
+            host_config
+        ]
+        self.config.ssh.enabled = enabled
+        self.config.save()
+        return {"status": "ok", "name": name, "has_private_key": True}
+
+    async def _handle_ssh_delete_host(self, params: dict, ws: ServerConnection) -> dict:
+        """Remove an SSH alias and its saved credentials."""
+        from pilot.security.vault import VaultUnavailableError
+
+        name = str(params.get("name", "")).strip()
+        host = next((item for item in self.config.ssh.allowed_hosts if item.name == name), None)
+        if host is None:
+            return {"status": "error", "message": "Unknown SSH host alias"}
+        try:
+            if host.private_key_provider:
+                await self._vault.delete_key(host.private_key_provider)
+            if host.passphrase_provider:
+                await self._vault.delete_key(host.passphrase_provider)
+        except VaultUnavailableError as exc:
+            return {"status": "error", "message": str(exc), "available": False}
+        self.config.ssh.allowed_hosts = [item for item in self.config.ssh.allowed_hosts if item.name != name]
+        self.config.save()
+        return {"status": "ok"}
+
+    async def _handle_ssh_test_connection(self, params: dict, ws: ServerConnection) -> dict:
+        """Authenticate to an SSH alias without running a remote command."""
+        if self._orchestrator is None:
+            return {"status": "error", "message": "Agent system is not initialized"}
+        from pilot.agents.base_agent import AgentRole
+        from pilot.agents.ssh_agent import SshAgent
+
+        agent = self._orchestrator.get_agent(AgentRole.SSH)
+        if not isinstance(agent, SshAgent):
+            return {"status": "error", "message": "SSH agent is unavailable"}
+        return await agent.test_connection(str(params.get("name", "")).strip())
 
     async def _handle_reset_config(self, params: dict, ws: ServerConnection) -> dict:
         """Reset configuration to factory defaults."""
