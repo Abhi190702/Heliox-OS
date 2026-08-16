@@ -145,7 +145,7 @@ class ModelRouter:
                 self._config.model.cloud_provider
                 if self._config.model.provider == "cloud"
                 else (
-                    self._config.model.subscription_provider
+                    f"subscription:{self._config.model.subscription_provider}"
                     if self._config.model.provider == "subscription"
                     else self._config.model.provider
                 )

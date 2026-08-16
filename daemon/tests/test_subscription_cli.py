@@ -321,7 +321,7 @@ async def test_model_router_records_actual_subscription_usage_and_skips_cached_u
 
     assert await router.generate("task") == "fresh result"
     await asyncio.sleep(0)
-    tracker.record_usage.assert_awaited_once_with("codex", "cli-default", 321, 17)
+    tracker.record_usage.assert_awaited_once_with("subscription:codex", "cli-default", 321, 17)
 
     tracker.record_usage.reset_mock()
     assert await router.generate("task") == "cached result"

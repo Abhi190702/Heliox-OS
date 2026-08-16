@@ -68,6 +68,11 @@ def _current_month() -> str:
 
 
 def _estimate_cost(provider: str, input_tokens: int, output_tokens: int) -> float:
+    # Subscription CLI calls consume plan quota, not metered API dollars.
+    # Keep their token evidence while preventing API-price estimates from
+    # being attached to (for example) a Claude Pro/Max invocation.
+    if provider.startswith("subscription:"):
+        return 0.0
     rates = COST_PER_1K_TOKENS.get(provider, (0.0, 0.0))
     return (input_tokens * rates[0] + output_tokens * rates[1]) / 1000.0
 
@@ -184,7 +189,7 @@ class BudgetTracker:
         """
         if not self._enabled:
             return
-        if provider in ("ollama", "local"):
+        if provider in ("ollama", "local", "subscription"):
             return
 
         # If the month rolled over since the cache was last updated, the new

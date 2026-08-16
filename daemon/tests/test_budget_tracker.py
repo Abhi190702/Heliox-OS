@@ -92,10 +92,24 @@ async def test_check_budget_noop_when_disabled(tmp_path):
 
 @pytest.mark.asyncio
 async def test_check_budget_noop_for_free_providers(tmp_path):
-    """check_budget() never blocks ollama or local providers."""
+    """Non-metered local and subscription providers ignore API spend caps."""
     tracker = await make_tracker(tmp_path, budget_monthly_limit_usd=0.0)
     tracker.check_budget("ollama")  # must not raise
     tracker.check_budget("local")  # must not raise
+    tracker.check_budget("subscription")  # must not raise
+    await tracker.close()
+
+
+@pytest.mark.asyncio
+async def test_subscription_usage_tracks_tokens_without_inventing_api_cost(tmp_path):
+    tracker = await make_tracker(tmp_path)
+    await tracker.record_usage("subscription:claude", "sonnet", 10_000, 1_000)
+
+    stats = await tracker.get_stats()
+
+    assert stats["input_tokens"] == 10_000
+    assert stats["output_tokens"] == 1_000
+    assert stats["cost_usd"] == 0.0
     await tracker.close()
 
 

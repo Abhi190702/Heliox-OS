@@ -219,7 +219,9 @@ second execution authority.
 Subscription requests reuse the exact-response cache, deduplicate repeated
 system content, cap serialized context, and expose provider-reported cached and
 uncached token usage separately from the Heliox prompt estimate. Cache hits
-record zero provider usage. `benchmarks/subscription_planning_suite.py` runs
+record zero provider usage. Calls are stored under a `subscription:*` provider
+key with zero estimated API-dollar cost, while per-task token caps still apply.
+`benchmarks/subscription_planning_suite.py` runs
 fixed, side-effect-free plan evaluations and never validates, approves, or
 executes the proposed actions.
 
