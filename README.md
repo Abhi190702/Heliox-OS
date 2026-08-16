@@ -36,9 +36,9 @@ User intent → Planner → Permission and risk gates → Specialist → Executo
                     ↘ durable task state, memory, audit, cancellation and recovery ↗
 ```
 
-Published release: **v0.11.1** · Python **3.11+** · Windows is the primary hardware-development platform.
+Published release: **v0.12.0** · Python **3.11+** · Windows is the primary hardware-development platform.
 
-The `main` branch currently contains newer source-only improvements, including staged neural task launch, a local evidence-driven system-health review, stronger reconnect/interruption recovery, and OpenRouter model selection. Those changes are not part of the published v0.11.1 installers until a newer release is tagged and validated.
+v0.12.0 adds subscription-backed Codex and Claude Code model access, local MCP task staging, secure Air Handoff, completed email/calendar/SSH paths, staged neural task launch, and one production cognitive runtime. Provider subscriptions, integrations, hardware inputs, and host actions remain subject to their documented availability and safety boundaries.
 
 ## Why Heliox
 
@@ -58,10 +58,11 @@ The `main` branch currently contains newer source-only improvements, including s
 | Action schema        | 157 declared action types                                                                     | Availability depends on OS, dependencies, permissions, credentials, and policy                 |
 | Specialist mesh      | 21 executable specialists with providers for 157/157 declared actions                         | Provider coverage is not universal environment compatibility                                   |
 | Outcome verification | 11 actions have an independent observed post-condition verifier                               | The other 146 currently rely on the executor result                                            |
-| Guarded fast path    | 27.921 ms median, 32.178 ms p95 across 100 non-LLM CPU-usage iterations; zero model calls     | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
+| Guarded fast path    | 27.229 ms median, 29.476 ms p95 across 100 non-LLM CPU-usage iterations; zero model calls     | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
+| Subscription planning | 3/3 fixed Codex CLI cases; 14.708 s median; zero executed or destructive actions             | One account and planning only; not action-execution, Claude, or universal provider evidence     |
 | Intent dispatch      | 59/59 curated bounded-intent and ambiguous-fall-through regression cases                     | Fixed corpus; not population-level language-understanding accuracy                            |
 | Learned risk model   | 36,000 training and 5,400 temporal-validation samples; 5/5 direction invariants              | Covers 12 coarse disk/process action transitions; deterministic policy remains authoritative  |
-| Async responsiveness | 66 heartbeats during a real one-second CPU monitor; 17.504 ms maximum scheduler gap           | Windows timer granularity applies; this is not UI or hardware-input latency                    |
+| Async responsiveness | 65 heartbeats during a real one-second CPU monitor; 24.065 ms maximum scheduler gap           | Windows timer granularity applies; this is not UI or hardware-input latency                    |
 | Plugins              | 6 manifests in the generated public catalog                                                   | Marketplace and local plugins remain capability-constrained                                    |
 | CI                   | Python, frontend, visual, Rust, marketplace, and installer gates                              | CI does not prove camera, microphone, speaker, EEG, or human accuracy                          |
 | Windows signing      | SignPath test-policy workflow signs and verifies EXE, MSI, and embedded application artifacts | The production certificate is pending; current public installers are not yet production-signed |
@@ -72,7 +73,8 @@ The `main` branch currently contains newer source-only improvements, including s
 - [Human-readable evidence and limitations](https://www.helioxos.dev/proof.html)
 - [Detailed Markdown evidence](proof.md)
 - [Machine-readable capability catalog](capabilities.json)
-- [Raw multi-benchmark evidence bundle](docs/evidence/software-benchmarks-2026-08-14.json)
+- [Raw multi-benchmark evidence bundle](docs/evidence/software-benchmarks-2026-08-16.json)
+- [Raw subscription-planning evidence](docs/evidence/subscription-planning-codex-2026-08-16.json)
 - [Historical guarded fast-path benchmark](docs/evidence/react-latency-2026-08-12.json)
 - [Live CI history](https://github.com/VyomKulshrestha/Heliox-OS/actions)
 - [Release changelog](changelog.md) and [JSON release feed](releases.feed.json)
@@ -90,6 +92,7 @@ These pages describe the actual workflow, safety boundary, hardware requirements
 | [Autonomous workflows](https://www.helioxos.dev/autonomous-workflows.html)                       | Durable jobs, bounded observe-act-verify loops, and approval boundaries             |
 | [Plugin marketplace](https://www.helioxos.dev/plugin-marketplace.html)                           | Moderation, integrity verification, permissions, and constrained execution          |
 | [Recorded-EEG and neural research](https://www.helioxos.dev/neural-research.html)                | Synthetic/recorded evidence and why it is not a live brain-control claim            |
+| [Existing AI subscription models](https://www.helioxos.dev/subscription-models.html)            | Official CLI login, model selection, quota evidence, and credential boundaries       |
 
 ## Honest comparisons
 

@@ -6,6 +6,18 @@
   "description": "Verified release milestones generated from the Heliox daemon changelog.",
   "items": [
     {
+      "id": "heliox-0.12.0",
+      "url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.12.0",
+      "title": "Heliox OS 0.12.0 — Governed Intelligence and Handoff",
+      "summary": "Subscription-backed planning, local MCP, secure Air Handoff, verified integrations, and one governed cognitive runtime",
+      "date_published": "2026-08-16T00:00:00Z",
+      "tags": [
+        "release",
+        "heliox-os"
+      ],
+      "content_text": "Existing AI Subscription Providers: Use an existing Codex or Claude Code login through the provider's official CLI, choose an available model, and inspect bounded plan-usage evidence without copying OAuth credentials into Heliox.\nLocal Heliox MCP: IDE agents can stage Heliox tasks through a local MCP server while the Heliox daemon retains identity checks, permission gates, approvals, and execution.\nSecure Air Handoff: Cast a deliberately selected Heliox view to a paired mobile browser over an ephemeral encrypted session, with explicit start, stop, and gesture controls.\nVerified Integrations: Email, calendar, and SSH settings now reach their executable specialists through credential-vault, RPC, policy, and result contracts.\nUnified Cognitive Runtime: Companion narration, learned-risk interruption, follow-up suggestions, and autonomous execution now use the live production gateway instead of duplicate runtime state.\nEvidence-Driven Reliability: Local health reviews, neural staged-goal dispatch, model timeouts, microphone capture, MCP version reporting, and forensic results now fail more truthfully."
+    },
+    {
       "id": "heliox-0.11.1",
       "url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.11.1",
       "title": "Heliox OS 0.11.1 — Adaptive Companion Release",

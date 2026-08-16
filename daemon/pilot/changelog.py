@@ -10,11 +10,74 @@ from typing import Any
 
 logger = logging.getLogger("pilot.changelog")
 
-VERSION = "0.11.1"
-PUBLIC_RELEASE_VERSION = "0.11.1"
-PUBLISHED_RELEASE_VERSIONS = ("0.11.1", "0.9.0")
+VERSION = "0.12.0"
+PUBLIC_RELEASE_VERSION = "0.12.0"
+PUBLISHED_RELEASE_VERSIONS = ("0.12.0", "0.11.1", "0.9.0")
 
 CHANGELOG = {
+    "0.12.0": {
+        "title": "Governed Intelligence and Handoff",
+        "date": "2026-08-16",
+        "features": [
+            {
+                "name": "Existing AI Subscription Providers",
+                "description": (
+                    "Use an existing Codex or Claude Code login through the provider's official "
+                    "CLI, choose an available model, and inspect bounded plan-usage evidence "
+                    "without copying OAuth credentials into Heliox."
+                ),
+                "jarvis_announce": (
+                    "You can now use an existing Codex or Claude Code subscription with guarded "
+                    "model selection and usage controls."
+                ),
+            },
+            {
+                "name": "Local Heliox MCP",
+                "description": (
+                    "IDE agents can stage Heliox tasks through a local MCP server while the Heliox "
+                    "daemon retains identity checks, permission gates, approvals, and execution."
+                ),
+                "jarvis_announce": "My local MCP now routes IDE requests through the same approval boundary.",
+            },
+            {
+                "name": "Secure Air Handoff",
+                "description": (
+                    "Cast a deliberately selected Heliox view to a paired mobile browser over an "
+                    "ephemeral encrypted session, with explicit start, stop, and gesture controls."
+                ),
+                "jarvis_announce": "Air Handoff can now share an approved view with a paired phone.",
+            },
+            {
+                "name": "Verified Integrations",
+                "description": (
+                    "Email, calendar, and SSH settings now reach their executable specialists "
+                    "through credential-vault, RPC, policy, and result contracts."
+                ),
+                "jarvis_announce": "Email, calendar, and SSH integrations now follow one verified path.",
+            },
+            {
+                "name": "Unified Cognitive Runtime",
+                "description": (
+                    "Companion narration, learned-risk interruption, follow-up suggestions, and "
+                    "autonomous execution now use the live production gateway instead of duplicate "
+                    "runtime state."
+                ),
+                "jarvis_announce": "My companion services now share one live cognitive runtime.",
+            },
+            {
+                "name": "Evidence-Driven Reliability",
+                "description": (
+                    "Local health reviews, neural staged-goal dispatch, model timeouts, microphone "
+                    "capture, MCP version reporting, and forensic results now fail more truthfully."
+                ),
+                "jarvis_announce": "Health, model, microphone, MCP, and forensic failures now report more truthfully.",
+            },
+        ],
+        "summary": (
+            "Subscription-backed planning, local MCP, secure Air Handoff, verified integrations, "
+            "and one governed cognitive runtime"
+        ),
+    },
     "0.11.1": {
         "title": "Adaptive Companion Release",
         "date": "2026-08-12",

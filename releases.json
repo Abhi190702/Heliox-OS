@@ -1,10 +1,45 @@
 {
   "schema_version": 2,
-  "current_version": "0.11.1",
-  "current_source_version": "0.11.1",
-  "latest_published_version": "0.11.1",
+  "current_version": "0.12.0",
+  "current_source_version": "0.12.0",
+  "latest_published_version": "0.12.0",
   "generated_from": "daemon/pilot/changelog.py",
   "releases": [
+    {
+      "version": "0.12.0",
+      "title": "Governed Intelligence and Handoff",
+      "date": "2026-08-16",
+      "summary": "Subscription-backed planning, local MCP, secure Air Handoff, verified integrations, and one governed cognitive runtime",
+      "features": [
+        {
+          "name": "Existing AI Subscription Providers",
+          "description": "Use an existing Codex or Claude Code login through the provider's official CLI, choose an available model, and inspect bounded plan-usage evidence without copying OAuth credentials into Heliox."
+        },
+        {
+          "name": "Local Heliox MCP",
+          "description": "IDE agents can stage Heliox tasks through a local MCP server while the Heliox daemon retains identity checks, permission gates, approvals, and execution."
+        },
+        {
+          "name": "Secure Air Handoff",
+          "description": "Cast a deliberately selected Heliox view to a paired mobile browser over an ephemeral encrypted session, with explicit start, stop, and gesture controls."
+        },
+        {
+          "name": "Verified Integrations",
+          "description": "Email, calendar, and SSH settings now reach their executable specialists through credential-vault, RPC, policy, and result contracts."
+        },
+        {
+          "name": "Unified Cognitive Runtime",
+          "description": "Companion narration, learned-risk interruption, follow-up suggestions, and autonomous execution now use the live production gateway instead of duplicate runtime state."
+        },
+        {
+          "name": "Evidence-Driven Reliability",
+          "description": "Local health reviews, neural staged-goal dispatch, model timeouts, microphone capture, MCP version reporting, and forensic results now fail more truthfully."
+        }
+      ],
+      "status": "published",
+      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.12.0",
+      "source_url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main"
+    },
     {
       "version": "0.11.1",
       "title": "Adaptive Companion Release",

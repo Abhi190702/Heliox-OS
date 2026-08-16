@@ -74,9 +74,6 @@ def test_release_feeds_match_shipped_version():
     )
     feed = json.loads((ROOT / "releases.feed.json").read_text(encoding="utf-8"))
     assert feed["version"] == "https://jsonfeed.org/version/1.1"
-    assert [item["id"] for item in feed["items"]] == [
-        f"heliox-{PUBLIC_RELEASE_VERSION}",
-        "heliox-0.9.0",
-    ]
+    assert [item["id"] for item in feed["items"]] == [f"heliox-{version}" for version in PUBLISHED_RELEASE_VERSIONS]
     xml = ET.parse(ROOT / "releases.xml")
-    assert len(xml.findall("./channel/item")) == 2
+    assert len(xml.findall("./channel/item")) == len(PUBLISHED_RELEASE_VERSIONS)

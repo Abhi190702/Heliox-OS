@@ -6,6 +6,13 @@
     <description>Verified release milestones generated from the Heliox daemon changelog.</description>
     <language>en</language>
     <item>
+      <title>Heliox OS 0.12.0 — Governed Intelligence and Handoff</title>
+      <link>https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.12.0</link>
+      <guid isPermaLink="false">heliox-0.12.0</guid>
+      <pubDate>Sun, 16 Aug 2026 00:00:00 +0000</pubDate>
+      <description>Subscription-backed planning, local MCP, secure Air Handoff, verified integrations, and one governed cognitive runtime</description>
+    </item>
+    <item>
       <title>Heliox OS 0.11.1 — Adaptive Companion Release</title>
       <link>https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.11.1</link>
       <guid isPermaLink="false">heliox-0.11.1</guid>

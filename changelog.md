@@ -1,12 +1,29 @@
 ---
 title: Heliox OS changelog
 canonical_url: https://www.helioxos.dev/changelog.md
-last_updated: 2026-08-12
+last_updated: 2026-08-16
 ---
 
 # Heliox OS changelog
 
 This page is generated from the changelog shipped by the Heliox daemon. It distinguishes published installers from draft and source-only milestones; current limitations remain in the proof center.
+
+## 0.12.0 — Governed Intelligence and Handoff
+
+Status: **Published**
+
+Released: **2026-08-16**
+
+Subscription-backed planning, local MCP, secure Air Handoff, verified integrations, and one governed cognitive runtime
+
+- **Existing AI Subscription Providers** — Use an existing Codex or Claude Code login through the provider's official CLI, choose an available model, and inspect bounded plan-usage evidence without copying OAuth credentials into Heliox.
+- **Local Heliox MCP** — IDE agents can stage Heliox tasks through a local MCP server while the Heliox daemon retains identity checks, permission gates, approvals, and execution.
+- **Secure Air Handoff** — Cast a deliberately selected Heliox view to a paired mobile browser over an ephemeral encrypted session, with explicit start, stop, and gesture controls.
+- **Verified Integrations** — Email, calendar, and SSH settings now reach their executable specialists through credential-vault, RPC, policy, and result contracts.
+- **Unified Cognitive Runtime** — Companion narration, learned-risk interruption, follow-up suggestions, and autonomous execution now use the live production gateway instead of duplicate runtime state.
+- **Evidence-Driven Reliability** — Local health reviews, neural staged-goal dispatch, model timeouts, microphone capture, MCP version reporting, and forensic results now fail more truthfully.
+
+[Release artifacts](https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.12.0)
 
 ## 0.11.1 — Adaptive Companion Release
 
