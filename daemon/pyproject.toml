@@ -146,6 +146,10 @@ heliox-mcp = "pilot.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pilot"]
+core-metadata-version = "2.4"
+
+[tool.hatch.build.targets.sdist]
+core-metadata-version = "2.4"
 
 [tool.hatch.metadata]
 allow-direct-references = true
