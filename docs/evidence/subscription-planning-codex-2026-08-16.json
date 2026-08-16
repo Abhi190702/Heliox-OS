@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0.0",
+  "captured_at": "2026-08-16T00:24:51.821970+00:00",
+  "source_commit": "574effbdc6d8a8b3ca92492b9c871869364dc5d2",
+  "scope": "side-effect-free planning only; no action was executed",
+  "claim_boundary": "One developer-machine subscription planning sample. It does not measure action execution, provider availability for other accounts, universal latency, plan correctness outside the fixed cases, or Claude Code because that CLI was not installed for this capture.",
+  "provider": "codex",
+  "provider_cli_version": "codex-cli 0.144.5",
+  "model": "provider-default",
+  "case_count": 3,
+  "passed": 3,
+  "median_latency_seconds": 14.708,
+  "total_usage": {
+    "input_tokens": 52318,
+    "cached_input_tokens": 17920,
+    "uncached_input_tokens": 34398,
+    "output_tokens": 1152
+  },
+  "results": [
+    {
+      "name": "health_review",
+      "passed": true,
+      "latency_seconds": 13.188,
+      "model_calls": 1,
+      "action_types": [
+        "system_health_review"
+      ],
+      "explanation": "Run a read-only health review of the local Windows system, collecting CPU, memory, disk, battery, and running-process evidence, then return the two highest-priority observations. No settings, files, services, or processes will be modified.",
+      "error": "",
+      "usage": {
+        "cached_input_tokens": 8960,
+        "input_tokens": 17538,
+        "output_tokens": 326,
+        "uncached_input_tokens": 8578,
+        "heliox_prompt_chars": 15093,
+        "heliox_estimated_prompt_tokens": 3774
+      },
+      "destructive_actions": 0
+    },
+    {
+      "name": "semantic_browser",
+      "passed": true,
+      "latency_seconds": 14.708,
+      "model_calls": 1,
+      "action_types": [
+        "browser_navigate",
+        "browser_extract_links",
+        "browser_click_text",
+        "browser_page_info"
+      ],
+      "explanation": "Open Example Domain in the controllable browser, inspect its links, follow the link that provides more information about the site, and retrieve the destination page title.",
+      "error": "",
+      "usage": {
+        "cached_input_tokens": 0,
+        "input_tokens": 17545,
+        "output_tokens": 403,
+        "uncached_input_tokens": 17545,
+        "heliox_prompt_chars": 15120,
+        "heliox_estimated_prompt_tokens": 3780
+      },
+      "destructive_actions": 0
+    },
+    {
+      "name": "evidence_first_files",
+      "passed": true,
+      "latency_seconds": 15.867,
+      "model_calls": 1,
+      "action_types": [
+        "shell_command"
+      ],
+      "explanation": "Recursively identify the five largest files under C:\\Users\\Public, compute each file's SHA-256 hash, and return a concise size/path/hash report. This is read-only and does not execute, delete, move, or modify any discovered file.",
+      "error": "",
+      "usage": {
+        "cached_input_tokens": 8960,
+        "input_tokens": 17235,
+        "output_tokens": 423,
+        "uncached_input_tokens": 8275,
+        "heliox_prompt_chars": 15069,
+        "heliox_estimated_prompt_tokens": 3768
+      },
+      "destructive_actions": 0
+    }
+  ]
+}

@@ -40,7 +40,11 @@ def test_public_proof_exposes_evidence_boundaries(tmp_path: Path) -> None:
     assert "59/59 cases" in text
     assert "36,000 training" in text
     assert "Event-loop responsiveness" in text
-    assert "software-benchmarks-2026-08-14.json" in text
+    assert "software-benchmarks-2026-08-16.json" in text
+    assert "Subscription-backed planning" in text
+    assert "3/3 fixed planning cases" in text
+    assert "side-effect-free planning only; no action was executed" in text
+    assert "subscription-planning-codex-2026-08-16.json" in text
 
 
 def test_committed_public_proof_is_current(tmp_path: Path) -> None:

@@ -24,6 +24,14 @@ def _latest_benchmark_path() -> Path:
     return candidates[-1]
 
 
+def _latest_subscription_benchmark_path() -> Path:
+    evidence_dir = REPO_ROOT / "docs" / "evidence"
+    candidates = sorted(evidence_dir.glob("subscription-planning-*.json"))
+    if not candidates:
+        raise FileNotFoundError("No subscription planning benchmark evidence bundle is committed")
+    return candidates[-1]
+
+
 def _matrix_values(workflow: str, key: str) -> list[str]:
     match = re.search(rf"^\s*{re.escape(key)}:\s*\[([^\]]+)]", workflow, re.MULTILINE)
     if not match:
@@ -40,6 +48,8 @@ def build_proof() -> str:
     legacy_latency = _load_json(REPO_ROOT / "docs" / "evidence" / "react-latency-2026-08-12.json")
     benchmark_path = _latest_benchmark_path()
     benchmarks = _load_json(benchmark_path)
+    subscription_benchmark_path = _latest_subscription_benchmark_path()
+    subscription_benchmark = _load_json(subscription_benchmark_path)
     ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     ci_operating_systems = _matrix_values(ci_workflow, "os")
     python_versions = _matrix_values(ci_workflow, "python-version")
@@ -59,6 +69,19 @@ def build_proof() -> str:
     intents = benchmarks["intent_dispatch"]
     world_model = benchmarks["learned_risk_world_model"]
     world_validation = world_model["validation"]
+    subscription_rows = "\n".join(
+        "| {name} | {actions} | {latency:.3f} s | {input_tokens:,} | {cached_tokens:,} | "
+        "{output_tokens:,} | {destructive} |".format(
+            name=result["name"].replace("_", " ").title(),
+            actions=", ".join(f"`{action}`" for action in result["action_types"]),
+            latency=result["latency_seconds"],
+            input_tokens=result["usage"]["input_tokens"],
+            cached_tokens=result["usage"]["cached_input_tokens"],
+            output_tokens=result["usage"]["output_tokens"],
+            destructive=result["destructive_actions"],
+        )
+        for result in subscription_benchmark["results"]
+    )
 
     return f"""# Heliox OS Evidence and Limitations
 
@@ -152,6 +175,20 @@ The shipped `{world_model["model_version"]}` artifact records **{world_model["tr
 
 The audit passed **{world_model["direction_checks_passed"]}/{len(world_model["direction_checks"])} direction invariants** and measured **{world_model["inference"]["median_ms"]:.3f} ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
 
+### Subscription-backed planning
+
+A developer-machine run through the official **{subscription_benchmark["provider"].title()} CLI** passed **{subscription_benchmark["passed"]}/{subscription_benchmark["case_count"]} fixed planning cases** with **{subscription_benchmark["median_latency_seconds"]:.3f} s median** provider round-trip latency. The provider reported `{subscription_benchmark["provider_cli_version"]}` with model `{subscription_benchmark["model"]}`.
+
+| Fixed case | Planned action types | Latency | Input tokens | Cached input | Output tokens | Destructive actions |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+{subscription_rows}
+
+- Scope: **{subscription_benchmark["scope"]}**.
+- The run used a real subscription-authenticated provider CLI, but it did not execute the plans or prove the actions' runtime outcomes.
+- Subscription requests consume the provider plan's allowance; they are not counted as metered API-dollar spend by Heliox.
+- Heliox rejected provider tool activity and retained schema validation, deterministic policy, approvals, execution, and verification.
+- Claim boundary: {subscription_benchmark["claim_boundary"]}
+
 ### Historical CPU-path improvement
 
 | Metric | Before | After `f2df192` | Change |
@@ -165,7 +202,7 @@ The audit passed **{world_model["direction_checks_passed"]}/{len(world_model["di
 - None of these software benchmarks measures model-provider, network, browser page-load, UI-rendering, microphone, TTS, camera, gaze, gesture, EEG, or human latency/accuracy.
 - Local snapshots are reproducibility evidence, not universal performance guarantees.
 
-Raw evidence: [`{benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence/{benchmark_path.name}) and the [historical CPU artifact]({REPOSITORY_URL}/blob/main/docs/evidence/react-latency-2026-08-12.json).
+Raw evidence: [`{benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence/{benchmark_path.name}), [`{subscription_benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence/{subscription_benchmark_path.name}), and the [historical CPU artifact]({REPOSITORY_URL}/blob/main/docs/evidence/react-latency-2026-08-12.json).
 
 ## Platform and hardware evidence
 
@@ -178,6 +215,7 @@ Raw evidence: [`{benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence
 | Camera gesture and cursor control | Geometry, temporal verification, calibration, workflow, and false-positive regression tests | Physical accuracy is not established across cameras, lighting, skin tones, backgrounds, or users | Experimental opt-in input; users must retain the stop controls. |
 | Gaze tracking | Model loading, event validation, fusion, and settings tests | Physical gaze accuracy is not a release gate | Coarse on-device region signal, not eye-tracking-grade measurement. |
 | Neural intent | Synthetic BrainFlow, recorded EEG playback, provenance, calibration, decoder, bounded text-authored task staging, neural selection, autonomous dispatch, gateway, and fault tests | No live headset/human validation has established control accuracy | Research pipeline can select a pre-staged goal and launch the normal guarded autonomous path; it does not decode an unstated task and is not proven live brain control or medical use. |
+| Subscription model access | Official Codex and Claude CLI adapters, login/status checks, selectable models, prompt-budget controls, quota accounting, and provider-tool rejection tests | Provider availability, plan eligibility, and quotas remain provider-owned | Uses the user's existing provider login without copying OAuth credentials; it is not unlimited and does not bypass provider terms. |
 | Snapshots and rollback | Fail-closed policy and backend contract tests | Backend availability and real restoration depend on OS support and privileges | Destructive work is blocked when a required snapshot cannot be created; not every external effect is reversible. |
 
 Neural details and the recorded EEGBCI snapshot are documented in [Neural Intent]({REPOSITORY_URL}/blob/main/docs/NEURAL_INTENT.md).
@@ -191,6 +229,7 @@ Neural details and the recorded EEGBCI snapshot are documented in [Neural Intent
 5. Snapshots cover supported local-system changes. Messages, purchases, remote hosts, pushed Git commits, browser scripts, and other external effects may be irreversible.
 6. Learned risk and world-model outputs can add caution or interrupt; deterministic policy remains authoritative.
 7. Public installers are not yet production-signed. The SignPath test-policy pipeline is validated, but the production certificate is still pending; operating-system reputation warnings may continue until that certificate is issued and the release workflow is migrated.
+8. The subscription planning sample covers one Codex CLI account and three fixed prompts. Claude Code was not installed for that capture, and no provider-backed action was executed by the benchmark.
 
 ## Closed regression history
 
@@ -217,6 +256,10 @@ python -m pytest daemon/tests/test_capability_catalog.py daemon/tests/test_speci
 
 # Full local software benchmark bundle
 python scripts/generate_benchmark_evidence.py
+
+# Subscription-backed planning only; consumes provider-plan allowance and executes no actions
+cd daemon
+python benchmarks/subscription_planning_suite.py --provider codex --output ../docs/evidence/subscription-planning-codex-YYYY-MM-DD.json
 
 # Individual benchmark entry points (run from daemon)
 python benchmarks/react_latency.py --iterations 100 --warmup 10 --json

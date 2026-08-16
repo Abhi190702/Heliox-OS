@@ -2,9 +2,9 @@
 
 > This page separates reproducible software evidence, live CI status, developer-run hardware observations, and claims that have not yet been established. It is an evidence index, not a promise that every feature works on every computer.
 
-Evidence snapshot date: **2026-08-14**
+Evidence snapshot date: **2026-08-16**
 
-Product version: **0.11.1**
+Product version: **0.12.0**
 
 ## Capability and routing evidence
 
@@ -42,7 +42,7 @@ cd daemon
 python ../scripts/generate_benchmark_evidence.py
 ```
 
-Bundle environment: Windows 11, Python 3.12.6. Source commit: `dc09070864c6`.
+Bundle environment: Windows 11, Python 3.12.6. Source commit: `574effbdc6d8`.
 
 ### Guarded local request latency
 
@@ -50,11 +50,11 @@ Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk ass
 
 | Metric | Ready-cold | Warm steady state |
 | --- | ---: | ---: |
-| Median | — | 27.921 ms |
-| p95 | — | 32.178 ms |
-| p99 | — | 39.104 ms |
-| Minimum | — | 26.146 ms |
-| Maximum | 45.041 ms | 43.788 ms |
+| Median | — | 27.229 ms |
+| p95 | — | 29.476 ms |
+| p99 | — | 30.399 ms |
+| Minimum | — | 25.487 ms |
+| Maximum | 32.239 ms | 30.948 ms |
 
 - The harness executes local planning, routing, risk assessment, execution, post-condition verification, and response shaping.
 - All 100 measured steady-state iterations made **0 model calls**.
@@ -64,20 +64,20 @@ Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk ass
 
 | Real guarded action | Iterations | Median | p95 | p99 |
 | --- | ---: | ---: | ---: | ---: |
-| CPU usage | 50 | 27.116 ms | 28.375 ms | 28.656 ms |
-| Memory usage | 50 | 6.516 ms | 8.346 ms | 8.663 ms |
-| Disk usage | 50 | 6.271 ms | 7.798 ms | 8.247 ms |
-| Comprehensive system information | 50 | 57.891 ms | 69.354 ms | 78.844 ms |
+| CPU usage | 50 | 27.261 ms | 28.316 ms | 30.057 ms |
+| Memory usage | 50 | 6.428 ms | 7.679 ms | 8.625 ms |
+| Disk usage | 50 | 6.438 ms | 8.394 ms | 9.049 ms |
+| Comprehensive system information | 50 | 58.686 ms | 79.789 ms | 80.071 ms |
 
 Each case validates the exact selected action, executes the real read-only host probe, and makes zero model calls.
 
 ### Event-loop responsiveness
 
-During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **66 ticks**, with **15.616 ms median**, **16.111 ms p95**, and **17.504 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
+During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **65 ticks**, with **15.592 ms median**, **16.291 ms p95**, and **24.065 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
 
 ### Deterministic intent dispatch
 
-The curated routing regression set passed **59/59 cases** with **0.026 ms median** dispatch latency. It covers bounded positive intents and ambiguous controls that must fall through to model planning. It is not a population-level language-understanding benchmark, and application routing does not prove an application is installed.
+The curated routing regression set passed **59/59 cases** with **0.020 ms median** dispatch latency. It covers bounded positive intents and ambiguous controls that must fall through to model planning. It is not a population-level language-understanding benchmark, and application routing does not prove an application is installed.
 
 ### Learned-risk world model
 
@@ -88,7 +88,23 @@ The shipped `risk-mlp-v3-calibrated` artifact records **36,000 training** and **
 | Disk-delta MAE | 0.0000000330 | 0.0000000718 | 54.0154% |
 | Process-delta MAE | 0.0000130251 | 0.0022166655 | 99.4124% |
 
-The audit passed **5/5 direction invariants** and measured **0.028 ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
+The audit passed **5/5 direction invariants** and measured **0.026 ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
+
+### Subscription-backed planning
+
+A developer-machine run through the official **Codex CLI** passed **3/3 fixed planning cases** with **14.708 s median** provider round-trip latency. The provider reported `codex-cli 0.144.5` with model `provider-default`.
+
+| Fixed case | Planned action types | Latency | Input tokens | Cached input | Output tokens | Destructive actions |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Health Review | `system_health_review` | 13.188 s | 17,538 | 8,960 | 326 | 0 |
+| Semantic Browser | `browser_navigate`, `browser_extract_links`, `browser_click_text`, `browser_page_info` | 14.708 s | 17,545 | 0 | 403 | 0 |
+| Evidence First Files | `shell_command` | 15.867 s | 17,235 | 8,960 | 423 | 0 |
+
+- Scope: **side-effect-free planning only; no action was executed**.
+- The run used a real subscription-authenticated provider CLI, but it did not execute the plans or prove the actions' runtime outcomes.
+- Subscription requests consume the provider plan's allowance; they are not counted as metered API-dollar spend by Heliox.
+- Heliox rejected provider tool activity and retained schema validation, deterministic policy, approvals, execution, and verification.
+- Claim boundary: One developer-machine subscription planning sample. It does not measure action execution, provider availability for other accounts, universal latency, plan correctness outside the fixed cases, or Claude Code because that CLI was not installed for this capture.
 
 ### Historical CPU-path improvement
 
@@ -103,7 +119,7 @@ The audit passed **5/5 direction invariants** and measured **0.028 ms median** i
 - None of these software benchmarks measures model-provider, network, browser page-load, UI-rendering, microphone, TTS, camera, gaze, gesture, EEG, or human latency/accuracy.
 - Local snapshots are reproducibility evidence, not universal performance guarantees.
 
-Raw evidence: [`software-benchmarks-2026-08-14.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/software-benchmarks-2026-08-14.json) and the [historical CPU artifact](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/react-latency-2026-08-12.json).
+Raw evidence: [`software-benchmarks-2026-08-16.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/software-benchmarks-2026-08-16.json), [`subscription-planning-codex-2026-08-16.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/subscription-planning-codex-2026-08-16.json), and the [historical CPU artifact](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/react-latency-2026-08-12.json).
 
 ## Platform and hardware evidence
 
@@ -116,6 +132,7 @@ Raw evidence: [`software-benchmarks-2026-08-14.json`](https://github.com/VyomKul
 | Camera gesture and cursor control | Geometry, temporal verification, calibration, workflow, and false-positive regression tests | Physical accuracy is not established across cameras, lighting, skin tones, backgrounds, or users | Experimental opt-in input; users must retain the stop controls. |
 | Gaze tracking | Model loading, event validation, fusion, and settings tests | Physical gaze accuracy is not a release gate | Coarse on-device region signal, not eye-tracking-grade measurement. |
 | Neural intent | Synthetic BrainFlow, recorded EEG playback, provenance, calibration, decoder, bounded text-authored task staging, neural selection, autonomous dispatch, gateway, and fault tests | No live headset/human validation has established control accuracy | Research pipeline can select a pre-staged goal and launch the normal guarded autonomous path; it does not decode an unstated task and is not proven live brain control or medical use. |
+| Subscription model access | Official Codex and Claude CLI adapters, login/status checks, selectable models, prompt-budget controls, quota accounting, and provider-tool rejection tests | Provider availability, plan eligibility, and quotas remain provider-owned | Uses the user's existing provider login without copying OAuth credentials; it is not unlimited and does not bypass provider terms. |
 | Snapshots and rollback | Fail-closed policy and backend contract tests | Backend availability and real restoration depend on OS support and privileges | Destructive work is blocked when a required snapshot cannot be created; not every external effect is reversible. |
 
 Neural details and the recorded EEGBCI snapshot are documented in [Neural Intent](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/NEURAL_INTENT.md).
@@ -129,6 +146,7 @@ Neural details and the recorded EEGBCI snapshot are documented in [Neural Intent
 5. Snapshots cover supported local-system changes. Messages, purchases, remote hosts, pushed Git commits, browser scripts, and other external effects may be irreversible.
 6. Learned risk and world-model outputs can add caution or interrupt; deterministic policy remains authoritative.
 7. Public installers are not yet production-signed. The SignPath test-policy pipeline is validated, but the production certificate is still pending; operating-system reputation warnings may continue until that certificate is issued and the release workflow is migrated.
+8. The subscription planning sample covers one Codex CLI account and three fixed prompts. Claude Code was not installed for that capture, and no provider-backed action was executed by the benchmark.
 
 ## Closed regression history
 
@@ -155,6 +173,10 @@ python -m pytest daemon/tests/test_capability_catalog.py daemon/tests/test_speci
 
 # Full local software benchmark bundle
 python scripts/generate_benchmark_evidence.py
+
+# Subscription-backed planning only; consumes provider-plan allowance and executes no actions
+cd daemon
+python benchmarks/subscription_planning_suite.py --provider codex --output ../docs/evidence/subscription-planning-codex-YYYY-MM-DD.json
 
 # Individual benchmark entry points (run from daemon)
 python benchmarks/react_latency.py --iterations 100 --warmup 10 --json
