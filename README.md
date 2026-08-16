@@ -306,6 +306,9 @@ store these credentials. The CLI runs as a text-only model helper in a sterile
 temporary directory; Codex is read-only and ephemeral, while Claude has tools,
 browser integration, slash commands, and session persistence disabled. Heliox
 still owns schema validation, policy, approval, execution, and verification.
+See the official [Codex with ChatGPT plan guide](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan)
+and [Claude Code authentication guide](https://code.claude.com/docs/en/authentication)
+for provider-owned installation and login requirements.
 
 The provider CLI adds its own instruction overhead. Settings separates the
 Heliox prompt estimate from provider-reported input, cached input, uncached
