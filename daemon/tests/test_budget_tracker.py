@@ -93,7 +93,10 @@ async def test_check_budget_noop_when_disabled(tmp_path):
 @pytest.mark.asyncio
 async def test_check_budget_noop_for_free_providers(tmp_path):
     """Non-metered local and subscription providers ignore API spend caps."""
-    tracker = await make_tracker(tmp_path, budget_monthly_limit_usd=0.0)
+    tracker = await make_tracker(tmp_path, budget_monthly_limit_usd=0.001)
+    await tracker.record_usage("openai", "gpt-4", 1_000, 1_000)
+    with pytest.raises(BudgetExceededError):
+        tracker.check_budget("cloud")
     tracker.check_budget("ollama")  # must not raise
     tracker.check_budget("local")  # must not raise
     tracker.check_budget("subscription")  # must not raise
