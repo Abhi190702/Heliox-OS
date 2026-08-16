@@ -47,8 +47,8 @@ CASES: dict[str, dict[str, Any]] = {
             "Find the five largest files under C:\\Users\\Public, hash each result, and prepare a concise report. "
             "Do not delete, move, rewrite, or execute any file."
         ),
-        "required_any": {"file_list", "file_search", "directory_summary", "shell_command"},
-        "forbidden": {"file_delete", "file_move", "file_write", "code_execute", "shell_script"},
+        "required_any": {"file_list", "file_search", "directory_summary", "shell_command", "shell_script"},
+        "forbidden": {"file_delete", "file_move", "file_write", "code_execute"},
     },
 }
 

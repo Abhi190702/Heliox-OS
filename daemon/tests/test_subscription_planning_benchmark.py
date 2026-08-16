@@ -47,3 +47,12 @@ def test_main_writes_machine_readable_evidence(tmp_path):
         "",
         destructive_actions=1,
     )
+
+
+def test_evidence_case_accepts_a_read_only_script_plan():
+    assert evaluate_action_types(
+        CASES["evidence_first_files"],
+        ["shell_script"],
+        "",
+        destructive_actions=0,
+    )
