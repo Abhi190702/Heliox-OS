@@ -11,13 +11,18 @@ import argparse
 import asyncio
 import json
 import statistics
+import subprocess
 import time
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from pilot.agents.planner import Planner
 from pilot.config import PilotConfig
 from pilot.models.subscription_cli import SubscriptionCLIClient
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 CASES: dict[str, dict[str, Any]] = {
     "health_review": {
@@ -148,8 +153,23 @@ async def benchmark(provider: str, model: str, selected_cases: list[str]) -> dic
     results = [await run_case(name, CASES[name], planner, router) for name in selected_cases]
     latencies = [item.latency_seconds for item in results]
     return {
+        "schema_version": "1.0.0",
+        "captured_at": datetime.now(UTC).isoformat(),
+        "source_commit": subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip(),
         "scope": "side-effect-free planning only; no action was executed",
+        "claim_boundary": (
+            "One developer-machine subscription planning sample. It does not measure action execution, "
+            "provider availability for other accounts, universal latency, plan correctness outside the fixed cases, "
+            "or Claude Code because that CLI was not installed for this capture."
+        ),
         "provider": provider,
+        "provider_cli_version": status.get("version", ""),
         "model": model or "provider-default",
         "case_count": len(results),
         "passed": sum(item.passed for item in results),
@@ -163,6 +183,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", choices=("codex", "claude"), default="codex")
     parser.add_argument("--model", default="", help="Blank uses the official CLI default")
+    parser.add_argument("--output", type=Path, help="Write the JSON report to this path instead of stdout")
     parser.add_argument(
         "--case",
         action="append",
@@ -177,7 +198,13 @@ def main() -> None:
     args = _parse_args()
     selected = args.cases or list(CASES)
     report = asyncio.run(benchmark(args.provider, args.model, selected))
-    print(json.dumps(report, indent=2))
+    rendered = json.dumps(report, indent=2) + "\n"
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered, encoding="utf-8", newline="\n")
+        print(f"Wrote subscription planning evidence to {args.output}")
+    else:
+        print(rendered, end="")
 
 
 if __name__ == "__main__":
