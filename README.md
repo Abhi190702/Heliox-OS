@@ -6,6 +6,7 @@
   <a href="https://github.com/VyomKulshrestha/Heliox-OS/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/VyomKulshrestha/Heliox-OS/ci.yml?style=for-the-badge&label=CI" alt="CI status"></a>
   <a href="https://github.com/sponsors/VyomKulshrestha"><img src="https://img.shields.io/github/sponsors/VyomKulshrestha?style=for-the-badge&color=ea4aaa&label=Sponsor" alt="Sponsor Heliox OS"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/VyomKulshrestha/Heliox-OS?style=for-the-badge&color=blue" alt="MIT license"></a>
+  <a href="https://olud.ai/tool/vyomkulshrestha-heliox-os.html"><img src="https://olud.ai/badge.php?tool=vyomkulshrestha-heliox-os" alt="Heliox OS stars and world-model rank on olud.ai"></a>
 </p>
 
 <p align="center">
