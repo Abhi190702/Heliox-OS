@@ -4108,7 +4108,9 @@ class PilotServer:
                 durable = await self._durable_tasks.get_approval(plan_id)
                 if durable is not None and durable.status == ApprovalStatus.PENDING:
                     required = {int(index) for index in durable.request.get("action_indices", [])}
-                    approved = required if decision and approved_indices is None else (approved_indices or set()) & required
+                    approved = (
+                        required if decision and approved_indices is None else (approved_indices or set()) & required
+                    )
                     await self._durable_tasks.resolve_approval(
                         plan_id,
                         ApprovalStatus.APPROVED if decision else ApprovalStatus.DENIED,
