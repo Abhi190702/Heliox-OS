@@ -87,14 +87,60 @@ async def test_confirm_is_dispatched_while_request_waits_on_same_socket():
             )
         )
 
-        responses = {}
-        while set(responses) != {"confirm", "execute"}:
-            message = json.loads(await asyncio.wait_for(socket.recv(), timeout=1.0))
-            if message.get("id") in {"confirm", "execute"}:
-                responses[message["id"]] = message["result"]
+        acknowledgement = json.loads(await asyncio.wait_for(socket.recv(), timeout=1.0))
+        execution = json.loads(await asyncio.wait_for(socket.recv(), timeout=1.0))
 
-        assert responses["confirm"] == {"status": "ok", "confirmed": True}
-        assert responses["execute"] == {"status": "executed"}
+        assert acknowledgement == {
+            "jsonrpc": "2.0",
+            "result": {"status": "ok", "confirmed": True},
+            "id": "confirm",
+        }
+        assert execution == {
+            "jsonrpc": "2.0",
+            "result": {"status": "executed"},
+            "id": "execute",
+        }
+    finally:
+        await socket.close()
+        listener.close()
+        await listener.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_first_confirmation_decision_wins_when_rpc_requests_overlap():
+    """Duplicate approve/deny RPCs cannot rewrite an accepted decision."""
+    config = PilotConfig()
+    config.server.auth_token = "test-token"
+    server = PilotServer(config)
+    pending = PendingConfirmation(plan_id="plan-race", event=asyncio.Event())
+    server._pending_confirms[pending.plan_id] = pending
+    server._handlers = {"confirm": server._handle_confirm}
+
+    listener, socket = await _authenticated_socket(server)
+    try:
+        for request_id, confirmed in (("approve", True), ("deny", False)):
+            await socket.send(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "confirm",
+                        "params": {"plan_id": pending.plan_id, "confirmed": confirmed},
+                        "id": request_id,
+                    }
+                )
+            )
+
+        responses = {}
+        while len(responses) < 2:
+            response = json.loads(await asyncio.wait_for(socket.recv(), timeout=1.0))
+            responses[response["id"]] = response["result"]
+
+        accepted = [request_id for request_id, result in responses.items() if result["status"] == "ok"]
+        rejected = [request_id for request_id, result in responses.items() if result["status"] == "error"]
+        assert len(accepted) == 1
+        assert len(rejected) == 1
+        assert pending.confirmed is (accepted[0] == "approve")
+        assert pending.event.is_set()
     finally:
         await socket.close()
         listener.close()

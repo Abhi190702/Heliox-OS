@@ -235,6 +235,10 @@ class PendingConfirmation:
     # None means "not specified" -> treat as all-approved (back-compat with
     # older frontend builds that only send {plan_id, confirmed}).
     approved_indices: set[int] | None = None
+    decision_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    resolved: bool = False
+    resolved_by_task: asyncio.Task[Any] | None = field(default=None, repr=False)
+    rpc_tasks: set[asyncio.Task[Any]] = field(default_factory=set, repr=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1533,6 +1537,8 @@ class PilotServer:
         request_tasks: set[asyncio.Task[None]] = set()
 
         async def _process_request(request: JsonRpcRequest) -> None:
+            confirmation: PendingConfirmation | None = None
+            current_task = asyncio.current_task()
             try:
                 if not rpc_method_allowed(role, request.method):
                     if request.id is not None:
@@ -1544,6 +1550,10 @@ class PilotServer:
                             )
                         )
                     return
+                if request.method == "confirm" and request.id is not None and current_task is not None:
+                    confirmation = self._pending_confirms.get(str(request.params.get("plan_id", "")))
+                    if confirmation is not None:
+                        confirmation.rpc_tasks.add(current_task)
                 if request.method in OUT_OF_BAND_RPC_METHODS:
                     response = await self._dispatch(request, websocket)
                 else:
@@ -1551,6 +1561,10 @@ class PilotServer:
                         response = await self._dispatch(request, websocket)
                 if response and request.id is not None:
                     await websocket.send(response)
+                    # The blocked execution must not resume until the UI's
+                    # decision acknowledgement has actually been written.
+                    if confirmation is not None and confirmation.resolved_by_task is current_task:
+                        confirmation.event.set()
             except websockets.exceptions.ConnectionClosed:
                 logger.warning("Connection lost during request handling: %s", remote)
             except Exception as e:
@@ -1559,6 +1573,9 @@ class PilotServer:
                     await websocket.send(_error_response(request.id, -32603, f"Internal error: {e}"))
                 except websockets.exceptions.ConnectionClosed:
                     logger.warning("Could not send error response because the connection is closed: %s", remote)
+            finally:
+                if confirmation is not None and current_task is not None:
+                    confirmation.rpc_tasks.discard(current_task)
 
         # ── Normal message loop ────────────────────────────────────────────
         try:
@@ -4075,28 +4092,40 @@ class PilotServer:
                 "task_id": resolved.task_id,
             }
 
-        pending.confirmed = bool(confirmed)
-        if raw_approved is not None:
-            try:
-                pending.approved_indices = {int(i) for i in raw_approved}
-            except (TypeError, ValueError):
-                pending.approved_indices = None
-        if self._durable_tasks is not None:
-            durable = await self._durable_tasks.get_approval(plan_id)
-            if durable is not None and durable.status == ApprovalStatus.PENDING:
-                required = {int(index) for index in durable.request.get("action_indices", [])}
-                approved = (
-                    required
-                    if pending.confirmed and pending.approved_indices is None
-                    else (pending.approved_indices or set()) & required
-                )
-                await self._durable_tasks.resolve_approval(
-                    plan_id,
-                    ApprovalStatus.APPROVED if pending.confirmed else ApprovalStatus.DENIED,
-                    approved_indices=sorted(approved),
-                )
-        pending.event.set()
-        return {"status": "ok", "confirmed": pending.confirmed}
+        if raw_approved is not None and not isinstance(raw_approved, list):
+            return {"status": "error", "message": "approved_indices must be a list"}
+        try:
+            approved_indices = None if raw_approved is None else {int(i) for i in raw_approved}
+        except (TypeError, ValueError):
+            return {"status": "error", "message": "approved_indices must contain only integers"}
+
+        async with pending.decision_lock:
+            if pending.resolved:
+                return {"status": "error", "message": f"Confirmation already resolved for plan_id: {plan_id}"}
+
+            decision = bool(confirmed)
+            if self._durable_tasks is not None:
+                durable = await self._durable_tasks.get_approval(plan_id)
+                if durable is not None and durable.status == ApprovalStatus.PENDING:
+                    required = {int(index) for index in durable.request.get("action_indices", [])}
+                    approved = required if decision and approved_indices is None else (approved_indices or set()) & required
+                    await self._durable_tasks.resolve_approval(
+                        plan_id,
+                        ApprovalStatus.APPROVED if decision else ApprovalStatus.DENIED,
+                        approved_indices=sorted(approved),
+                    )
+
+            pending.confirmed = decision
+            pending.approved_indices = approved_indices
+            pending.resolved = True
+            pending.resolved_by_task = asyncio.current_task()
+
+            # Direct/internal callers have no JSON-RPC acknowledgement to
+            # deliver. Socket RPCs are released by _process_request only after
+            # their response is written, closing the UI acknowledgement race.
+            if pending.resolved_by_task not in pending.rpc_tasks:
+                pending.event.set()
+            return {"status": "ok", "confirmed": decision}
 
     async def _handle_rollback_plan(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Roll back the filesystem snapshot taken before a plan executed.

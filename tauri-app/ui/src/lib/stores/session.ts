@@ -973,11 +973,9 @@ function createSession() {
   }
 
   async function confirm(accepted: boolean, approvedIndices?: number[]) {
-    let planId = "";
-    const unsub = subscribe((s) => {
-      planId = s.confirmPlanId;
-    });
-    unsub();
+    const confirmation = get({ subscribe });
+    if (confirmation.confirmSubmitting) return;
+    const planId = confirmation.confirmPlanId;
 
     if (!planId) {
       update((s) => ({
@@ -1000,34 +998,42 @@ function createSession() {
         throw new Error(String(result.message ?? "The daemon did not accept this decision."));
       }
 
-      update((s) => ({
-        ...s,
-        confirmRequired: false,
-        confirmPlanId: "",
-        confirmActions: [],
-        confirmReason: "",
-        confirmRiskAssessment: null,
-        confirmSubmitting: false,
-        confirmError: "",
-      }));
+      update((s) =>
+        s.confirmPlanId === planId
+          ? {
+              ...s,
+              confirmRequired: false,
+              confirmPlanId: "",
+              confirmActions: [],
+              confirmReason: "",
+              confirmRiskAssessment: null,
+              confirmSubmitting: false,
+              confirmError: "",
+            }
+          : s,
+      );
       if (Boolean(result.resume_required)) {
         await resumeDurableTask();
       }
     } catch (err) {
       const message = String(err instanceof Error ? err.message : err);
-      update((s) => ({
-        ...s,
-        confirmSubmitting: false,
-        confirmError: `Decision was not accepted: ${message}`,
-        messages: [
-          ...s.messages,
-          {
-            type: "error" as MessageType,
-            text: `Approval failed: ${message}`,
-            timestamp: Date.now(),
-          },
-        ],
-      }));
+      update((s) =>
+        s.confirmPlanId === planId
+          ? {
+              ...s,
+              confirmSubmitting: false,
+              confirmError: `Decision was not accepted: ${message}`,
+              messages: [
+                ...s.messages,
+                {
+                  type: "error" as MessageType,
+                  text: `Approval failed: ${message}`,
+                  timestamp: Date.now(),
+                },
+              ],
+            }
+          : s,
+      );
     }
   }
 
