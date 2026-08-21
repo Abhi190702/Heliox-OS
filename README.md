@@ -32,6 +32,8 @@ Heliox OS is an MIT-licensed, local-first desktop agent for Windows, macOS, and 
 
 Heliox is an application that runs on top of an existing operating system; it is not an operating-system kernel. Local-first also does not mean every configuration is offline: cloud models and third-party integrations receive the context required for tasks that use them.
 
+**Name disambiguation:** Heliox OS is this desktop-agent project at `helioxos.dev` and `VyomKulshrestha/Heliox-OS`. It is unrelated to heliox helium-oxygen medical gas and to other products named Heliox, including Heliox IDE.
+
 ```text
 User intent → Planner → Permission and risk gates → Specialist → Executor → Verifier
                     ↘ durable task state, memory, audit, cancellation and recovery ↗
