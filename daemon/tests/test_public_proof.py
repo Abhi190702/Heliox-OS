@@ -28,6 +28,7 @@ def _generate(repo_root: Path, output: Path) -> None:
 
 def test_public_proof_exposes_evidence_boundaries(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
+    latest_software_evidence = sorted((repo_root / "docs" / "evidence").glob("software-benchmarks-*.json"))[-1].name
     output = tmp_path / "proof.md"
     _generate(repo_root, output)
     text = output.read_text(encoding="utf-8")
@@ -40,7 +41,7 @@ def test_public_proof_exposes_evidence_boundaries(tmp_path: Path) -> None:
     assert "59/59 cases" in text
     assert "36,000 training" in text
     assert "Event-loop responsiveness" in text
-    assert "software-benchmarks-2026-08-16.json" in text
+    assert latest_software_evidence in text
     assert "Subscription-backed planning" in text
     assert "3/3 fixed planning cases" in text
     assert "side-effect-free planning only; no action was executed" in text

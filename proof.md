@@ -2,7 +2,7 @@
 
 > This page separates reproducible software evidence, live CI status, developer-run hardware observations, and claims that have not yet been established. It is an evidence index, not a promise that every feature works on every computer.
 
-Evidence snapshot date: **2026-08-16**
+Evidence snapshot date: **2026-08-21**
 
 Product version: **0.12.0**
 
@@ -42,7 +42,7 @@ cd daemon
 python ../scripts/generate_benchmark_evidence.py
 ```
 
-Bundle environment: Windows 11, Python 3.12.6. Source commit: `574effbdc6d8`.
+Bundle environment: Windows 11, Python 3.12.6. Source commit: `4de65a9757a5`.
 
 ### Guarded local request latency
 
@@ -50,11 +50,11 @@ Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk ass
 
 | Metric | Ready-cold | Warm steady state |
 | --- | ---: | ---: |
-| Median | — | 27.229 ms |
-| p95 | — | 29.476 ms |
-| p99 | — | 30.399 ms |
-| Minimum | — | 25.487 ms |
-| Maximum | 32.239 ms | 30.948 ms |
+| Median | — | 27.636 ms |
+| p95 | — | 29.906 ms |
+| p99 | — | 31.388 ms |
+| Minimum | — | 25.477 ms |
+| Maximum | 31.535 ms | 32.178 ms |
 
 - The harness executes local planning, routing, risk assessment, execution, post-condition verification, and response shaping.
 - All 100 measured steady-state iterations made **0 model calls**.
@@ -64,20 +64,20 @@ Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk ass
 
 | Real guarded action | Iterations | Median | p95 | p99 |
 | --- | ---: | ---: | ---: | ---: |
-| CPU usage | 50 | 27.261 ms | 28.316 ms | 30.057 ms |
-| Memory usage | 50 | 6.428 ms | 7.679 ms | 8.625 ms |
-| Disk usage | 50 | 6.438 ms | 8.394 ms | 9.049 ms |
-| Comprehensive system information | 50 | 58.686 ms | 79.789 ms | 80.071 ms |
+| CPU usage | 50 | 28.850 ms | 31.447 ms | 32.941 ms |
+| Memory usage | 50 | 9.634 ms | 17.919 ms | 20.245 ms |
+| Disk usage | 50 | 5.442 ms | 9.368 ms | 11.177 ms |
+| Comprehensive system information | 50 | 61.739 ms | 87.096 ms | 92.105 ms |
 
 Each case validates the exact selected action, executes the real read-only host probe, and makes zero model calls.
 
 ### Event-loop responsiveness
 
-During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **65 ticks**, with **15.592 ms median**, **16.291 ms p95**, and **24.065 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
+During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **66 ticks**, with **15.529 ms median**, **16.348 ms p95**, and **16.873 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
 
 ### Deterministic intent dispatch
 
-The curated routing regression set passed **59/59 cases** with **0.020 ms median** dispatch latency. It covers bounded positive intents and ambiguous controls that must fall through to model planning. It is not a population-level language-understanding benchmark, and application routing does not prove an application is installed.
+The curated routing regression set passed **59/59 cases** with **0.019 ms median** dispatch latency. It covers bounded positive intents and ambiguous controls that must fall through to model planning. It is not a population-level language-understanding benchmark, and application routing does not prove an application is installed.
 
 ### Learned-risk world model
 
@@ -119,7 +119,7 @@ A developer-machine run through the official **Codex CLI** passed **3/3 fixed pl
 - None of these software benchmarks measures model-provider, network, browser page-load, UI-rendering, microphone, TTS, camera, gaze, gesture, EEG, or human latency/accuracy.
 - Local snapshots are reproducibility evidence, not universal performance guarantees.
 
-Raw evidence: [`software-benchmarks-2026-08-16.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/software-benchmarks-2026-08-16.json), [`subscription-planning-codex-2026-08-16.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/subscription-planning-codex-2026-08-16.json), and the [historical CPU artifact](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/react-latency-2026-08-12.json).
+Raw evidence: [`software-benchmarks-2026-08-21.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/software-benchmarks-2026-08-21.json), [`subscription-planning-codex-2026-08-16.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/subscription-planning-codex-2026-08-16.json), and the [historical CPU artifact](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/react-latency-2026-08-12.json).
 
 ## Platform and hardware evidence
 
