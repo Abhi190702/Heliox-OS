@@ -59,11 +59,11 @@ v0.12.0 adds subscription-backed Codex and Claude Code model access, local MCP t
 | Action schema        | 157 declared action types                                                                     | Availability depends on OS, dependencies, permissions, credentials, and policy                 |
 | Specialist mesh      | 21 executable specialists with providers for 157/157 declared actions                         | Provider coverage is not universal environment compatibility                                   |
 | Outcome verification | 11 actions have an independent observed post-condition verifier                               | The other 146 currently rely on the executor result                                            |
-| Guarded fast path    | 27.229 ms median, 29.476 ms p95 across 100 non-LLM CPU-usage iterations; zero model calls     | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
+| Guarded fast path    | 27.636 ms median, 29.906 ms p95 across 100 non-LLM CPU-usage iterations; zero model calls     | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
 | Subscription planning | 3/3 fixed Codex CLI cases; 14.708 s median; zero executed or destructive actions             | One account and planning only; not action-execution, Claude, or universal provider evidence     |
 | Intent dispatch      | 59/59 curated bounded-intent and ambiguous-fall-through regression cases                     | Fixed corpus; not population-level language-understanding accuracy                            |
 | Learned risk model   | 36,000 training and 5,400 temporal-validation samples; 5/5 direction invariants              | Covers 12 coarse disk/process action transitions; deterministic policy remains authoritative  |
-| Async responsiveness | 65 heartbeats during a real one-second CPU monitor; 24.065 ms maximum scheduler gap           | Windows timer granularity applies; this is not UI or hardware-input latency                    |
+| Async responsiveness | 66 heartbeats during a real one-second CPU monitor; 16.873 ms maximum heartbeat interval      | Windows timer granularity applies; this is not UI or hardware-input latency                    |
 | Plugins              | 6 manifests in the generated public catalog                                                   | Marketplace and local plugins remain capability-constrained                                    |
 | CI                   | Python, frontend, visual, Rust, marketplace, and installer gates                              | CI does not prove camera, microphone, speaker, EEG, or human accuracy                          |
 | Windows signing      | SignPath test-policy workflow signs and verifies EXE, MSI, and embedded application artifacts | The production certificate is pending; current public installers are not yet production-signed |
@@ -93,7 +93,7 @@ These pages describe the actual workflow, safety boundary, hardware requirements
 | [Gesture and gaze control](https://www.helioxos.dev/gesture-gaze-control.html)                   | On-device signals, shared-camera behavior, calibration, and false-positive controls |
 | [Autonomous workflows](https://www.helioxos.dev/autonomous-workflows.html)                       | Durable jobs, bounded observe-act-verify loops, and approval boundaries             |
 | [Plugin marketplace](https://www.helioxos.dev/plugin-marketplace.html)                           | Moderation, integrity verification, permissions, and constrained execution          |
-| [Recorded-EEG and neural research](https://www.helioxos.dev/neural-research.html)                | Synthetic/recorded evidence and why it is not a live brain-control claim            |
+| [Heliox OS neural intent research](https://www.helioxos.dev/neural-research.html)                | BrainFlow synthetic and recorded EEG evidence; no validated live brain-control claim |
 | [Existing AI subscription models](https://www.helioxos.dev/subscription-models.html)            | Official CLI login, model selection, quota evidence, and credential boundaries       |
 
 ## Honest comparisons
