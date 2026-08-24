@@ -17,7 +17,7 @@ from pilot.security.audit import AuditLogger
 from pilot.security.permissions import PermissionChecker
 from pilot.security.validator import ActionValidator
 from pilot.server import PilotServer
-from pilot.system.browser import browser_close, browser_get_page_info
+from pilot.system.browser import browser_close, browser_get_page_info, browser_screenshot
 
 
 def _record(path: Path, payload: dict) -> None:
@@ -25,10 +25,24 @@ def _record(path: Path, payload: dict) -> None:
         stream.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
-async def run(evidence_path: Path, token: str, target_url: str) -> None:
+async def run(
+    evidence_path: Path,
+    token: str,
+    target_url: str,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8785,
+    screenshot_path: Path | None = None,
+    neural_token: str | None = None,
+    mcp_token: str | None = None,
+) -> None:
     config = PilotConfig()
     config.server.auth_token = token
     server = PilotServer(config)
+    if neural_token:
+        server._neural_auth_token = neural_token
+    if mcp_token:
+        server._mcp_auth_token = mcp_token
     executor = Executor(
         config,
         ActionValidator(config),
@@ -37,10 +51,15 @@ async def run(evidence_path: Path, token: str, target_url: str) -> None:
     )
     command_number = 0
     browser_execute_count = 0
+    confirmation_count = 0
+    execution_socket_id: int | None = None
+    confirmation_socket_id: int | None = None
+    stop_event = asyncio.Event()
 
     async def execute(params, ws):
-        nonlocal browser_execute_count, command_number
+        nonlocal browser_execute_count, command_number, execution_socket_id
         command_number += 1
+        execution_socket_id = id(ws)
         plan_id = f"ui-smoke-{command_number}"
         action = Action(
             action_type=ActionType.BROWSER_NAVIGATE,
@@ -76,15 +95,20 @@ async def run(evidence_path: Path, token: str, target_url: str) -> None:
         if result.success:
             browser_execute_count += 1
         page_info = json.loads(await browser_get_page_info()) if result.success else None
+        if result.success and screenshot_path is not None:
+            await browser_screenshot(str(screenshot_path), full_page=True)
         _record(
             evidence_path,
             {
                 "browser_execute_count": browser_execute_count,
                 "browser_page": page_info,
+                "confirmation_count": confirmation_count,
                 "decision": "approved",
                 "executed": result.success,
                 "output": result.output,
                 "plan_id": plan_id,
+                "same_websocket": execution_socket_id == confirmation_socket_id,
+                "screenshot": str(screenshot_path) if screenshot_path is not None else None,
             },
         )
         return {
@@ -96,15 +120,50 @@ async def run(evidence_path: Path, token: str, target_url: str) -> None:
             ),
         }
 
-    server._handlers = {"execute": execute, "confirm": server._handle_confirm}
+    async def confirm(params, ws):
+        nonlocal confirmation_count, confirmation_socket_id
+        confirmation_count += 1
+        confirmation_socket_id = id(ws)
+        return await server._handle_confirm(params, ws)
+
+    async def smoke_status(_params, _ws):
+        return {
+            "browser_execute_count": browser_execute_count,
+            "confirmation_count": confirmation_count,
+            "same_websocket": (
+                execution_socket_id is not None
+                and confirmation_socket_id is not None
+                and execution_socket_id == confirmation_socket_id
+            ),
+            "target_url": target_url,
+        }
+
+    async def smoke_shutdown(_params, _ws):
+        asyncio.get_running_loop().call_later(0.05, stop_event.set)
+        return {"status": "stopping"}
+
+    server._handlers = {
+        "execute": execute,
+        "confirm": confirm,
+        "smoke_status": smoke_status,
+        "smoke_shutdown": smoke_shutdown,
+    }
     evidence_path.parent.mkdir(parents=True, exist_ok=True)
     evidence_path.unlink(missing_ok=True)
-    _record(evidence_path, {"event": "ready", "target_url": target_url})
     try:
-        async with websockets.serve(server._handle_connection, "127.0.0.1", 8785):
-            await asyncio.Future()
+        async with websockets.serve(server._handle_connection, host, port):
+            _record(evidence_path, {"event": "ready", "host": host, "port": port, "target_url": target_url})
+            await stop_event.wait()
     finally:
         await browser_close()
+        _record(
+            evidence_path,
+            {
+                "browser_execute_count": browser_execute_count,
+                "browser_closed": True,
+                "event": "cleanup",
+            },
+        )
 
 
 def main() -> None:
@@ -112,6 +171,11 @@ def main() -> None:
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--token")
     parser.add_argument("--target-url", default="http://127.0.0.1:1420/")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8785)
+    parser.add_argument("--screenshot", type=Path)
+    parser.add_argument("--neural-token")
+    parser.add_argument("--mcp-token")
     args = parser.parse_args()
     token = args.token
     if not token:
@@ -122,7 +186,18 @@ def main() -> None:
             token = response.read().decode("utf-8").strip()
     if not token:
         parser.error("the resolved token is empty")
-    asyncio.run(run(args.evidence, token, args.target_url))
+    asyncio.run(
+        run(
+            args.evidence,
+            token,
+            args.target_url,
+            host=args.host,
+            port=args.port,
+            screenshot_path=args.screenshot,
+            neural_token=args.neural_token,
+            mcp_token=args.mcp_token,
+        )
+    )
 
 
 if __name__ == "__main__":

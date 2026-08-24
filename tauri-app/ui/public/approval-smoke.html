@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Heliox Controlled Approval Target</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: #05070b;
+        color: #f4f7ff;
+      }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 50% 20%, rgba(79, 117, 255, 0.22), transparent 38%),
+          #05070b;
+      }
+      main {
+        width: min(720px, calc(100vw - 64px));
+        padding: 56px;
+        border: 1px solid rgba(139, 164, 255, 0.28);
+        border-radius: 28px;
+        background: rgba(9, 13, 23, 0.92);
+        box-shadow: 0 32px 120px rgba(0, 0, 0, 0.55);
+      }
+      p {
+        color: #9ea9c3;
+        line-height: 1.65;
+      }
+      strong {
+        color: #8fa8ff;
+      }
+    </style>
+  </head>
+  <body>
+    <main data-testid="controlled-approval-target">
+      <strong>HELIOX · CONTROLLED LOCAL EVIDENCE</strong>
+      <h1>One approval. One browser navigation.</h1>
+      <p>
+        This page is served from loopback for the Antler demo and CI regression. It proves the software approval and
+        browser-command path without depending on an external website or service.
+      </p>
+    </main>
+  </body>
+</html>
