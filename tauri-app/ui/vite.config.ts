@@ -248,15 +248,17 @@ function daemonTokenDevPlugin(): Plugin {
             if (command === "get_temperature_stats") {
               const currentCpus = os.cpus();
               let liveBatteryPercent = 95;
-              try {
-                const out = execSync(
-                  `powershell -NoProfile -Command "(Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue).EstimatedChargeRemaining"`,
-                  { timeout: 1500, encoding: "utf-8" },
-                ).trim();
-                const parsed = parseInt(out, 10);
-                if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) liveBatteryPercent = parsed;
-              } catch (e) {
-                // ignore
+              if (process.platform === "win32") {
+                try {
+                  const out = execSync(
+                    `powershell -NoProfile -Command "(Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue).EstimatedChargeRemaining"`,
+                    { timeout: 1500, encoding: "utf-8" },
+                  ).trim();
+                  const parsed = parseInt(out, 10);
+                  if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) liveBatteryPercent = parsed;
+                } catch (e) {
+                  // ignore
+                }
               }
               res.end(
                 JSON.stringify({

@@ -82,7 +82,14 @@ test("one UI approval produces exactly one same-WebSocket local navigation", asy
       "--target-url",
       "http://127.0.0.1:1420/approval-smoke.html",
     ],
-    { cwd: repoRoot, env: { ...process.env, PYTHONPATH: pythonPath } },
+    {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PYTHONPATH: pythonPath,
+        HELIOX_BROWSER_HEADLESS: process.env.CI ? "1" : process.env.HELIOX_BROWSER_HEADLESS,
+      },
+    },
   );
   let smokeOutput = "";
   smoke.stdout.on("data", (chunk) => (smokeOutput += chunk.toString()));

@@ -73,8 +73,9 @@ async def _ensure_browser():
     from playwright.async_api import async_playwright
 
     _playwright_instance = await async_playwright().start()
+    headless = os.getenv("HELIOX_BROWSER_HEADLESS", "").casefold() in {"1", "true", "yes"}
     browser = await _playwright_instance.chromium.launch(
-        headless=False,  # Visible browser for user
+        headless=headless,  # Visible by default; controlled CI smoke runs opt in to headless mode.
         args=["--disable-blink-features=AutomationControlled"],
     )
     _browser_context = await browser.new_context(
