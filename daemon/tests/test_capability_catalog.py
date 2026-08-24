@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from pilot.actions import ActionType
+from pilot.agents.verifier import POSTCONDITION_VERIFIERS
 
 
 def _generator_module():
@@ -54,6 +55,19 @@ def test_generated_capability_catalog_matches_runtime(tmp_path: Path) -> None:
     assert all(entry["providers"] for entry in generated["actions"])
     assert all(entry["platform_support"]["platforms"] for entry in generated["actions"])
     assert generated["summary"]["independent_postcondition_verifiers"] > 0
+    assert generated["summary"]["independent_postcondition_verifiers"] == len(POSTCONDITION_VERIFIERS) == 18
+    high_risk = {
+        ActionType.PROCESS_KILL,
+        ActionType.POWER_SHUTDOWN,
+        ActionType.POWER_RESTART,
+        ActionType.POWER_LOGOUT,
+        ActionType.WINDOW_CLOSE,
+        ActionType.DISK_UNMOUNT,
+        ActionType.SCHEDULE_DELETE,
+    }
+    generated_actions = {entry["id"]: entry for entry in generated["actions"]}
+    assert all(generated_actions[action.value]["verification"]["independent_postcondition"] for action in high_risk)
+    assert generated["sources"]["postcondition_verifier"]["path"] == "daemon/pilot/agents/verifier.py"
     assert generated["plugins"]
 
 

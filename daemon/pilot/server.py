@@ -210,6 +210,17 @@ def _is_terminal_execution_failure(results: list[Any]) -> bool:
     return True
 
 
+def _postcondition_failure_requires_reconciliation(results: list[Any], verification: Any) -> bool:
+    """Stop before repeating a destructive action whose effect is uncertain."""
+    for index in getattr(verification, "failed_actions", []):
+        if not isinstance(index, int) or index < 0 or index >= len(results):
+            continue
+        result = results[index]
+        if result.success and (result.action.requires_snapshot or result.action.is_irreversible):
+            return True
+    return False
+
+
 def _is_terminal_planning_failure(error: str) -> bool:
     """Return whether the planner already exhausted the configured provider path."""
     normalized = error.casefold()
@@ -3170,6 +3181,13 @@ class PilotServer:
 
             if _is_terminal_execution_failure(results):
                 logger.info("Terminal execution failure; returning the exact error without LLM retry")
+                break
+
+            if _postcondition_failure_requires_reconciliation(results, verification):
+                logger.warning(
+                    "Destructive action succeeded but its post-condition was not observed; "
+                    "stopping before retry for manual reconciliation"
+                )
                 break
 
             # Execution failed — use PlanDiffer for partial re-plan

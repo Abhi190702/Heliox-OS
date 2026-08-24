@@ -21,6 +21,10 @@
       "path": "daemon/pilot/actions.py",
       "sha256": "ce89428b8232f55a9ff7e14289fc7842cb71423e9f37d11e0073611d412349d5"
     },
+    "postcondition_verifier": {
+      "path": "daemon/pilot/agents/verifier.py",
+      "sha256": "0ecc513bb20fc69055da4a883d807faba793f1847a4e7754475466ffd1b69ec3"
+    },
     "plugin_manifests": [
       {
         "path": "daemon/pilot/plugins/developer/manifest.json",
@@ -86,7 +90,7 @@
       "system_modify": 35,
       "user_write": 61
     },
-    "independent_postcondition_verifiers": 11,
+    "independent_postcondition_verifiers": 18,
     "plugins": 6,
     "mesh": {
       "specialists": 21,
@@ -1629,9 +1633,9 @@
         }
       ],
       "verification": {
-        "method": "executor_result_only",
-        "independent_postcondition": false,
-        "note": "No independent post-condition check is currently registered."
+        "method": "process_absence_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
       }
     },
     {
@@ -2040,9 +2044,9 @@
         }
       ],
       "verification": {
-        "method": "executor_result_only",
-        "independent_postcondition": false,
-        "note": "No independent post-condition check is currently registered."
+        "method": "shutdown_transition_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
       }
     },
     {
@@ -2073,9 +2077,9 @@
         }
       ],
       "verification": {
-        "method": "executor_result_only",
-        "independent_postcondition": false,
-        "note": "No independent post-condition check is currently registered."
+        "method": "restart_transition_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
       }
     },
     {
@@ -2172,9 +2176,9 @@
         }
       ],
       "verification": {
-        "method": "executor_result_only",
-        "independent_postcondition": false,
-        "note": "No independent post-condition check is currently registered."
+        "method": "logout_transition_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
       }
     },
     {
@@ -2289,9 +2293,9 @@
         }
       ],
       "verification": {
-        "method": "executor_result_only",
-        "independent_postcondition": false,
-        "note": "No independent post-condition check is currently registered."
+        "method": "schedule_absence_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
       }
     },
     {
@@ -2505,9 +2509,9 @@
         }
       ],
       "verification": {
-        "method": "executor_result_only",
-        "independent_postcondition": false,
-        "note": "No independent post-condition check is currently registered."
+        "method": "window_absence_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
       }
     },
     {
@@ -3033,9 +3037,9 @@
         }
       ],
       "verification": {
-        "method": "executor_result_only",
-        "independent_postcondition": false,
-        "note": "No independent post-condition check is currently registered."
+        "method": "mount_absence_postcondition",
+        "independent_postcondition": true,
+        "note": "Verifier checks an observed post-condition."
       }
     },
     {

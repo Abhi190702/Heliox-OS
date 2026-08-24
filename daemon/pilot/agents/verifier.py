@@ -15,17 +15,45 @@ from pilot.actions import (
     ActionPlan,
     ActionResult,
     ActionType,
+    DiskManageParams,
     FileParams,
     GnomeSettingParams,
     PackageParams,
+    ProcessParams,
+    ScheduleParams,
     ServiceParams,
     VerificationResult,
+    WindowParams,
 )
 
 if TYPE_CHECKING:
     from pilot.models.router import ModelRouter
 
 logger = logging.getLogger("pilot.agents.verifier")
+
+
+# Public evidence generation imports this registry so the catalog cannot claim
+# an independent verifier that is absent from the runtime verification path.
+POSTCONDITION_VERIFIERS: dict[ActionType, str] = {
+    ActionType.FILE_WRITE: "file_content_postcondition",
+    ActionType.FILE_DELETE: "file_absence_postcondition",
+    ActionType.FILE_COPY: "copy_destination_postcondition",
+    ActionType.FILE_MOVE: "move_source_and_destination_postcondition",
+    ActionType.PACKAGE_INSTALL: "package_installed_postcondition",
+    ActionType.PACKAGE_REMOVE: "package_removed_postcondition",
+    ActionType.SERVICE_START: "service_active_postcondition",
+    ActionType.SERVICE_RESTART: "service_active_postcondition",
+    ActionType.SERVICE_STOP: "service_inactive_postcondition",
+    ActionType.GNOME_SETTING_WRITE: "setting_value_postcondition",
+    ActionType.DOWNLOAD_FILE: "download_file_exists_postcondition",
+    ActionType.PROCESS_KILL: "process_absence_postcondition",
+    ActionType.POWER_SHUTDOWN: "shutdown_transition_postcondition",
+    ActionType.POWER_RESTART: "restart_transition_postcondition",
+    ActionType.POWER_LOGOUT: "logout_transition_postcondition",
+    ActionType.WINDOW_CLOSE: "window_absence_postcondition",
+    ActionType.DISK_UNMOUNT: "mount_absence_postcondition",
+    ActionType.SCHEDULE_DELETE: "schedule_absence_postcondition",
+}
 
 
 class Verifier:
@@ -94,6 +122,25 @@ class Verifier:
 
             if action.action_type == ActionType.FILE_MOVE:
                 return await self._verify_file_move(action.parameters)  # type: ignore[arg-type]
+
+            if action.action_type == ActionType.PROCESS_KILL:
+                return await self._verify_process_kill(action.parameters)  # type: ignore[arg-type]
+
+            if action.action_type in {
+                ActionType.POWER_SHUTDOWN,
+                ActionType.POWER_RESTART,
+                ActionType.POWER_LOGOUT,
+            }:
+                return await self._verify_power_transition(action.action_type)
+
+            if action.action_type == ActionType.WINDOW_CLOSE:
+                return await self._verify_window_close(action.parameters)  # type: ignore[arg-type]
+
+            if action.action_type == ActionType.DISK_UNMOUNT:
+                return await self._verify_disk_unmount(action.parameters)  # type: ignore[arg-type]
+
+            if action.action_type == ActionType.SCHEDULE_DELETE:
+                return await self._verify_schedule_delete(action.parameters)  # type: ignore[arg-type]
 
             # For most actions, success in execution = verified
             # (process_list, clipboard_write, volume_set, etc. are self-verifying)
@@ -192,3 +239,54 @@ class Verifier:
             size = Path(params.output_path).stat().st_size
             return True, f"File downloaded: {params.output_path} ({size:,} bytes)"
         return False, f"Downloaded file not found: {params.output_path}"
+
+    async def _verify_process_kill(self, params: ProcessParams) -> tuple[bool, str]:
+        from pilot.system.processes import process_exists
+
+        if params.pid is None and not params.name:
+            return False, "Process kill has no PID or process name to observe"
+        if await process_exists(pid=params.pid, name=params.name):
+            return False, f"Process is still running: {params.pid if params.pid is not None else params.name}"
+        return True, f"Process is absent: {params.pid if params.pid is not None else params.name}"
+
+    async def _verify_power_transition(self, action_type: ActionType) -> tuple[bool, str]:
+        from pilot.system.power import power_transition_observed
+
+        transition = action_type.value.removeprefix("power_")
+        if await power_transition_observed(transition):
+            return True, f"Host independently reported the {transition} transition"
+        return False, f"Host did not independently report the {transition} transition"
+
+    async def _verify_window_close(self, params: WindowParams) -> tuple[bool, str]:
+        from pilot.system.window_mgr import window_exists
+
+        target = params.window_id or params.title or params.process_name
+        if not target:
+            return False, "Window close has no window selector to observe"
+        if await window_exists(
+            window_id=params.window_id,
+            title=params.title,
+            process_name=params.process_name,
+        ):
+            return False, f"Window is still open: {target}"
+        return True, f"Window is absent: {target}"
+
+    async def _verify_disk_unmount(self, params: DiskManageParams) -> tuple[bool, str]:
+        from pilot.system.disks import mount_exists
+
+        target = params.mount_point or params.device
+        if not target:
+            return False, "Disk unmount has no device or mount point to observe"
+        if await mount_exists(device=params.device, mount_point=params.mount_point):
+            return False, f"Mount is still active: {target}"
+        return True, f"Mount is absent: {target}"
+
+    async def _verify_schedule_delete(self, params: ScheduleParams) -> tuple[bool, str]:
+        from pilot.system.scheduler import schedule_exists
+
+        target = params.task_id or params.name
+        if not target:
+            return False, "Schedule delete has no task identifier to observe"
+        if await schedule_exists(target):
+            return False, f"Scheduled task still exists: {target}"
+        return True, f"Scheduled task is absent: {target}"

@@ -25,6 +25,7 @@ from pilot.actions import Action, ActionType, PermissionTier  # noqa: E402
 from pilot.agents.agent_mesh import AgentMesh  # noqa: E402
 from pilot.agents.orchestrator import AgentOrchestrator  # noqa: E402
 from pilot.agents.registry import AgentRegistry  # noqa: E402
+from pilot.agents.verifier import POSTCONDITION_VERIFIERS  # noqa: E402
 
 ALL_PLATFORMS = ("windows", "macos", "linux")
 WINDOWS_ONLY = {ActionType.REGISTRY_READ, ActionType.REGISTRY_WRITE}
@@ -33,21 +34,6 @@ LINUX_ONLY = {
     ActionType.GNOME_SETTING_WRITE,
     ActionType.DBUS_CALL,
 }
-
-POSTCONDITION_VERIFIERS: dict[ActionType, str] = {
-    ActionType.FILE_WRITE: "file_content_postcondition",
-    ActionType.FILE_DELETE: "file_absence_postcondition",
-    ActionType.FILE_COPY: "copy_destination_postcondition",
-    ActionType.FILE_MOVE: "move_source_and_destination_postcondition",
-    ActionType.PACKAGE_INSTALL: "package_installed_postcondition",
-    ActionType.PACKAGE_REMOVE: "package_removed_postcondition",
-    ActionType.SERVICE_START: "service_active_postcondition",
-    ActionType.SERVICE_RESTART: "service_active_postcondition",
-    ActionType.SERVICE_STOP: "service_inactive_postcondition",
-    ActionType.GNOME_SETTING_WRITE: "setting_value_postcondition",
-    ActionType.DOWNLOAD_FILE: "download_file_exists_postcondition",
-}
-
 
 def _sha256(path: Path) -> str:
     content = path.read_bytes()
@@ -235,6 +221,7 @@ async def build_catalog() -> dict[str, Any]:
         )
 
     source_path = DAEMON_ROOT / "pilot" / "actions.py"
+    verifier_path = DAEMON_ROOT / "pilot" / "agents" / "verifier.py"
     return {
         "schema_version": "1.0.0",
         "product": {
@@ -259,6 +246,10 @@ async def build_catalog() -> dict[str, Any]:
             "action_registry": {
                 "path": source_path.relative_to(REPO_ROOT).as_posix(),
                 "sha256": _sha256(source_path),
+            },
+            "postcondition_verifier": {
+                "path": verifier_path.relative_to(REPO_ROOT).as_posix(),
+                "sha256": _sha256(verifier_path),
             },
             "plugin_manifests": plugin_sources,
         },

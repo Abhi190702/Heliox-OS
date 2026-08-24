@@ -69,6 +69,53 @@ async def process_kill(pid: int | None = None, name: str | None = None, sig: str
         raise ValueError("Either pid or name must be provided")
 
 
+async def process_exists(pid: int | None = None, name: str | None = None) -> bool:
+    """Observe whether the exact process target still exists."""
+    if pid is None and not name:
+        raise ValueError("Either pid or name must be provided")
+
+    try:
+        import psutil
+
+        if pid is not None:
+            try:
+                process = psutil.Process(pid)
+                return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+            except psutil.NoSuchProcess:
+                return False
+
+        expected = str(name).casefold()
+        for process in psutil.process_iter(["name"]):
+            try:
+                if str(process.info.get("name") or "").casefold() == expected:
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return False
+    except ImportError:
+        pass
+
+    if CURRENT_PLATFORM == Platform.WINDOWS:
+        if pid is not None:
+            code, out, err = await run_powershell(
+                f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ 'present' }}"
+            )
+        else:
+            escaped = str(name).replace("'", "''")
+            code, out, err = await run_powershell(
+                f"if (Get-Process -Name '{escaped}' -ErrorAction SilentlyContinue) {{ 'present' }}"
+            )
+        if code != 0:
+            raise RuntimeError(f"Process observation failed: {err.strip()}")
+        return out.strip() == "present"
+
+    args = ["kill", "-0", str(pid)] if pid is not None else ["pgrep", "-x", str(name)]
+    code, out, err = await run_command(args)
+    if code not in {0, 1}:
+        raise RuntimeError(f"Process observation failed: {err.strip()}")
+    return code == 0
+
+
 async def _kill_by_pid(pid: int, sig: str) -> str:
     try:
         import psutil

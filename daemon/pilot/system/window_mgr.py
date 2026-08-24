@@ -153,7 +153,6 @@ async def window_list() -> str:
         if code != 0:
             raise RuntimeError(f"Window list failed: {err.strip()}")
         return out.strip()
-
     elif CURRENT_PLATFORM == Platform.MACOS:
         code, out, err = await run_command(
             [
@@ -181,6 +180,57 @@ async def window_list() -> str:
             if code != 0:
                 raise RuntimeError("Window list failed (install wmctrl or xdotool)")
         return out.strip()
+
+
+async def window_exists(
+    *,
+    window_id: str | None = None,
+    title: str | None = None,
+    process_name: str | None = None,
+) -> bool:
+    """Observe whether the exact close target still has a visible window."""
+    if not any((window_id, title, process_name)):
+        raise ValueError("Provide window_id, process_name, or title")
+
+    if CURRENT_PLATFORM == Platform.WINDOWS:
+        if process_name:
+            selector = _windows_process_selector(title=None, process_name=process_name)
+        elif title:
+            selector = _windows_process_selector(title=title, process_name=None)
+        else:
+            raise ValueError("Windows window observation requires process_name or title")
+        code, out, err = await run_powershell(selector + "if ($p) { 'present' }")
+        if code != 0:
+            raise RuntimeError(f"Window observation failed: {err.strip()}")
+        return out.strip() == "present"
+
+    if CURRENT_PLATFORM == Platform.MACOS:
+        target = process_name or title or ""
+        literal = target.replace('"', '\\"')
+        script = (
+            'tell application "System Events"\n'
+            f'  set matches to every process whose name is "{literal}"\n'
+            "  if (count of matches) is 0 then return 0\n"
+            "  return count windows of first item of matches\n"
+            "end tell"
+        )
+        code, out, err = await run_command(["osascript", "-e", script])
+        if code != 0:
+            raise RuntimeError(f"Window observation failed: {err.strip()}")
+        try:
+            return int(out.strip()) > 0
+        except ValueError as error:
+            raise RuntimeError("Window observation returned invalid data") from error
+
+    code, out, err = await run_command(["wmctrl", "-l"])
+    if code != 0:
+        raise RuntimeError(f"Window observation failed: {err.strip()}")
+    rows = [line for line in out.splitlines() if line.strip()]
+    if window_id:
+        expected = window_id.casefold()
+        return any(row.split(maxsplit=1)[0].casefold() == expected for row in rows)
+    expected = str(title or process_name).casefold()
+    return any(expected in row.casefold() for row in rows)
 
 
 async def window_focus(window_id: str | None = None, title: str | None = None, process_name: str | None = None) -> str:

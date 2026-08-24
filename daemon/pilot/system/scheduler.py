@@ -133,6 +133,36 @@ async def schedule_list() -> str:
         return f"Current crontab:\n{out.strip()}"
 
 
+async def schedule_exists(target: str) -> bool:
+    """Observe whether an exact Pilot scheduled-task target still exists."""
+    if not target:
+        raise ValueError("Scheduled task target is required")
+
+    if CURRENT_PLATFORM == Platform.WINDOWS:
+        code, out, err = await run_command(["schtasks", "/query", "/tn", target, "/fo", "LIST", "/nh"])
+        if code == 0:
+            return True
+        error = f"{out}\n{err}".casefold()
+        if "cannot find" in error or "does not exist" in error or "not found" in error:
+            return False
+        raise RuntimeError(f"Task observation failed: {err.strip() or out.strip()}")
+
+    if CURRENT_PLATFORM == Platform.MACOS:
+        plist_name = f"com.pilot.{target}"
+        plist_path = os.path.expanduser(f"~/Library/LaunchAgents/{plist_name}.plist")
+        code, out, err = await run_command(["launchctl", "list", plist_name])
+        return os.path.exists(plist_path) or code == 0
+
+    code, out, err = await run_command(["crontab", "-l"])
+    if code != 0:
+        error = f"{out}\n{err}".casefold()
+        if "no crontab" in error:
+            return False
+        raise RuntimeError(f"Crontab observation failed: {err.strip() or out.strip()}")
+    marker = f"# pilot-task:{target}"
+    return any(marker in line for line in out.splitlines())
+
+
 async def schedule_delete(name: str = "", task_id: str | None = None) -> str:
     """Delete a scheduled task."""
     target = task_id or name
