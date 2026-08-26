@@ -255,6 +255,23 @@ class VoiceGestureWorkflowEngine:
         await self._clear_working_memory(workflow_id)
         return True
 
+    async def stop(self) -> None:
+        """Quiesce in-process workflow drivers during daemon shutdown.
+
+        Durable workflow rows intentionally remain unchanged so an interrupted
+        RUNNING workflow can be inspected and explicitly resumed after the
+        daemon restarts.  This method only owns the asyncio tasks created by
+        this engine.
+        """
+        tasks = tuple(self._active_tasks.values())
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._active_tasks.clear()
+        self._pause_requested.clear()
+
     async def correct(self, workflow_id: str, correction: str) -> VoiceGestureWorkflow | None:
         """Stop the current round, persist a spoken correction, and re-plan."""
         correction = " ".join(correction.strip().split())

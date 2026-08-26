@@ -7948,6 +7948,8 @@ def handle_tool(tool_name, params):
         if self._trigger_engine is not None:
             self._trigger_engine.set_fire_callback(None)
             await self._trigger_engine.stop()
+        if self._voice_gesture_workflows is not None:
+            await self._voice_gesture_workflows.stop()
         if self._autonomous is not None:
             await self._autonomous.stop()
 

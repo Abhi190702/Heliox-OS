@@ -283,6 +283,32 @@ class TestLiveCorrection:
         final = await engine._workflow_store.get(workflow.workflow_id)
         assert final.state == WorkflowState.CANCELLED.value
 
+    @pytest.mark.asyncio
+    async def test_engine_shutdown_quiesces_driver_without_rewriting_durable_state(self, tmp_path):
+        first_round_started = asyncio.Event()
+        driver_cancelled = asyncio.Event()
+
+        class _BlockingExecutor(_StubExecutor):
+            async def execute(self, plan, **kwargs):
+                first_round_started.set()
+                try:
+                    await asyncio.sleep(30)
+                finally:
+                    driver_cancelled.set()
+                return await super().execute(plan, **kwargs)
+
+        engine = _engine(tmp_path, executor=_BlockingExecutor())
+        workflow = await engine.start("complete the record", InvocationSource.VOICE)
+        await asyncio.wait_for(first_round_started.wait(), timeout=10)
+
+        await engine.stop()
+
+        assert driver_cancelled.is_set()
+        assert engine._active_tasks == {}
+        assert engine._pause_requested == {}
+        persisted = await engine._workflow_store.get(workflow.workflow_id)
+        assert persisted.state == WorkflowState.RUNNING.value
+
 
 class TestMultiStepAutoChain:
     @pytest.mark.asyncio
