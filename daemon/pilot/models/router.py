@@ -41,6 +41,8 @@ class ModelRouter:
         self._cloud: CloudClient | None = None
         self._subscription = SubscriptionCLIClient(config)
         self._llamacpp: object | None = None
+        self._llamacpp_active_calls = 0
+        self._llamacpp_idle_task: asyncio.Task[None] | None = None
         self._resolved_ollama_model: str | None = None
         self._cloud_unavailable_until = 0.0
         self._cloud_unavailable_reason = ""
@@ -563,12 +565,38 @@ class ModelRouter:
         from pilot.models.llamacpp import LlamaCppClient
 
         client: LlamaCppClient = self._llamacpp  # type: ignore[assignment]
+        await self._cancel_llamacpp_idle_unload()
+        self._llamacpp_active_calls += 1
+        try:
+            return await client.generate(
+                prompt,
+                system=system,
+                temperature=temperature,
+            )
+        finally:
+            self._llamacpp_active_calls -= 1
+            if self._llamacpp_active_calls == 0:
+                self._llamacpp_idle_task = asyncio.create_task(
+                    self._unload_llamacpp_after_idle(client),
+                    name="llamacpp-idle-unload",
+                )
 
-        return await client.generate(
-            prompt,
-            system=system,
-            temperature=temperature,
-        )
+    async def _cancel_llamacpp_idle_unload(self) -> None:
+        task = self._llamacpp_idle_task
+        self._llamacpp_idle_task = None
+        if task is None:
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    async def _unload_llamacpp_after_idle(self, client: Any) -> None:
+        idle_seconds = max(0, int(self._config.model.idle_unload_seconds))
+        try:
+            await asyncio.sleep(idle_seconds)
+        except asyncio.CancelledError:
+            return
+        if self._llamacpp_active_calls == 0 and self._llamacpp is client:
+            client.unload()
 
     def rate_limit_stats(self) -> dict[str, Any]:
         """Return current rate limiter state and lifetime counters."""
@@ -613,7 +641,19 @@ class ModelRouter:
 
     async def close(self) -> None:
         """Close provider subprocesses and the cache connection."""
-        try:
-            await self._subscription.close()
-        finally:
-            await self._cache.close()
+        await self._cancel_llamacpp_idle_unload()
+        if self._llamacpp is not None:
+            self._llamacpp.unload()
+            self._llamacpp = None
+
+        closers = [
+            self._subscription.close(),
+            self._cache.close(),
+            self._ollama.close(),
+        ]
+        if self._cloud is not None:
+            closers.append(self._cloud.close())
+        results = await asyncio.gather(*closers, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("Model provider shutdown failed: %s", result)
