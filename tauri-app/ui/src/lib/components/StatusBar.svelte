@@ -4,7 +4,7 @@
   import { onMount } from "svelte";
   type DashboardStatus = {
     connected: boolean;
-    agents: number;
+    agents: number | null;
     cpu: string;
     memory: string;
     network_up: string;
@@ -12,7 +12,7 @@
   };
   let status: DashboardStatus = {
     connected: false,
-    agents: 0,
+    agents: null,
     cpu: "0%",
     memory: "0%",
     network_up: "0 KB/s",
@@ -48,7 +48,7 @@
       <div class="status-item">
         <span class="label"> Agents </span>
         <div class="badge active">
-          +{status.agents} Active
+          {status.agents == null ? "Unavailable" : `+${status.agents} Active`}
         </div>
       </div>
       <div class="status-item">

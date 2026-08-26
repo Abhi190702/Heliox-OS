@@ -25,11 +25,17 @@
     message: string;
   };
   let agents: Agent[] = [];
+  let unavailable = false;
   async function loadAgents() {
     try {
       const res = await invoke("get_agent_activity");
-      if (Array.isArray(res)) agents = res;
+      if (Array.isArray(res)) {
+        agents = res;
+        unavailable = false;
+      }
     } catch (err) {
+      agents = [];
+      unavailable = true;
       console.error("Agent activity failed", err);
     }
   }
@@ -45,6 +51,9 @@
     <h3>⚡ AGENT ACTIVITY</h3>
     <button class="pin-btn" class:pinned on:click={togglePin}> 📌 </button>
   </div>
+  {#if unavailable}
+    <p class="unavailable">Agent activity requires a connected daemon.</p>
+  {/if}
   {#each agents as agent}
     <div class="agent">
       <div class="left">
@@ -77,6 +86,10 @@
     color: #8b5cf6;
     font-size: 14px;
     margin-bottom: 20px;
+  }
+  .unavailable {
+    color: #f6ad55;
+    font-size: 13px;
   }
   .pin-btn {
     width: 34px;

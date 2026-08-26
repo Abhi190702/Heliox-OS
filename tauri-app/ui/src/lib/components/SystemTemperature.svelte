@@ -28,8 +28,9 @@
     cpu_threads: 0,
     fan_speed: 0,
     power_draw: 0,
-    thermal_status: "Optimal",
+    thermal_status: "Unavailable",
   };
+  let sensorsAvailable = false;
   function togglePin() {
     pinnedWidgets.update((items) => {
       const exists = items.some((item) => item.title === "System Temperatures");
@@ -59,6 +60,7 @@
       const data = await invoke("get_temperature_stats");
       if (data && typeof data === "object") {
         temps = { ...temps, ...(data as Partial<Temps>) };
+        sensorsAvailable = Number.isFinite((data as Partial<Temps>).cpu);
       }
       if (typeof navigator !== "undefined" && "getBattery" in (navigator as any)) {
         try {
@@ -71,6 +73,7 @@
         }
       }
     } catch (err) {
+      sensorsAvailable = false;
       console.error("Temperature fetch failed:", err);
     }
   }
@@ -89,6 +92,9 @@
       <button class="pin-btn" class:pinned on:click={togglePin}>📌</button>
     </div>
   </div>
+  {#if !sensorsAvailable}
+    <p class="sensor-unavailable">Hardware sensor data is unavailable in this runtime.</p>
+  {/if}
   <!-- BODY -->
   <div class="body">
     <!-- LEFT -->
@@ -98,7 +104,7 @@
           <div class="top">
             <span>{label}</span>
             <p style={`color:${getColor(Number(value || 0))}`}>
-              {Number(value || 0).toFixed(0)}°C
+              {sensorsAvailable ? `${Number(value || 0).toFixed(0)}°C` : "--"}
             </p>
           </div>
           <div class="bar">
@@ -121,20 +127,20 @@
         <div class="stat-box">
           <span>🔋 Battery</span>
           <strong>
-            {temps.battery_percent || 0}%
+            {temps.battery_percent ? `${temps.battery_percent}%` : "--"}
           </strong>
         </div>
         <div class="stat-box">
           <span>🧠 CPU</span>
           <strong>
-            {Math.round(temps.cpu || 0)}%
+            {sensorsAvailable ? `${Math.round(temps.cpu || 0)}°C` : "--"}
           </strong>
         </div>
       </div>
       <div class="stat-box">
         <span>⚙ Threads</span>
         <strong>
-          {temps.cpu_threads || 8}
+          {temps.cpu_threads || "--"}
         </strong>
       </div>
     </div>
@@ -148,7 +154,7 @@
     `}
       >
         <div class="inner">
-          <h1>{Number(temps.cpu || 0).toFixed(0)}°</h1>
+          <h1>{sensorsAvailable ? `${Number(temps.cpu || 0).toFixed(0)}°` : "--"}</h1>
           <span>C</span>
         </div>
       </div>
@@ -178,6 +184,11 @@
     font-size: 15px;
     font-weight: 700;
     color: #ff5c8a;
+  }
+  .sensor-unavailable {
+    margin: -12px 0 16px;
+    color: #f6ad55;
+    font-size: 13px;
   }
   .pin-btn {
     width: 42px;

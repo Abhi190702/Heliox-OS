@@ -40,20 +40,30 @@
   let totalRam = 0;
   let diskSize = 0;
   let networkDown = 0;
-  let cpuHistory = [20, 30, 25, 40, 35, 45];
-  let ramHistory = [50, 55, 58, 60, 62, 65];
-  let diskHistory = [30, 32, 35, 36, 38, 40];
-  let networkHistory = [10, 12, 15, 18, 20, 22];
+  let cpuHistory = Array(6).fill(0);
+  let ramHistory = Array(6).fill(0);
+  let diskHistory = Array(6).fill(0);
+  let networkHistory = Array(6).fill(0);
+  let statsAvailable = false;
   async function loadStats() {
     try {
       const stats: Stats = await invoke("get_system_stats");
-      if (!stats || typeof stats !== "object" || typeof stats?.cpu !== "number") return;
-      console.log(stats);
+      if (
+        !stats ||
+        typeof stats !== "object" ||
+        !Number.isFinite(stats.cpu) ||
+        !Number.isFinite(stats.ram) ||
+        !Number.isFinite(stats.disk)
+      ) {
+        statsAvailable = false;
+        return;
+      }
+      statsAvailable = true;
       cpu = Number(stats.cpu.toFixed(1));
       ram = Number(stats.ram.toFixed(1));
       disk = Number(stats.disk.toFixed(1));
-      networkUp = Number(stats.network_up.toFixed(0));
-      networkDown = Number(stats.network_down.toFixed(0));
+      networkUp = Number.isFinite(stats.network_up) ? Number(stats.network_up.toFixed(0)) : 0;
+      networkDown = Number.isFinite(stats.network_down) ? Number(stats.network_down.toFixed(0)) : 0;
       cpuName = stats.cpu_name;
       totalRam = stats.total_ram;
       diskSize = stats.disk_size;
@@ -63,6 +73,7 @@
       const networkValue = Math.min((networkUp + networkDown) / 2000, 100);
       networkHistory = [...networkHistory.slice(1), networkValue];
     } catch (error) {
+      statsAvailable = false;
       console.error("Failed to fetch system stats:", error);
     }
   }
@@ -133,7 +144,7 @@
     <!-- CPU -->
     <div class="box">
       <span>CPU</span>
-      <h2 class="green">{cpu}%</h2>
+      <h2 class="green">{statsAvailable ? `${cpu}%` : "--"}</h2>
       <div class="chart">
         <Line data={createChart(cpuHistory, "#00ff88")} {options} />
       </div>
@@ -141,7 +152,7 @@
     <!-- RAM -->
     <div class="box">
       <span>RAM</span>
-      <h2 class="purple">{ram}%</h2>
+      <h2 class="purple">{statsAvailable ? `${ram}%` : "--"}</h2>
       <div class="chart">
         <Line data={createChart(ramHistory, "#a855f7")} {options} />
       </div>
@@ -149,7 +160,7 @@
     <!-- DISK -->
     <div class="box">
       <span>DISK</span>
-      <h2 class="blue">{disk}%</h2>
+      <h2 class="blue">{statsAvailable ? `${disk}%` : "--"}</h2>
       <div class="chart">
         <Line data={createChart(diskHistory, "#3b82f6")} {options} />
       </div>
@@ -158,8 +169,8 @@
     <div class="box">
       <span>NETWORK</span>
       <div class="network">
-        <p>↑ {networkUp} KB/s</p>
-        <p>↓ {networkDown} KB/s</p>
+        <p>↑ {statsAvailable && networkUp ? `${networkUp} KB/s` : "Unavailable"}</p>
+        <p>↓ {statsAvailable && networkDown ? `${networkDown} KB/s` : "Unavailable"}</p>
       </div>
       <div class="chart">
         <Line data={createChart(networkHistory, "#06b6d4")} {options} />
@@ -168,7 +179,7 @@
   </div>
   <!-- Footer -->
   <div class="footer">
-    {cpuName} • {totalRam}GB RAM • {diskSize}GB SSD
+    {statsAvailable ? `${cpuName} • ${totalRam}GB RAM • ${diskSize.toFixed(0)}GB disk` : "Telemetry unavailable"}
   </div>
 </div>
 

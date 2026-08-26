@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import { invoke } from "../api/invoke";
   let logs: string[] = [];
+  let unavailable = false;
   async function loadLogs() {
     if (typeof localStorage !== "undefined" && localStorage.getItem("heliox_terminal_logs") === "cleared") {
       logs = ["[System] All terminal logs cleared cleanly."];
@@ -10,8 +11,13 @@
     }
     try {
       const res = await invoke("get_terminal_logs");
-      if (Array.isArray(res)) logs = res;
+      if (Array.isArray(res)) {
+        logs = res;
+        unavailable = false;
+      }
     } catch (error) {
+      logs = [];
+      unavailable = true;
       console.error("Failed to fetch terminal logs:", error);
     }
   }
@@ -25,6 +31,11 @@
 <div class="terminal-card">
   <WidgetCard title="Terminal Tail" color="#8b5cf6">
     <div class="terminal-content">
+      {#if unavailable}
+        <p class="warn">Terminal logs are unavailable in this runtime.</p>
+      {:else if logs.length === 0}
+        <p>No recorded terminal logs.</p>
+      {/if}
       {#each logs as log}
         <p
           class:info={log.includes("[INFO]")}

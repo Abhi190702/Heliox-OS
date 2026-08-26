@@ -14,16 +14,23 @@
   let ramHistory: number[] = $state(Array(20).fill(0));
   let intervalId: any;
   let mounted = $state(false);
+  let statsAvailable = $state(false);
 
   async function loadStats() {
     try {
       const stats: Stats = await invoke("get_system_stats");
+      if (!Number.isFinite(stats.cpu) || !Number.isFinite(stats.ram)) {
+        statsAvailable = false;
+        return;
+      }
       cpu = stats.cpu;
       ram = stats.ram;
+      statsAvailable = true;
 
       cpuHistory = [...cpuHistory.slice(1), cpu];
       ramHistory = [...ramHistory.slice(1), ram];
     } catch (e) {
+      statsAvailable = false;
       console.error("Failed to load mini stats", e);
     }
   }
@@ -71,7 +78,7 @@
     <div class="stat-group cpu-group">
       <div class="stat-info">
         <span class="label">CPU</span>
-        <span class="value">{cpu.toFixed(0).padStart(2, "0")}%</span>
+        <span class="value">{statsAvailable ? `${cpu.toFixed(0).padStart(2, "0")}%` : "--"}</span>
       </div>
       <div class="chart-wrapper">
         <svg width="45" height="14" viewBox="0 0 45 14" class="sparkline">
@@ -105,7 +112,7 @@
     <div class="stat-group ram-group">
       <div class="stat-info">
         <span class="label">RAM</span>
-        <span class="value">{ram.toFixed(0).padStart(2, "0")}%</span>
+        <span class="value">{statsAvailable ? `${ram.toFixed(0).padStart(2, "0")}%` : "--"}</span>
       </div>
       <div class="chart-wrapper">
         <svg width="45" height="14" viewBox="0 0 45 14" class="sparkline">

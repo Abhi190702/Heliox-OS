@@ -9,6 +9,7 @@ import {
   existsSync,
   createReadStream,
   readFileSync,
+  statfsSync,
   writeFileSync,
 } from "node:fs";
 import { join, basename, dirname } from "node:path";
@@ -157,6 +158,35 @@ function mediapipeTasksVisionAssets(): Plugin {
 
 function daemonTokenDevPlugin(): Plugin {
   let lastCpus = os.cpus();
+  const sendJson = (res: any, status: number, payload: unknown) => {
+    res.statusCode = status;
+    res.end(JSON.stringify(payload));
+  };
+  const unavailable = (res: any, command: string, reason: string) => {
+    sendJson(res, 501, { error: `${command} is unavailable in browser development: ${reason}` });
+  };
+  const filesystemUsage = () => {
+    const stats = statfsSync(CONFIG_DIR);
+    const total = Number(stats.blocks) * stats.bsize;
+    const free = Number(stats.bfree) * stats.bsize;
+    return { total, used: Math.max(0, total - free) };
+  };
+  const cpuPercent = () => {
+    const currentCpus = os.cpus();
+    let totalDiff = 0;
+    let idleDiff = 0;
+    for (let i = 0; i < currentCpus.length; i++) {
+      const current = currentCpus[i];
+      const previous = lastCpus[i] || current;
+      for (const type in current.times) {
+        totalDiff +=
+          current.times[type as keyof typeof current.times] - previous.times[type as keyof typeof previous.times];
+      }
+      idleDiff += current.times.idle - previous.times.idle;
+    }
+    lastCpus = currentCpus;
+    return totalDiff > 0 ? Math.max(0, Math.min(100, Math.round(100 - (idleDiff / totalDiff) * 100))) : null;
+  };
   return {
     name: "daemon-token-dev",
     configureServer(server) {
@@ -211,69 +241,28 @@ function daemonTokenDevPlugin(): Plugin {
 
             if (command === "get_system_stats") {
               const currentCpus = os.cpus();
-              let totalDiff = 0;
-              let idleDiff = 0;
-              for (let i = 0; i < currentCpus.length; i++) {
-                const c = currentCpus[i];
-                const l = lastCpus[i] || c;
-                for (const type in c.times) {
-                  totalDiff += c.times[type as keyof typeof c.times] - l.times[type as keyof typeof l.times];
-                }
-                idleDiff += c.times.idle - l.times.idle;
-              }
-              lastCpus = currentCpus;
-              const cpu =
-                totalDiff > 0 ? Math.max(1, Math.min(100, Math.round(100 - (idleDiff / totalDiff) * 100))) : 15;
               const totalRam = os.totalmem();
               const freeRam = os.freemem();
               const ram = Math.round(((totalRam - freeRam) / totalRam) * 100);
               const total_ram = Math.round(totalRam / (1024 * 1024 * 1024));
               const cpu_name = currentCpus[0]?.model?.split(" @")[0]?.trim() || "Local CPU";
+              const filesystem = filesystemUsage();
 
-              res.end(
-                JSON.stringify({
-                  cpu,
-                  ram,
-                  disk: 35,
-                  network_up: 140,
-                  network_down: 520,
-                  cpu_name,
-                  total_ram,
-                  disk_size: 512,
-                }),
-              );
+              sendJson(res, 200, {
+                cpu: cpuPercent(),
+                ram,
+                disk: filesystem.total > 0 ? (filesystem.used / filesystem.total) * 100 : null,
+                network_up: null,
+                network_down: null,
+                cpu_name,
+                total_ram,
+                disk_size: filesystem.total / 1024 ** 3,
+              });
               return;
             }
 
             if (command === "get_temperature_stats") {
-              const currentCpus = os.cpus();
-              let liveBatteryPercent = 95;
-              if (process.platform === "win32") {
-                try {
-                  const out = execSync(
-                    `powershell -NoProfile -Command "(Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue).EstimatedChargeRemaining"`,
-                    { timeout: 1500, encoding: "utf-8" },
-                  ).trim();
-                  const parsed = parseInt(out, 10);
-                  if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) liveBatteryPercent = parsed;
-                } catch (e) {
-                  // ignore
-                }
-              }
-              res.end(
-                JSON.stringify({
-                  cpu: 44,
-                  gpu: 40,
-                  motherboard: 36,
-                  ssd: 34,
-                  vrm: 33,
-                  battery: 29,
-                  power: 52,
-                  cpu_name: currentCpus[0]?.model?.split(" @")[0]?.trim() || "Local CPU",
-                  cpu_threads: currentCpus.length || 8,
-                  battery_percent: liveBatteryPercent,
-                }),
-              );
+              unavailable(res, command, "the web runtime has no trusted hardware-sensor bridge");
               return;
             }
 
@@ -287,13 +276,7 @@ function daemonTokenDevPlugin(): Plugin {
 
             if (command === "get_terminal_logs") {
               const logFile = join(CONFIG_DIR, "system.log");
-              let logs = [
-                "[System] Heliox OS Agent Daemon Connected",
-                `[Monitor] Host: ${os.hostname()} (${os.platform()})`,
-                "[Core] ReAct Loop active on ws://127.0.0.1:8785",
-                "[System] Threat Containment Bridge initialized",
-                "[Cognitive] Cognitive HUD active",
-              ];
+              let logs: string[] = [];
               if (existsSync(logFile)) {
                 try {
                   const diskLogs = readFileSync(logFile, "utf-8").split("\n").filter(Boolean).slice(-30);
@@ -328,11 +311,7 @@ function daemonTokenDevPlugin(): Plugin {
             }
 
             if (command === "restart_agents") {
-              res.end(
-                JSON.stringify(
-                  "All 4 neural background agents (System, Code, Web, Monitor) restarted & synchronized (`ws://127.0.0.1:8785`).",
-                ),
-              );
+              unavailable(res, command, "no browser-side agent supervisor is configured");
               return;
             }
 
@@ -340,54 +319,19 @@ function daemonTokenDevPlugin(): Plugin {
               const totalMem = os.totalmem();
               const freeMem = os.freemem();
               const usedMem = totalMem - freeMem;
-              let diskUsedBytes = 771.8 * 1024 ** 3;
-              let diskTotalBytes = 952.6 * 1024 ** 3;
-              try {
-                const psOut = execSync(
-                  'powershell -NoProfile -Command "Get-CimInstance Win32_LogicalDisk -Filter \\"DeviceID=\'C:\'\\" | Select-Object -Property Size,FreeSpace | ConvertTo-Json -Compress"',
-                  { timeout: 2000, encoding: "utf-8" },
-                ).trim();
-                const diskJson = JSON.parse(psOut);
-                if (diskJson && diskJson.Size) {
-                  diskTotalBytes = Number(diskJson.Size);
-                  diskUsedBytes = diskTotalBytes - Number(diskJson.FreeSpace || 0);
-                }
-              } catch (e) {}
-              const cpus = os.cpus();
-              let cpuPercent = 15;
-              try {
-                let totalIdle = 0,
-                  totalTick = 0;
-                cpus.forEach((c) => {
-                  for (let type in c.times) totalTick += (c.times as any)[type];
-                  totalIdle += c.times.idle;
-                });
-                cpuPercent = Math.round((1 - totalIdle / totalTick) * 100);
-              } catch (e) {}
+              const filesystem = filesystemUsage();
 
-              res.end(
-                JSON.stringify({
-                  cpu_percent: cpuPercent,
-                  memory_percent: Math.round((usedMem / totalMem) * 100),
-                  memory_used: usedMem,
-                  memory_total: totalMem,
-                  disk_percent: Math.round((diskUsedBytes / diskTotalBytes) * 100),
-                  disk_used: diskUsedBytes,
-                  disk_total: diskTotalBytes,
-                  hostname: os.hostname(),
-                  uptime_seconds: os.uptime(),
-                }),
-              );
-              return;
-            }
-
-            if (command === "get_uptime") {
-              const upSec = Math.round(os.uptime());
-              const days = Math.floor(upSec / 86400);
-              const hrs = Math.floor((upSec % 86400) / 3600);
-              const mins = Math.floor((upSec % 3600) / 60);
-              const formatted = days > 0 ? `${days}d ${hrs}h ${mins}m` : `${hrs}h ${mins}m`;
-              res.end(JSON.stringify(formatted));
+              sendJson(res, 200, {
+                cpu_percent: cpuPercent(),
+                memory_percent: Math.round((usedMem / totalMem) * 100),
+                memory_used: usedMem,
+                memory_total: totalMem,
+                disk_percent: filesystem.total > 0 ? Math.round((filesystem.used / filesystem.total) * 100) : null,
+                disk_used: filesystem.used,
+                disk_total: filesystem.total,
+                hostname: os.hostname(),
+                uptime_seconds: os.uptime(),
+              });
               return;
             }
 
@@ -398,7 +342,7 @@ function daemonTokenDevPlugin(): Plugin {
               const cpus = os.cpus();
               res.end(
                 JSON.stringify({
-                  status: "Healthy (0 threats / anomalies detected)",
+                  scan_scope: "Resource telemetry only; no malware or threat scan was performed",
                   host_os: `${os.type()} ${os.release()} (${os.arch()})`,
                   cpu_processor: cpus[0]?.model?.trim() || "Local CPU",
                   active_threads: cpus.length,
@@ -415,24 +359,17 @@ function daemonTokenDevPlugin(): Plugin {
                 const psCmd = `Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $bmp = New-Object System.Drawing.Bitmap([System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width, [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height); $g = [System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen(0,0,0,0,$bmp.Size); $bmp.Save('${shotPath.replace(/\\/g, "\\\\")}'); $g.Dispose(); $bmp.Dispose();`;
                 execSync(`powershell -NoProfile -Command "${psCmd}"`, { timeout: 4000 });
               } catch (e) {
-                try {
-                  writeFileSync(shotPath, "Heliox OS Screenshot Capture Record");
-                } catch (e2) {}
+                sendJson(res, 500, {
+                  error: `Screenshot capture failed: ${e instanceof Error ? e.message : String(e)}`,
+                });
+                return;
               }
               res.end(JSON.stringify(shotPath));
               return;
             }
 
             if (command === "get_agent_activity") {
-              res.end(
-                JSON.stringify([
-                  { name: "System Agent", status: "Active", message: "Monitoring system health" },
-                  { name: "Code Agent", status: "Idle", message: "Waiting for a coding task" },
-                  { name: "Web Agent", status: "Idle", message: "Waiting for a browser task" },
-                  { name: "Monitor Agent", status: "Active", message: "Watching resource usage" },
-                  { name: "Communication Agent", status: "Idle", message: "Ready" },
-                ]),
-              );
+              unavailable(res, command, "agent activity must come from the running daemon");
               return;
             }
 
@@ -472,22 +409,8 @@ function daemonTokenDevPlugin(): Plugin {
                       }
                     });
                 } catch (e) {}
-
-                if (feedItems.length === 1) {
-                  feedItems.push({
-                    title: `Cognitive Engine & Threat Containment Bridge Live`,
-                    url: "https://github.com/VyomKulshrestha/Heliox-OS",
-                    source: "System Feature",
-                  });
-                }
               } catch (e) {
-                feedItems = [
-                  {
-                    title: `Heliox OS v${UI_VERSION} Active - JARVIS Core Running`,
-                    url: "https://github.com/VyomKulshrestha/Heliox-OS",
-                    source: "System",
-                  },
-                ];
+                feedItems = [];
               }
               res.end(JSON.stringify(feedItems));
               return;
@@ -495,7 +418,7 @@ function daemonTokenDevPlugin(): Plugin {
 
             if (command === "get_log_count") {
               const logFile = join(CONFIG_DIR, "system.log");
-              let count = 128;
+              let count = 0;
               if (existsSync(logFile)) {
                 try {
                   const lines = readFileSync(logFile, "utf-8").split("\n").filter(Boolean);
@@ -507,29 +430,26 @@ function daemonTokenDevPlugin(): Plugin {
             }
 
             if (command === "get_status_metrics") {
-              const totalRam = os.totalmem();
-              const ram = Math.round(((totalRam - os.freemem()) / totalRam) * 100);
-              res.end(JSON.stringify({ cpu: 15, ram, latency_ms: 8, agents_active: 5 }));
+              unavailable(res, command, "latency and active-agent counts require daemon telemetry");
               return;
             }
 
             if (command === "get_dashboard_status") {
               const totalRam = os.totalmem();
               const ram = Math.round(((totalRam - os.freemem()) / totalRam) * 100);
-              res.end(
-                JSON.stringify({
-                  connected: true,
-                  agents: 5,
-                  cpu: `15%`,
-                  memory: `${ram}%`,
-                  network_up: "140 KB/s",
-                  network_down: "520 KB/s",
-                }),
-              );
+              const cpu = cpuPercent();
+              sendJson(res, 200, {
+                connected: false,
+                agents: null,
+                cpu: cpu == null ? "Unavailable" : `${cpu}%`,
+                memory: `${ram}%`,
+                network_up: "Unavailable",
+                network_down: "Unavailable",
+              });
               return;
             }
 
-            res.end(JSON.stringify({}));
+            unavailable(res, command || "Unknown command", "no development implementation is registered");
           });
           return;
         }

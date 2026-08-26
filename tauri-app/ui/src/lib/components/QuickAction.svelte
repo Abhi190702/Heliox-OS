@@ -69,7 +69,7 @@
           break;
         case "Restart Agents":
           const restartRes = await invoke("restart_agents");
-          alert(`Agent Status:\n${restartRes || "All background agents restarted & synchronized successfully."}`);
+          alert(`Agent Status:\n${restartRes}`);
           break;
         case "System Scan":
           const stats: any = await invoke("system_scan");
@@ -84,9 +84,7 @@
           break;
         case "Take Screenshot":
           const shotPath = await invoke("take_screenshot");
-          alert(
-            `Screenshot Saved Successfully!\n\nFile Location:\n${shotPath || "c:\\Users\\marcu\\Videos\\cursor-os\\pilot\\tauri-app\\screenshot.png"}`,
-          );
+          alert(`Screenshot Saved Successfully!\n\nFile Location:\n${shotPath}`);
           break;
         case "Voice Command":
           if (typeof window !== "undefined" && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
@@ -102,7 +100,7 @@
               clearMessage = "";
             }, 4000);
           } else {
-            alert("Voice Command: Microphone listening active on Heliox OS core channel.");
+            throw new Error("Speech recognition is unavailable in this runtime.");
           }
           break;
       }
