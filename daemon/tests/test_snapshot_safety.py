@@ -1,3 +1,5 @@
+import os
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -111,7 +113,9 @@ async def test_windows_snapshot_status_requires_administrator(monkeypatch):
     assert status["available"] is True
     assert status["ready"] is False
     assert "not Administrator" in status["detail"]
-    assert status["retention_supported"] is False
+    assert status["retention_supported"] is True
+    assert status["system_retention_supported"] is False
+    assert "local file snapshots" in status["retention_detail"]
     assert "Windows manages Restore Point retention" in status["retention_detail"]
 
 
@@ -133,6 +137,7 @@ async def test_snapshot_creation_enforces_retention_for_supported_backend():
 async def test_cleanup_keeps_newest_pilot_snapshots(monkeypatch):
     config = PilotConfig()
     config.security.snapshot_retention_count = 2
+    config.security.snapshot_retention_days = 3650
     manager = SnapshotManager(config)
     manager._backend = SnapshotBackend.BTRFS
     manager.list_snapshots = AsyncMock(
@@ -153,6 +158,61 @@ async def test_cleanup_keeps_newest_pilot_snapshots(monkeypatch):
         ["btrfs", "subvolume", "delete", "/.snapshots/old"],
         root=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_removes_pilot_snapshots_older_than_day_limit(monkeypatch):
+    config = PilotConfig()
+    config.security.snapshot_retention_count = 10
+    config.security.snapshot_retention_days = 7
+    manager = SnapshotManager(config)
+    manager._backend = SnapshotBackend.BTRFS
+    recent = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    expired = (datetime.now(UTC) - timedelta(days=8)).strftime("%Y%m%d-%H%M%S")
+    manager.list_snapshots = AsyncMock(
+        return_value=[
+            {"id": "/.snapshots/recent", "tag": f"pilot-a-{recent}"},
+            {"id": "/.snapshots/expired", "tag": f"pilot-b-{expired}"},
+        ]
+    )
+    run = AsyncMock(return_value=(0, "", ""))
+    monkeypatch.setattr("pilot.system.snapshots._run", run)
+
+    removed = await manager.cleanup()
+
+    assert removed == 1
+    run.assert_awaited_once_with(
+        ["btrfs", "subvolume", "delete", "/.snapshots/expired"],
+        root=True,
+    )
+
+
+def test_file_snapshot_cleanup_enforces_count_and_age(tmp_path):
+    config = PilotConfig()
+    config.security.snapshot_retention_count = 2
+    config.security.snapshot_retention_days = 7
+    snapshot_dir = tmp_path / "file-snapshots"
+    snapshot_dir.mkdir()
+    recent = snapshot_dir / "recent"
+    second = snapshot_dir / "second"
+    over_count = snapshot_dir / "over-count"
+    expired = snapshot_dir / "expired"
+    for path in (recent, second, over_count, expired):
+        path.mkdir()
+    now = datetime.now(UTC).timestamp()
+    os.utime(recent, (now, now))
+    os.utime(second, (now - 60, now - 60))
+    os.utime(over_count, (now - 120, now - 120))
+    old = now - timedelta(days=8).total_seconds()
+    os.utime(expired, (old, old))
+    manager = SnapshotManager(config, file_snapshot_dir=snapshot_dir)
+
+    manager._cleanup_file_snapshots()
+
+    assert recent.exists()
+    assert second.exists()
+    assert not over_count.exists()
+    assert not expired.exists()
 
 
 @pytest.mark.asyncio

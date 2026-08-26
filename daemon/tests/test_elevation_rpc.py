@@ -55,3 +55,22 @@ async def test_snapshot_retention_update_rejects_out_of_range_value():
     assert result["status"] == "error"
     assert config.security.snapshot_retention_count == 10
     config.save.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_snapshot_retention_days_update_rejects_out_of_range_value():
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+
+    result = await server._handle_update_config(
+        {
+            "section": "security",
+            "values": {"snapshot_retention_days": 0},
+        },
+        MagicMock(),
+    )
+
+    assert result["status"] == "error"
+    assert config.security.snapshot_retention_days == 7
+    config.save.assert_not_called()

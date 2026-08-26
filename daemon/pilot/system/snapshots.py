@@ -12,7 +12,7 @@ import logging
 import re
 import shutil
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -45,6 +45,16 @@ def _snapshot_sort_key(snapshot: dict[str, str]) -> tuple[str, int]:
     snapshot_id = snapshot.get("id", "")
     numeric_id = snapshot_id.removeprefix("windows-restore:")
     return timestamp, int(numeric_id) if numeric_id.isdigit() else 0
+
+
+def _snapshot_created_at(snapshot: dict[str, str]) -> datetime | None:
+    timestamp_match = _PILOT_TIMESTAMP.search(snapshot.get("tag", ""))
+    if timestamp_match is None:
+        return None
+    try:
+        return datetime.strptime(timestamp_match.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=UTC)
+    except ValueError:
+        return None
 
 
 async def _run(args: list[str], *, root: bool = False) -> tuple[int, str, str]:
@@ -277,14 +287,17 @@ class SnapshotManager:
             shutil.rmtree(path)
 
     def _cleanup_file_snapshots(self) -> None:
-        retention = max(1, self._config.security.snapshot_retention_count)
+        retention_count = max(1, self._config.security.snapshot_retention_count)
+        retention_days = max(1, self._config.security.snapshot_retention_days)
+        cutoff_timestamp = (datetime.now(UTC) - timedelta(days=retention_days)).timestamp()
         snapshots = sorted(
             (path for path in self._file_snapshot_dir.iterdir() if path.is_dir()),
             key=lambda path: path.stat().st_mtime,
             reverse=True,
         )
-        for snapshot in snapshots[retention:]:
-            shutil.rmtree(snapshot, ignore_errors=True)
+        for index, snapshot in enumerate(snapshots):
+            if index >= retention_count or snapshot.stat().st_mtime < cutoff_timestamp:
+                shutil.rmtree(snapshot, ignore_errors=True)
 
     async def list_snapshots(self) -> list[dict[str, str]]:
         """List available Pilot snapshots."""
@@ -304,7 +317,7 @@ class SnapshotManager:
         enabled = self._config.security.snapshot_on_destructive
         available = backend != SnapshotBackend.NONE
         ready = available
-        retention_supported = backend in {SnapshotBackend.BTRFS, SnapshotBackend.TIMESHIFT}
+        system_retention_supported = backend in {SnapshotBackend.BTRFS, SnapshotBackend.TIMESHIFT}
 
         if backend == SnapshotBackend.WINDOWS_RESTORE_POINT:
             from pilot.security.privileges import has_elevated_privileges
@@ -332,20 +345,22 @@ class SnapshotManager:
             "available": available,
             "ready": ready,
             "detail": detail,
-            "retention_supported": retention_supported,
+            "retention_supported": True,
+            "system_retention_supported": system_retention_supported,
             "retention_count": self._config.security.snapshot_retention_count,
+            "retention_days": self._config.security.snapshot_retention_days,
             "file_snapshot_available": True,
             "file_snapshot_detail": (
                 "File-only destructive workflows use local content snapshots and do not require Administrator access."
             ),
             "retention_detail": (
-                "Heliox enforces this limit after each Btrfs or Timeshift snapshot."
-                if retention_supported
+                "Heliox enforces count and age limits for both system and local file snapshots."
+                if system_retention_supported
                 else (
-                    "Windows manages Restore Point retention; its supported APIs do not expose "
-                    "individual restore-point deletion, so Heliox cannot enforce an exact count."
+                    "Heliox enforces count and age limits for local file snapshots. Windows manages "
+                    "Restore Point retention because its supported APIs do not expose individual deletion."
                     if backend == SnapshotBackend.WINDOWS_RESTORE_POINT
-                    else "A retention limit requires a supported snapshot backend."
+                    else "Heliox enforces count and age limits for local file snapshots."
                 )
             ),
         }
@@ -356,15 +371,19 @@ class SnapshotManager:
         if backend not in {SnapshotBackend.BTRFS, SnapshotBackend.TIMESHIFT}:
             return 0
 
-        retention = max(1, self._config.security.snapshot_retention_count)
+        retention_count = max(1, self._config.security.snapshot_retention_count)
+        retention_days = max(1, self._config.security.snapshot_retention_days)
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
         snapshots = await self.list_snapshots()
         pilot_snapshots = [s for s in snapshots if s.get("tag", "").startswith("pilot-")]
         pilot_snapshots.sort(key=_snapshot_sort_key, reverse=True)
 
-        if len(pilot_snapshots) <= retention:
-            return 0
-
-        to_remove = pilot_snapshots[retention:]
+        to_remove = [
+            snapshot
+            for index, snapshot in enumerate(pilot_snapshots)
+            if index >= retention_count
+            or ((created_at := _snapshot_created_at(snapshot)) is not None and created_at < cutoff)
+        ]
         removed = 0
         for snap in to_remove:
             try:

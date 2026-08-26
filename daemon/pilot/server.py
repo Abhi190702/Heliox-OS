@@ -4850,6 +4850,12 @@ class PilotServer:
                             "status": "error",
                             "message": "security.snapshot_retention_count must be from 1 to 100",
                         }
+                if section == "security" and k == "snapshot_retention_days":
+                    if not isinstance(v, int) or isinstance(v, bool) or not 1 <= v <= 3650:
+                        return {
+                            "status": "error",
+                            "message": "security.snapshot_retention_days must be from 1 to 3650",
+                        }
                 if section == "preview" and k == "enabled" and not isinstance(v, bool):
                     return {"status": "error", "message": "preview.enabled must be a boolean"}
                 if section == "preview" and k == "confirm_timeout_seconds":
