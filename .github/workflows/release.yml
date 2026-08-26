@@ -361,8 +361,14 @@ jobs:
             -f name="Heliox OS ${RELEASE_TAG}" \
             -F draft=false \
             -F prerelease=false \
+            -f make_latest=true \
             --raw-field body="$release_notes" > /dev/null
 
           published="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}")"
           jq -e '.draft == false and .prerelease == false' <<<"$published" > /dev/null
+          latest_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name')"
+          if [[ "$latest_tag" != "$RELEASE_TAG" ]]; then
+            echo "::error::Published ${RELEASE_TAG}, but GitHub still reports ${latest_tag} as latest."
+            exit 1
+          fi
           echo "Published ${RELEASE_TAG} with $(jq '.assets | length' <<<"$published") assets."
