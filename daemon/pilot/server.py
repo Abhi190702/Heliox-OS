@@ -4506,7 +4506,8 @@ class PilotServer:
         """
         from dataclasses import asdict
 
-        from pilot.security.gateway import SourceProfile
+        from pilot.actions import ActionType, PermissionTier
+        from pilot.security.gateway import ActionFamily, SourceProfile
 
         profile_name = params.get("profile", "")
         current = self.config.gateway.source_profiles.get(profile_name)
@@ -4517,17 +4518,39 @@ class PilotServer:
         raw_deny = params.get("deny_action_types")
         raw_allow_root = params.get("allow_root")
 
+        if raw_max_tier is not None:
+            if not isinstance(raw_max_tier, dict):
+                return {"status": "error", "message": "max_tier must be an object"}
+            valid_families = {family.value for family in ActionFamily}
+            for family, tier in raw_max_tier.items():
+                if family not in valid_families:
+                    return {"status": "error", "message": f"Unknown action family: {family}"}
+                if type(tier) is not int or not 0 <= tier <= int(PermissionTier.ROOT_CRITICAL):
+                    return {
+                        "status": "error",
+                        "message": f"Tier for {family} must be an integer from 0 to 4",
+                    }
+        if raw_deny is not None:
+            if not isinstance(raw_deny, list) or any(not isinstance(action, str) for action in raw_deny):
+                return {"status": "error", "message": "deny_action_types must be an array of action names"}
+            valid_actions = {action.value for action in ActionType}
+            unknown_actions = [action for action in raw_deny if action not in valid_actions]
+            if unknown_actions:
+                return {"status": "error", "message": f"Unknown denied action type: {unknown_actions[0]}"}
+        if raw_allow_root is not None and type(raw_allow_root) is not bool:
+            return {"status": "error", "message": "allow_root must be a boolean"}
+
         # Merge onto the existing floor rather than replacing it wholesale —
         # a caller updating only "shell" shouldn't silently reset every
         # other family back to unset/zero.
         merged_max_tier = dict(current.max_tier)
         if raw_max_tier is not None:
-            merged_max_tier.update({str(k): int(v) for k, v in raw_max_tier.items()})
+            merged_max_tier.update(raw_max_tier)
 
         updated = SourceProfile(
             max_tier=merged_max_tier,
             deny_action_types=[str(a) for a in raw_deny] if raw_deny is not None else list(current.deny_action_types),
-            allow_root=bool(raw_allow_root) if raw_allow_root is not None else current.allow_root,
+            allow_root=raw_allow_root if raw_allow_root is not None else current.allow_root,
         )
         self.config.gateway.source_profiles[profile_name] = updated
         self.config.save()

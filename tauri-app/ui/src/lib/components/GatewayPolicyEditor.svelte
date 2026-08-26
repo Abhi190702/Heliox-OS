@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { call } from "../api/daemon";
+  import { call, requireOkResult, type DaemonStatusResult } from "../api/daemon";
 
   interface SourceProfile {
     max_tier: Record<string, number>;
@@ -34,16 +34,24 @@
   let loading = $state(true);
   let savingProfile = $state<string | null>(null);
   let savedProfile = $state<string | null>(null);
+  let error = $state("");
 
   onMount(loadPolicy);
 
   async function loadPolicy() {
     loading = true;
+    error = "";
     try {
-      const result = (await call("gateway_policy_get")) as { status: string; profiles: Record<string, SourceProfile> };
+      const result = requireOkResult(
+        (await call("gateway_policy_get")) as DaemonStatusResult & {
+          profiles: Record<string, SourceProfile>;
+        },
+        "The daemon did not return the gateway policy.",
+      );
       profiles = result.profiles ?? {};
-    } catch {
+    } catch (cause) {
       profiles = {};
+      error = cause instanceof Error ? cause.message : "Could not load the gateway policy.";
     } finally {
       loading = false;
     }
@@ -67,17 +75,23 @@
   async function saveProfile(name: string) {
     savingProfile = name;
     savedProfile = null;
+    error = "";
     try {
-      await call("gateway_policy_update", {
-        profile: name,
-        max_tier: profiles[name].max_tier,
-        deny_action_types: profiles[name].deny_action_types,
-        allow_root: profiles[name].allow_root,
-      });
+      requireOkResult(
+        (await call("gateway_policy_update", {
+          profile: name,
+          max_tier: profiles[name].max_tier,
+          deny_action_types: profiles[name].deny_action_types,
+          allow_root: profiles[name].allow_root,
+        })) as DaemonStatusResult,
+        "The daemon did not save the gateway policy.",
+      );
       savedProfile = name;
       setTimeout(() => {
         if (savedProfile === name) savedProfile = null;
       }, 2500);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : "Could not save the gateway policy.";
     } finally {
       savingProfile = null;
     }
@@ -99,6 +113,7 @@
   {#if loading}
     <div class="empty">Loading...</div>
   {:else}
+    {#if error}<div class="error" role="alert">{error}</div>{/if}
     <div class="profile-list">
       {#each orderedProfileNames() as name}
         {@const profile = profiles[name]}
@@ -192,6 +207,16 @@
     text-align: center;
     color: var(--text-muted);
     font-size: 13px;
+  }
+
+  .error {
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    color: var(--danger);
+    font-size: 11px;
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: var(--radius-sm);
   }
 
   .profile-list {

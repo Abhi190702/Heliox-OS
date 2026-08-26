@@ -124,6 +124,32 @@ class TestGatewayPolicyGetAndUpdate:
         assert isinstance(updated, SourceProfile)
         assert updated.max_tier["shell"] == 0
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("update", "message"),
+        [
+            ({"allow_root": "false"}, "allow_root must be a boolean"),
+            ({"max_tier": {"shell": "2"}}, "must be an integer"),
+            ({"max_tier": {"shell": 5}}, "must be an integer"),
+            ({"max_tier": {"unknown": 0}}, "Unknown action family"),
+            ({"deny_action_types": "shell_command"}, "must be an array"),
+            ({"deny_action_types": ["not_an_action"]}, "Unknown denied action type"),
+        ],
+    )
+    async def test_update_rejects_ambiguous_or_out_of_range_policy(self, monkeypatch, update, message):
+        server = PilotServer(PilotConfig())
+        monkeypatch.setattr(server.config, "save", lambda: None)
+        before = server.config.gateway.source_profiles["autonomous"]
+
+        result = await server._handle_gateway_policy_update(
+            {"profile": "autonomous", **update},
+            ws=None,
+        )
+
+        assert result["status"] == "error"
+        assert message in result["message"]
+        assert server.config.gateway.source_profiles["autonomous"] == before
+
 
 class TestRiskGateStatusAndUpdate:
     @pytest.mark.asyncio
