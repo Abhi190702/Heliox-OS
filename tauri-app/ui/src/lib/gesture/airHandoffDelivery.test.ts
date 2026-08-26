@@ -5,11 +5,7 @@ import { resolveAirHandoffDelivery } from "./airHandoffDelivery";
 describe("resolveAirHandoffDelivery", () => {
   it("reports an explicit receiver acknowledgement", () => {
     expect(
-      resolveAirHandoffDelivery(
-        "transfer-1",
-        [{ event: "acknowledged", transfer_id: "transfer-1", at: 10 }],
-        "Phone",
-      ),
+      resolveAirHandoffDelivery("transfer-1", [{ event: "acknowledged", transfer_id: "transfer-1", at: 10 }], "Phone"),
     ).toEqual({ awaitingTransferId: "", message: "Phone confirmed receipt" });
   });
 
