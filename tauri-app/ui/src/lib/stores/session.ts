@@ -267,6 +267,20 @@ function createSession() {
   let lastPersistedCost = Number.NaN;
   let lastPersistedDurableTask: DurableTaskReference | undefined;
   let resumeInFlight = false;
+  const pendingCompanionFollowUps = new Map<string, string>();
+
+  function flushPendingCompanionFollowUp() {
+    update((s) => {
+      const text = pendingCompanionFollowUps.get(s.activeSessionId);
+      if (!text) return s;
+      pendingCompanionFollowUps.delete(s.activeSessionId);
+      if (s.messages.at(-1)?.type === "assistant" && s.messages.at(-1)?.text === text) return s;
+      return {
+        ...s,
+        messages: [...s.messages, { type: "assistant" as MessageType, text, timestamp: Date.now() }],
+      };
+    });
+  }
 
   function persistActiveSession(state: SessionState, touch = true) {
     const index = chatSessions.findIndex((chat) => chat.id === state.activeSessionId);
@@ -400,6 +414,10 @@ function createSession() {
         update((s) => {
           if (sessionId && sessionId !== s.activeSessionId) return s;
           const text = `${message}\n\nPossible next steps:\n${suggestions.map((idea) => `- ${idea}`).join("\n")}`;
+          if (s.loading) {
+            pendingCompanionFollowUps.set(sessionId || s.activeSessionId, text);
+            return s;
+          }
           if (s.messages.at(-1)?.type === "assistant" && s.messages.at(-1)?.text === text) return s;
           return {
             ...s,
@@ -825,6 +843,7 @@ function createSession() {
         },
       ],
     }));
+    flushPendingCompanionFollowUp();
   }
 
   async function sendCommand(input: string, attachments: Attachment[] = []) {

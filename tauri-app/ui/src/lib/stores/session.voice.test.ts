@@ -170,4 +170,29 @@ describe("voice command session notifications", () => {
       text: "The system report is ready.\n\nPossible next steps:\n- Compare it with the app requirements\n- Save a baseline",
     });
   });
+
+  it("queues an early companion follow-up until the terminal result is rendered", async () => {
+    const { session } = await import("./session");
+
+    notificationHandler!("voice_command", { command: "show battery status" });
+    notificationHandler!("companion_follow_up", {
+      message: "The battery check is complete.",
+      suggestions: ["Compare the charge with your planned work time"],
+    });
+
+    expect(get(session).messages.at(-1)).toMatchObject({ type: "user", text: "show battery status" });
+
+    notificationHandler!("voice_result", {
+      command: "show battery status",
+      status: "success",
+      result: "Charge: 100%",
+    });
+
+    const state = get(session);
+    expect(state.messages.at(-2)).toMatchObject({ type: "result", text: "Charge: 100%" });
+    expect(state.messages.at(-1)).toMatchObject({
+      type: "assistant",
+      text: "The battery check is complete.\n\nPossible next steps:\n- Compare the charge with your planned work time",
+    });
+  });
 });
