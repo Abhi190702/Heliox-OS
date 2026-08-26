@@ -2307,6 +2307,13 @@ class Executor:
             self._browser_backend = PlaywrightBackend()
         return self._browser_backend
 
+    async def close(self) -> None:
+        """Release lazily-created executor resources without creating them."""
+        browser_backend = getattr(self, "_browser_backend", None)
+        if browser_backend is not None:
+            await browser_backend.close()
+            del self._browser_backend
+
     # ======================================================================
     # TIER 1: BROWSER AUTOMATION
     # ======================================================================

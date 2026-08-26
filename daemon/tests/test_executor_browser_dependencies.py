@@ -1,3 +1,8 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
 from pilot.actions import Action, ActionType, BrowserParams, EmptyParams
 from pilot.agents.executor import Executor
 from pilot.config import PilotConfig
@@ -49,3 +54,18 @@ def test_unrelated_read_only_system_actions_can_share_a_batch(tmp_path):
     batches = _executor(tmp_path)._analyze_dependencies(actions)
 
     assert batches == [actions]
+
+
+@pytest.mark.asyncio
+async def test_close_releases_only_an_existing_browser_backend(tmp_path):
+    executor = _executor(tmp_path)
+
+    await executor.close()
+    assert not hasattr(executor, "_browser_backend")
+
+    backend = SimpleNamespace(close=AsyncMock())
+    executor._browser_backend = backend
+    await executor.close()
+
+    backend.close.assert_awaited_once()
+    assert not hasattr(executor, "_browser_backend")

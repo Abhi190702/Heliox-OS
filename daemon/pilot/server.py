@@ -7991,6 +7991,8 @@ def handle_tool(tool_name, params):
             await self._screen_vision.stop()
             if hasattr(self._screen_vision, "close"):
                 await self._screen_vision.close()
+        if self._executor is not None:
+            await self._executor.close()
         if self._tts_warmup_task and not self._tts_warmup_task.done():
             self._tts_warmup_task.cancel()
             await asyncio.gather(self._tts_warmup_task, return_exceptions=True)
