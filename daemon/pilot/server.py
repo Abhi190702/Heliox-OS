@@ -616,6 +616,8 @@ class PilotServer:
         # ── Plan History Audit Log ──
         self._plan_history: PlanHistoryStore | None = None
         self._plan_history_tasks: set[asyncio.Task[None]] = set()
+        self._memory_record_tasks: set[asyncio.Task[Any]] = set()
+        self._reflection_tasks: set[asyncio.Task[Any]] = set()
         self._companion_follow_up_tasks: set[asyncio.Task[None]] = set()
         self._interaction_speech_tasks: set[asyncio.Task[SpeechOutcome]] = set()
         self._mcp_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
@@ -2579,7 +2581,7 @@ class PilotServer:
                     )
 
                 if self._memory:
-                    asyncio.create_task(_record_memory(plan, []))
+                    self._spawn_post_execution_task(_record_memory(plan, []), self._memory_record_tasks, "memory")
                 await ws.send(_notification("conversation_response", {"explanation": plan.explanation}))
                 await _emit_task_complete("success", plan.explanation)
                 return {
@@ -3209,10 +3211,10 @@ class PilotServer:
                         "memory_update", "Persisting interaction to long-term memory...", parent_id=mem_store_phase
                     )
 
-                asyncio.create_task(_record_memory(plan, results))
+                self._spawn_post_execution_task(_record_memory(plan, results), self._memory_record_tasks, "memory")
                 if self._checkpoint_store:
                     await self._checkpoint_store.mark_status(plan_id, "complete")
-                asyncio.create_task(
+                self._spawn_post_execution_task(
                     self._reflector.reflect(
                         user_input,
                         plan,
@@ -3220,7 +3222,9 @@ class PilotServer:
                         verification,
                         retry_count=attempt,
                         duration_ms=int((time.time() - _start_time) * 1000),
-                    )
+                    ),
+                    self._reflection_tasks,
+                    "reflection",
                 )
 
                 if emit:
@@ -3338,7 +3342,7 @@ class PilotServer:
             mem_final = await emit.phase_start("memory_update", MEMORY_STORE_STARTED)
             await emit.phase_complete("memory_update", MEMORY_STORE_COMPLETE, {"partial": True}, parent_id=mem_final)
 
-        asyncio.create_task(_record_memory(plan, all_results))
+        self._spawn_post_execution_task(_record_memory(plan, all_results), self._memory_record_tasks, "memory")
         if self._checkpoint_store and last_plan_id:
             await self._checkpoint_store.mark_status(last_plan_id, "failed")
 
@@ -3441,6 +3445,49 @@ class PilotServer:
         task: asyncio.Task[None] = asyncio.create_task(coro)
         self._plan_history_tasks.add(task)
         task.add_done_callback(self._plan_history_tasks.discard)
+
+    @staticmethod
+    def _spawn_post_execution_task(
+        coro: Any,
+        tasks: set[asyncio.Task[Any]],
+        label: str,
+    ) -> None:
+        """Track a post-result job and consume any background exception."""
+        task = asyncio.create_task(coro)
+        tasks.add(task)
+
+        def _finished(done: asyncio.Task[Any]) -> None:
+            tasks.discard(done)
+            if done.cancelled():
+                return
+            error = done.exception()
+            if error is not None:
+                logger.warning(
+                    "Post-execution %s task failed: %s",
+                    label,
+                    error,
+                    exc_info=(type(error), error, error.__traceback__),
+                )
+
+        task.add_done_callback(_finished)
+
+    async def _drain_post_execution_tasks(self) -> None:
+        """Finish durable memory writes and cancel optional reflection before shutdown."""
+        reflection_tasks = tuple(self._reflection_tasks)
+        for task in reflection_tasks:
+            task.cancel()
+        if reflection_tasks:
+            await asyncio.gather(*reflection_tasks, return_exceptions=True)
+
+        memory_tasks = tuple(self._memory_record_tasks)
+        if not memory_tasks:
+            return
+        _, pending = await asyncio.wait(memory_tasks, timeout=10)
+        if pending:
+            logger.warning("Cancelling %d memory write(s) that exceeded shutdown grace", len(pending))
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
 
     def _spawn_companion_follow_up(
         self,
@@ -7844,6 +7891,27 @@ def handle_tool(tool_name, params):
     async def stop(self) -> None:
         """Stop the Pilot daemon server and clean up all resources."""
         self._running = False
+        for pending in self._pending_confirms.values():
+            pending.event.set()
+        self._pending_confirms.clear()
+
+        active_execution = self._active_execution_task
+        if active_execution is not None and not active_execution.done():
+            active_execution.cancel()
+            await asyncio.gather(active_execution, return_exceptions=True)
+        self._active_execution_task = None
+
+        mcp_tasks = tuple(self._mcp_tasks.values())
+        for task in mcp_tasks:
+            task.cancel()
+        if mcp_tasks:
+            await asyncio.gather(*mcp_tasks, return_exceptions=True)
+        self._mcp_tasks.clear()
+
+        if self._server:
+            self._server.close()
+            await self._server.wait_closed()
+            self._server = None
         # ── Stop LAN mesh ──
         if self._mesh:
             self._set_collab_executor(None)
@@ -7855,8 +7923,6 @@ def handle_tool(tool_name, params):
         if self._orchestrator:
             await self._orchestrator.stop_all()
             await self._orchestrator.stop()
-        if hasattr(self, "_budget_tracker") and self._budget_tracker:
-            await self._budget_tracker.close()
         if self._background:
             self._background.stop_all()
         if hasattr(self, "_proactive") and self._proactive:
@@ -7874,15 +7940,21 @@ def handle_tool(tool_name, params):
         if self._tts_warmup_task and not self._tts_warmup_task.done():
             self._tts_warmup_task.cancel()
             await asyncio.gather(self._tts_warmup_task, return_exceptions=True)
-        await self._speech_coordinator.close()
+        if self._companion_follow_up_tasks:
+            follow_up_tasks = tuple(self._companion_follow_up_tasks)
+            for task in follow_up_tasks:
+                task.cancel()
+            await asyncio.gather(*follow_up_tasks, return_exceptions=True)
         if self._interaction_speech_tasks:
             speech_tasks = tuple(self._interaction_speech_tasks)
             for task in speech_tasks:
                 task.cancel()
             await asyncio.gather(*speech_tasks, return_exceptions=True)
+        await self._speech_coordinator.close()
         if hasattr(self, "_prompt_improver") and self._prompt_improver:
             if hasattr(self._prompt_improver, "close"):
                 await self._prompt_improver.close()
+        await self._drain_post_execution_tasks()
         if self._strategy_evolution is not None:
             await self._strategy_evolution.close()
             self._strategy_evolution = None
@@ -7892,14 +7964,6 @@ def handle_tool(tool_name, params):
         if hasattr(self, "_reflector") and self._reflector:
             if hasattr(self._reflector, "close"):
                 await self._reflector.close()
-        for pending in self._pending_confirms.values():
-            pending.event.set()
-        self._pending_confirms.clear()
-        if self._server:
-            self._server.close()
-            await self._server.wait_closed()
-        if self._reflector:
-            await self._reflector.close()
         if self._memory:
             await self._memory.close()
         if self._agent_mesh is not None:
@@ -7913,11 +7977,6 @@ def handle_tool(tool_name, params):
             self._durable_tasks = None
         if self._budget_tracker:
             await self._budget_tracker.close()
-        if self._companion_follow_up_tasks:
-            follow_up_tasks = tuple(self._companion_follow_up_tasks)
-            for task in follow_up_tasks:
-                task.cancel()
-            await asyncio.gather(*follow_up_tasks, return_exceptions=True)
         # ── Drain pending plan-history tasks before closing the store ──
         # Avoids aiosqlite.ProgrammingError when a fire-and-forget log task
         # is still writing as the connection is torn down.
