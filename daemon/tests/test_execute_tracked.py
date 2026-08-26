@@ -491,6 +491,74 @@ async def test_handle_execute_partial_failure_reports_execution_error_not_plan_i
 
 
 @pytest.mark.asyncio
+async def test_partial_failure_retries_only_failed_action_and_returns_full_verified_results():
+    actions = [
+        Action(
+            action_type=ActionType.FILE_READ,
+            target=f"file{index}.txt",
+            parameters=FileParams(path=f"file{index}.txt"),
+        )
+        for index in range(1, 4)
+    ]
+    plan = ActionPlan(actions=actions, explanation="Read three files.", raw_input="read the files")
+
+    class _Executor:
+        def __init__(self):
+            self.targets_by_call: list[list[str]] = []
+
+        async def execute(self, current_plan, **kwargs):
+            targets = [action.target for action in current_plan.actions]
+            self.targets_by_call.append(targets)
+            if len(self.targets_by_call) == 1:
+                return [
+                    ActionResult(action=actions[0], success=True, output="one"),
+                    ActionResult(action=actions[1], success=False, error="Transient read error"),
+                    ActionResult(action=actions[2], success=True, output="three"),
+                ]
+            return [ActionResult(action=current_plan.actions[0], success=True, output="two")]
+
+    class _Verifier:
+        async def verify(self, current_plan, results):
+            failed = [index for index, result in enumerate(results) if not result.success]
+            return VerificationResult(
+                passed=not failed,
+                details=[
+                    f"Action {index}: {'FAILED' if index in failed else 'VERIFIED'}" for index in range(len(results))
+                ],
+                failed_actions=failed,
+            )
+
+    executor = _Executor()
+    server = _server_ready_for_handle_execute(executor, plan)
+    server._verifier = _Verifier()
+    planner_calls = 0
+
+    class _Planner:
+        async def plan(self, user_input, **kwargs):
+            nonlocal planner_calls
+            planner_calls += 1
+            return plan
+
+    server._planner = _Planner()
+
+    result = await server._handle_execute({"input": "read the files"}, _FakeWs())
+
+    assert result["status"] == "success"
+    assert result["verification"]["passed"] is True
+    assert [item["action"]["target"] for item in result["results"]] == [
+        "file1.txt",
+        "file2.txt",
+        "file3.txt",
+    ]
+    assert [item["output"] for item in result["results"]] == ["one", "two", "three"]
+    assert executor.targets_by_call == [
+        ["file1.txt", "file2.txt", "file3.txt"],
+        ["file2.txt"],
+    ]
+    assert planner_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_missing_file_read_returns_truthful_failure_without_llm_retry():
     class _Executor:
         def __init__(self):

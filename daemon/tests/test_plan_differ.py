@@ -136,4 +136,5 @@ def test_merge_results_preserves_order():
 
     assert len(merged) == 3
     assert merged[0].action.target == "file1.txt"
+    assert merged[1].action.target == "file2.txt"
     assert merged[2].action.target == "file3.txt"

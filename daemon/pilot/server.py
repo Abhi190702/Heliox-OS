@@ -2469,7 +2469,10 @@ class PilotServer:
         last_verification = None
         last_explanation = ""
         _original_plan = None
+        _original_verification = None
         _successful_results: list = []
+        _pending_retry_plan = None
+        from pilot.agents.plan_differ import PlanDiffer
         from pilot.response_contract import (
             exact_labeled_finding_count,
             partial_failure_message,
@@ -2484,78 +2487,90 @@ class PilotServer:
                 await _emit_task_complete("cancelled", message)
                 return {"status": "cancelled", "message": message}
 
+            using_minimal_retry = _pending_retry_plan is not None
             plan_phase = ""
             if emit:
                 event_name = PLANNER_STARTED if attempt == 0 else PLANNER_REPLANNING
                 plan_phase = await emit.phase_start("planning", event_name, {"attempt": attempt + 1})
-                await emit.thought("planning", "Generating structured action plan via LLM...", parent_id=plan_phase)
+                thought = (
+                    "Retrying only the actions that failed verification..."
+                    if using_minimal_retry
+                    else "Generating structured action plan via LLM..."
+                )
+                await emit.thought("planning", thought, parent_id=plan_phase)
 
             if attempt == 0:
                 await ws.send(_notification("status", {"phase": "planning"}))
+            elif using_minimal_retry:
+                await ws.send(_notification("status", {"phase": f"retrying failed actions (attempt {attempt + 1})"}))
             else:
                 await ws.send(_notification("status", {"phase": f"re-planning (attempt {attempt + 1})"}))
 
-            if emit:
+            if emit and not using_minimal_retry:
                 await emit.data_event("planning", PLANNER_LLM_CALL, {"model": "active"}, parent_id=plan_phase)
 
-            _screen_ctx = ""
-            if self._screen_vision:
-                try:
-                    _screen_ctx = self._screen_vision.get_context_for_planner()
-                    await self._append_experience(
-                        ExperienceEventType.OBSERVATION,
-                        idempotency_key=(
-                            f"task:{context.task_id}:screen_context:{revision_count}:{auto_revision_count}:{attempt}"
-                        ),
-                        source="screen_vision",
-                        payload={
-                            "context_available": bool(_screen_ctx),
-                            "context_length": len(_screen_ctx),
-                            "raw_media_excluded": True,
-                        },
-                        provenance={
-                            "component": "ScreenVisionAgent.get_context_for_planner",
-                            "consumer": "Planner.plan",
-                        },
-                        privacy_class=PrivacyClass.SENSITIVE,
-                    )
-                except Exception:
-                    pass
-            recent_companion_context = self._recent_companion_context_by_session.get(chat_session_id, "")
-            if recent_companion_context:
-                _screen_ctx = (f"{_screen_ctx}\n\n[RECENT COMPANION CONTEXT]\n{recent_companion_context}").strip()
-            if self._subconscious:
-                try:
-                    persona_context = await self._subconscious.get_persona_context()
-                    if persona_context:
-                        _screen_ctx = (
-                            f"{_screen_ctx}\n\n[LEARNED USER BEHAVIOR]\n"
-                            f"{persona_context}\n"
-                            "Treat these as preferences, never as permission to bypass "
-                            "confirmation, safety policy, or the user's current request."
-                        ).strip()
-                except Exception:
-                    logger.debug("Could not load learned persona context", exc_info=True)
+            if using_minimal_retry:
+                plan = _pending_retry_plan
+                _pending_retry_plan = None
+            else:
+                _screen_ctx = ""
+                if self._screen_vision:
+                    try:
+                        _screen_ctx = self._screen_vision.get_context_for_planner()
+                        await self._append_experience(
+                            ExperienceEventType.OBSERVATION,
+                            idempotency_key=(
+                                f"task:{context.task_id}:screen_context:{revision_count}:{auto_revision_count}:{attempt}"
+                            ),
+                            source="screen_vision",
+                            payload={
+                                "context_available": bool(_screen_ctx),
+                                "context_length": len(_screen_ctx),
+                                "raw_media_excluded": True,
+                            },
+                            provenance={
+                                "component": "ScreenVisionAgent.get_context_for_planner",
+                                "consumer": "Planner.plan",
+                            },
+                            privacy_class=PrivacyClass.SENSITIVE,
+                        )
+                    except Exception:
+                        pass
+                recent_companion_context = self._recent_companion_context_by_session.get(chat_session_id, "")
+                if recent_companion_context:
+                    _screen_ctx = (f"{_screen_ctx}\n\n[RECENT COMPANION CONTEXT]\n{recent_companion_context}").strip()
+                if self._subconscious:
+                    try:
+                        persona_context = await self._subconscious.get_persona_context()
+                        if persona_context:
+                            _screen_ctx = (
+                                f"{_screen_ctx}\n\n[LEARNED USER BEHAVIOR]\n"
+                                f"{persona_context}\n"
+                                "Treat these as preferences, never as permission to bypass "
+                                "confirmation, safety policy, or the user's current request."
+                            ).strip()
+                    except Exception:
+                        logger.debug("Could not load learned persona context", exc_info=True)
 
-            try:
-                planner_kwargs: dict[str, Any] = {
-                    "error_context": error_context,
-                    "screen_context": _screen_ctx,
-                    # Planner output is internal JSON, not an assistant response.
-                    # Streaming it into chat exposes implementation details and can
-                    # replace the final user-facing explanation.
-                    "stream_callback": None,
-                }
-                if chat_session_id != "default":
-                    planner_kwargs["session_id"] = chat_session_id
-                plan = await self._await_execution_tracked(
-                    self._planner.plan(
-                        user_input,
-                        **planner_kwargs,
+                try:
+                    planner_kwargs: dict[str, Any] = {
+                        "error_context": error_context,
+                        "screen_context": _screen_ctx,
+                        # Planner output is internal JSON, not an assistant response.
+                        # Streaming it into chat exposes implementation details and can
+                        # replace the final user-facing explanation.
+                        "stream_callback": None,
+                    }
+                    if chat_session_id != "default":
+                        planner_kwargs["session_id"] = chat_session_id
+                    plan = await self._await_execution_tracked(
+                        self._planner.plan(
+                            user_input,
+                            **planner_kwargs,
+                        )
                     )
-                )
-            except asyncio.CancelledError:
-                return await _phase_cancelled("planning")
+                except asyncio.CancelledError:
+                    return await _phase_cancelled("planning")
             if cancel_event.is_set() and self._live_correction:
                 revised = await _restart_with_live_correction()
                 if revised is not None:
@@ -3161,6 +3176,23 @@ class PilotServer:
                     verification = await self._await_execution_tracked(self._verifier.verify(plan, results))
                 except asyncio.CancelledError:
                     return await _phase_cancelled("verification", results)
+            if _original_plan is not None and _original_verification is not None:
+                results = PlanDiffer.merge_results(
+                    _successful_results,
+                    results,
+                    _original_plan,
+                    _original_verification,
+                )
+                plan = _original_plan
+                try:
+                    verification = await self._await_execution_tracked(self._verifier.verify(plan, results))
+                except asyncio.CancelledError:
+                    return await _phase_cancelled("verification", results)
+                _original_plan = None
+                _original_verification = None
+                _successful_results = []
+
+            all_results = results
             last_verification = verification
             await self._append_experience(
                 ExperienceEventType.OUTCOME_VERIFIED,
@@ -3316,8 +3348,6 @@ class PilotServer:
                 break
 
             # Execution failed — use PlanDiffer for partial re-plan
-            from pilot.agents.plan_differ import PlanDiffer
-
             retry_plan, successful_results = PlanDiffer.diff(plan, results, verification)
 
             failed_details = [d for d in verification.details if "FAILED" in d or "MISMATCH" in d]
@@ -3325,15 +3355,16 @@ class PilotServer:
             error_context = "\n".join(failed_details + error_msgs)
 
             # Use partial retry plan if PlanDiffer found fewer actions to retry
-            if len(retry_plan.actions) < len(plan.actions):
+            if len(retry_plan.actions) < len(plan.actions) and attempt < self.MAX_RETRIES:
                 logger.info(
                     "PlanDiffer: retrying %d/%d actions",
                     len(retry_plan.actions),
                     len(plan.actions),
                 )
-                plan = retry_plan
                 _original_plan = plan
+                _original_verification = verification
                 _successful_results = successful_results
+                _pending_retry_plan = retry_plan
                 all_results = list(successful_results)
 
             if attempt < self.MAX_RETRIES:
