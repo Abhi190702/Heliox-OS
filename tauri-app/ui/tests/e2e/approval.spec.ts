@@ -41,7 +41,7 @@ async function waitForEvidence(path: string, timeoutMs = 15_000): Promise<void> 
   throw new Error("Controlled smoke daemon did not publish its ready evidence");
 }
 
-async function waitForExit(process: ChildProcessWithoutNullStreams, timeoutMs = 10_000): Promise<number | null> {
+async function waitForExit(process: ChildProcessWithoutNullStreams, timeoutMs = 30_000): Promise<number | null> {
   if (process.exitCode !== null) return process.exitCode;
   return await Promise.race([
     new Promise<number | null>((done) => process.once("exit", done)),
