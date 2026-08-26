@@ -19,7 +19,7 @@
   "sources": {
     "action_registry": {
       "path": "daemon/pilot/actions.py",
-      "sha256": "ce89428b8232f55a9ff7e14289fc7842cb71423e9f37d11e0073611d412349d5"
+      "sha256": "0e57ade6fe389c0304cbddbca355ee3ab113d8e7c944b5dedf1a389a57fc78d6"
     },
     "postcondition_verifier": {
       "path": "daemon/pilot/agents/verifier.py",
@@ -86,9 +86,9 @@
     },
     "permission_tiers": {
       "destructive": 11,
-      "read_only": 50,
+      "read_only": 53,
       "system_modify": 35,
-      "user_write": 61
+      "user_write": 58
     },
     "independent_postcondition_verifiers": 18,
     "plugins": 6,
@@ -5100,8 +5100,8 @@
       "id": "api_request",
       "family": "integration",
       "permission": {
-        "tier": 1,
-        "name": "user_write",
+        "tier": 0,
+        "name": "read_only",
         "approval_required": false,
         "snapshot_required": false,
         "irreversible": false
@@ -5145,8 +5145,8 @@
       "id": "api_github",
       "family": "integration",
       "permission": {
-        "tier": 1,
-        "name": "user_write",
+        "tier": 0,
+        "name": "read_only",
         "approval_required": false,
         "snapshot_required": false,
         "irreversible": false
@@ -5346,8 +5346,8 @@
       "id": "api_scrape",
       "family": "integration",
       "permission": {
-        "tier": 1,
-        "name": "user_write",
+        "tier": 0,
+        "name": "read_only",
         "approval_required": false,
         "snapshot_required": false,
         "irreversible": false
