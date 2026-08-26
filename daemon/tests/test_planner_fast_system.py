@@ -2,6 +2,22 @@ from pilot.actions import Action, ActionType, PermissionTier, ScreenVisionParams
 from pilot.agents.planner import Planner
 
 
+def test_battery_status_uses_dedicated_read_only_fast_path():
+    plan = Planner._try_fast_path("Show current battery status without changing anything.")
+
+    assert plan is not None
+    assert [action.action_type for action in plan.actions] == [ActionType.BATTERY_INFO]
+    assert plan.actions[0].permission_tier == PermissionTier.READ_ONLY
+
+
+def test_network_status_uses_dedicated_read_only_fast_path():
+    plan = Planner._try_fast_path("check my network information")
+
+    assert plan is not None
+    assert [action.action_type for action in plan.actions] == [ActionType.NETWORK_INFO]
+    assert plan.actions[0].permission_tier == PermissionTier.READ_ONLY
+
+
 def test_system_information_uses_fast_path_for_spoken_transcription_variant():
     plan = Planner._try_fast_path("true system information")
 

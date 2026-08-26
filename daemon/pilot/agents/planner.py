@@ -719,6 +719,11 @@ class Planner:
             )
 
         # --- Fast local system usage queries ---
+        status_text = re.sub(
+            r"\s+(?:without\s+(?:changing|modifying)\s+anything|without\s+making\s+changes|read[- ]only)[.!?]*$",
+            "",
+            text,
+        )
         usage_patterns = (
             (
                 re.compile(r"^(?:what(?:'s| is)|show|check|tell me)\s+(?:my\s+)?cpu\s+usage\??$"),
@@ -738,9 +743,27 @@ class Planner:
                 "disk",
                 "Check current disk usage",
             ),
+            (
+                re.compile(
+                    r"^(?:what(?:'s| is)|show|check|tell me)\s+(?:current\s+)?(?:my\s+)?"
+                    r"battery(?:\s+(?:status|level|percentage|info|information))?\??$"
+                ),
+                ActionType.BATTERY_INFO,
+                "battery",
+                "Check current battery status",
+            ),
+            (
+                re.compile(
+                    r"^(?:what(?:'s| is)|show|check|tell me)\s+(?:current\s+)?(?:my\s+)?"
+                    r"network(?:\s+(?:status|info|information|details))?\??$"
+                ),
+                ActionType.NETWORK_INFO,
+                "network",
+                "Check current network information",
+            ),
         )
         for pattern, action_type, target, explanation in usage_patterns:
-            if pattern.match(text):
+            if pattern.match(status_text):
                 return ActionPlan(
                     actions=[
                         Action(
