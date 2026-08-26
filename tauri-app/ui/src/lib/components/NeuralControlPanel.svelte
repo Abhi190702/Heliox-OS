@@ -3,6 +3,7 @@
   import { _ } from "svelte-i18n";
   import { invoke } from "../api/invoke";
   import { neural } from "../stores/neural";
+  import { session } from "../stores/session";
 
   let source = $state<"synthetic" | "playback" | "brainflow" | "lsl">("synthetic");
   let artifactPath = $state("");
@@ -90,7 +91,7 @@
   }
 
   async function stageAutonomousTask() {
-    const staged = await neural.stageTask(stagedTaskLabel, stagedTaskGoal);
+    const staged = await neural.stageTask(stagedTaskLabel, stagedTaskGoal, $session.activeSessionId);
     if (staged) {
       stagedTaskLabel = "";
       stagedTaskGoal = "";

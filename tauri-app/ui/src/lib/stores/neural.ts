@@ -316,6 +316,31 @@ function createNeuralControl() {
     }
   }
 
+  async function deferPreviewForSafetyDecision() {
+    const current = get(store);
+    if (!current.preview) return;
+    clearAutoCommit();
+    store.update((value) => ({
+      ...value,
+      preview: null,
+      error: "Neural preview cancelled because another Heliox safety decision requires your attention.",
+    }));
+    try {
+      const result = (await call("neural_disarm", { reason: "higher_priority_safety_decision" })) as Record<
+        string,
+        unknown
+      >;
+      applyStatus(result);
+      store.update((value) => ({
+        ...value,
+        preview: null,
+        error: "Neural preview cancelled because another Heliox safety decision requires your attention.",
+      }));
+    } catch (cause) {
+      store.update((value) => ({ ...value, error: readableError(cause), preview: null }));
+    }
+  }
+
   async function stageTask(label: string, goal: string, sessionId = "neural"): Promise<boolean> {
     store.update((current) => ({ ...current, busy: true, error: "" }));
     try {
@@ -358,6 +383,7 @@ function createNeuralControl() {
     beginCalibration,
     arm,
     disarm,
+    deferPreviewForSafetyDecision,
     stageTask,
     removeStagedTask,
     approvePreview: () => commitPreview(true),

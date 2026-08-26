@@ -4,6 +4,12 @@
   import { neural } from "../stores/neural";
   import SSVEPStimulusGrid from "./SSVEPStimulusGrid.svelte";
 
+  interface Props {
+    showPreview?: boolean;
+  }
+
+  let { showPreview = true }: Props = $props();
+
   const armed = $derived(["armed_safe_ui", "armed_safe_desktop", "previewed", "cooldown"].includes($neural.state));
 
   onMount(() => {
@@ -30,7 +36,7 @@
   </div>
 {/if}
 
-{#if $neural.preview}
+{#if showPreview && $neural.preview}
   <div class="preview-overlay" role="dialog" aria-modal="true" aria-labelledby="neural-preview-title">
     <div class="preview-card">
       <div class="eyebrow">{$_("neural.decoded_candidate")}</div>

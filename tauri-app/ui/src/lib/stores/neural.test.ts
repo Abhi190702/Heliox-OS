@@ -64,6 +64,27 @@ describe("neural control store", () => {
     expect(get(neural).preview?.preview_id).toBe("preview-2");
   });
 
+  it("cancels auto-commit when a higher-priority safety decision appears", async () => {
+    const { neural } = await import("./neural");
+    call.mockResolvedValue({ state: "observe_only", connected: true, armed_scope: "observe" });
+    notificationHandler!("neural_preview", {
+      status: "previewed",
+      preview_id: "preview-safety",
+      created_at_ns: 1_000_000_000,
+      eligible_at_ns: 2_000_000_000,
+      requires_non_neural_approval: false,
+    });
+
+    const deferred = neural.deferPreviewForSafetyDecision();
+    expect(get(neural).preview).toBeNull();
+    await vi.runAllTimersAsync();
+    await deferred;
+
+    expect(call).toHaveBeenCalledWith("neural_disarm", { reason: "higher_priority_safety_decision" });
+    expect(call).not.toHaveBeenCalledWith("neural_commit", expect.anything());
+    expect(get(neural).error).toContain("another Heliox safety decision");
+  });
+
   it("emergency disarm clears a pending preview", async () => {
     const { neural } = await import("./neural");
     call.mockResolvedValue({ state: "observe_only", connected: true, armed_scope: "observe" });

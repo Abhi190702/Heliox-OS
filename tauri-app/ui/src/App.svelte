@@ -30,12 +30,16 @@
   import { Copy } from "@lucide/svelte";
   import ScrollToBottom from "./lib/components/ScrollToBottom.svelte";
   import { shouldFollowLatest } from "./lib/utils/scrollPolicy";
+  import { selectActiveModal } from "./lib/utils/modalPriority";
   import ConnectionBadge from "./lib/components/ConnectionBadge.svelte";
   import HeaderMiniMonitor from "./lib/components/HeaderMiniMonitor.svelte";
   import CommandHistory from "./lib/components/CommandHistory.svelte";
   import ChatSessionControls from "./lib/components/ChatSessionControls.svelte";
   import InteractiveServices from "./lib/components/InteractiveServices.svelte";
   import NeuralControlOverlay from "./lib/components/NeuralControlOverlay.svelte";
+  import { narration } from "./lib/stores/narration";
+  import { neural } from "./lib/stores/neural";
+  import { supervision } from "./lib/stores/supervision";
   import { _, isLoading } from "svelte-i18n";
 
   let isDragging = $state(false);
@@ -51,6 +55,19 @@
   let particleBurst: ParticleBurst | undefined = $state();
   let daemonConnectionEpoch = $state(0);
   let previousDaemonConnection = $state(false);
+  let activeModal = $derived(
+    selectActiveModal({
+      confirmation: $session.confirmRequired,
+      rollback: $session.rollbackPending,
+      interrupt: $narration.active,
+      neural: Boolean($neural.preview),
+      budget: Boolean($session.budget?.exceeded),
+      supervision: $supervision.active,
+    }),
+  );
+  let blockingSafetyDecision = $derived(
+    activeModal === "confirmation" || activeModal === "rollback" || activeModal === "interrupt",
+  );
 
   $effect(() => {
     const connected = $session.daemonConnected;
@@ -59,6 +76,9 @@
   });
   $effect(() => {
     showScrollFAB = !isAtBottom;
+  });
+  $effect(() => {
+    if (blockingSafetyDecision && $neural.preview) void neural.deferPreviewForSafetyDecision();
   });
   async function onSetupComplete() {
     await settings.updateSection("", { first_run_complete: true });
@@ -219,7 +239,7 @@
         <NeuralBackground />
 
         <InteractiveServices onconfigure={() => (activeTab = "settings")} />
-        {#if $session.confirmRequired}
+        {#if activeModal === "confirmation"}
           <ConfirmDialog
             actions={$session.confirmActions}
             reason={$session.confirmReason}
@@ -229,9 +249,7 @@
             onconfirm={(approvedIndices) => session.confirm(true, approvedIndices)}
             ondeny={() => session.confirm(false)}
           />
-        {/if}
-
-        {#if $session.rollbackPending}
+        {:else if activeModal === "rollback"}
           <RollbackDialog onconfirm={() => session.confirmRollback()} oncancel={() => session.cancelRollback()} />
         {/if}
 
@@ -242,10 +260,14 @@
           </div>
         {/if}
 
-        <BudgetExceededDialog />
-        <InterruptDialog />
-        <SupervisionAlertDialog />
-        <NeuralControlOverlay />
+        {#if activeModal === "interrupt"}
+          <InterruptDialog />
+        {:else if activeModal === "budget"}
+          <BudgetExceededDialog />
+        {:else if activeModal === "supervision"}
+          <SupervisionAlertDialog />
+        {/if}
+        <NeuralControlOverlay showPreview={!blockingSafetyDecision} />
 
         {#if $session.proactiveSuggestion}
           <aside
