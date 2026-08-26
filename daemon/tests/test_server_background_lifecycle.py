@@ -39,6 +39,7 @@ async def test_shutdown_quiesces_tasks_before_closing_their_owners() -> None:
         stop=AsyncMock(side_effect=lambda: order.append("voice_workflows_stopped"))
     )
     server._autonomous = SimpleNamespace(stop=AsyncMock(side_effect=lambda: order.append("autonomous_stopped")))
+    server._background = SimpleNamespace(shutdown=AsyncMock(side_effect=lambda: order.append("background_stopped")))
     server._active_execution_task = asyncio.create_task(wait_until_cancelled("execution"))
     server._mcp_tasks["mcp"] = asyncio.create_task(wait_until_cancelled("mcp"))
     follow_up = asyncio.create_task(wait_until_cancelled("follow_up"))
@@ -66,6 +67,7 @@ async def test_shutdown_quiesces_tasks_before_closing_their_owners() -> None:
     assert order.index("autonomous_stopped") < order.index("server_closed")
     assert order.index("follow_up_cancelled") < order.index("speech_closed")
     assert order.index("speech_cancelled") < order.index("speech_closed")
+    assert order.index("background_stopped") < order.index("memory_closed")
     assert order.index("reflection_cancelled") < order.index("reflector_closed")
     assert order.index("memory_written") < order.index("memory_closed")
     assert server._mcp_tasks == {}

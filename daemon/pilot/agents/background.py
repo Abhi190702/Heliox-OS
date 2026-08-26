@@ -168,6 +168,19 @@ class BackgroundTaskManager:
         for task_id in list(self._tasks.keys()):
             self.stop(task_id)
 
+    async def shutdown(self) -> None:
+        """Cancel and await every owned monitor loop during daemon shutdown."""
+        handles = tuple(task._handle for task in self._tasks.values() if task._handle is not None)
+        for task in self._tasks.values():
+            task.status = TaskStatus.STOPPED
+        for handle in handles:
+            if not handle.done():
+                handle.cancel()
+        if handles:
+            await asyncio.gather(*handles, return_exceptions=True)
+        for task in self._tasks.values():
+            task._handle = None
+
     # ── Built-in Monitor Factories ──
 
     @staticmethod

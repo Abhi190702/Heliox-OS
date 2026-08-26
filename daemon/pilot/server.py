@@ -7969,7 +7969,7 @@ def handle_tool(tool_name, params):
             await self._orchestrator.stop_all()
             await self._orchestrator.stop()
         if self._background:
-            self._background.stop_all()
+            await self._background.shutdown()
         if hasattr(self, "_proactive") and self._proactive:
             await self._proactive.stop()
             if hasattr(self._proactive, "close"):
