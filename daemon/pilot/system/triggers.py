@@ -6,10 +6,12 @@ File watchers, performance monitors, scheduled checks, custom triggers.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextlib
 import json
 import logging
+import operator
 import os
 import time
 import uuid
@@ -21,6 +23,102 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("pilot.system.triggers")
+
+_CUSTOM_METRIC_NAMES = frozenset(
+    {
+        "battery_percent",
+        "cpu_percent",
+        "disk_percent",
+        "hour",
+        "memory_percent",
+        "on_battery",
+        "timestamp",
+    }
+)
+_BINARY_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Mod: operator.mod,
+}
+_COMPARISON_OPERATORS = {
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+    ast.Lt: operator.lt,
+    ast.LtE: operator.le,
+    ast.Gt: operator.gt,
+    ast.GtE: operator.ge,
+}
+_ALLOWED_CUSTOM_NODES = (
+    ast.Expression,
+    ast.BoolOp,
+    ast.And,
+    ast.Or,
+    ast.UnaryOp,
+    ast.Not,
+    ast.USub,
+    ast.UAdd,
+    ast.BinOp,
+    *_BINARY_OPERATORS,
+    ast.Compare,
+    *_COMPARISON_OPERATORS,
+    ast.Name,
+    ast.Load,
+    ast.Constant,
+)
+
+
+def _parse_custom_expression(expression: str) -> ast.Expression:
+    """Parse the bounded trigger expression language and reject code constructs."""
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as error:
+        raise ValueError("Invalid custom trigger expression") from error
+    for node in ast.walk(tree):
+        if not isinstance(node, _ALLOWED_CUSTOM_NODES):
+            raise ValueError(f"Unsupported custom trigger expression: {type(node).__name__}")
+        if isinstance(node, ast.Name) and node.id not in _CUSTOM_METRIC_NAMES:
+            raise ValueError(f"Unknown custom trigger metric: {node.id}")
+        if isinstance(node, ast.Constant) and not isinstance(node.value, (bool, int, float)):
+            raise ValueError("Custom trigger constants must be numeric or boolean")
+    return tree
+
+
+def _evaluate_custom_node(node: ast.AST, metrics: dict[str, float | bool]) -> float | bool:
+    if isinstance(node, ast.Expression):
+        return _evaluate_custom_node(node.body, metrics)
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return metrics[node.id]
+    if isinstance(node, ast.BoolOp):
+        values = (_evaluate_custom_node(value, metrics) for value in node.values)
+        return (
+            all(bool(value) for value in values)
+            if isinstance(node.op, ast.And)
+            else any(bool(value) for value in values)
+        )
+    if isinstance(node, ast.UnaryOp):
+        value = _evaluate_custom_node(node.operand, metrics)
+        if isinstance(node.op, ast.Not):
+            return not bool(value)
+        return -float(value) if isinstance(node.op, ast.USub) else float(value)
+    if isinstance(node, ast.BinOp):
+        operation = _BINARY_OPERATORS[type(node.op)]
+        return operation(
+            float(_evaluate_custom_node(node.left, metrics)),
+            float(_evaluate_custom_node(node.right, metrics)),
+        )
+    if isinstance(node, ast.Compare):
+        left = _evaluate_custom_node(node.left, metrics)
+        for operation_node, comparator in zip(node.ops, node.comparators, strict=True):
+            right = _evaluate_custom_node(comparator, metrics)
+            if not _COMPARISON_OPERATORS[type(operation_node)](left, right):
+                return False
+            left = right
+        return True
+    raise ValueError(f"Unsupported custom trigger expression: {type(node).__name__}")
 
 
 class TriggerType(StrEnum):
@@ -97,10 +195,26 @@ class TriggerEngine:
         cooldown_seconds: int = 60,
     ) -> Trigger:
         """Create a new trigger."""
+        name = name.strip()
+        action_command = action_command.strip()
+        if not name:
+            raise ValueError("Trigger name is required")
+        if not action_command:
+            raise ValueError("Trigger action command is required")
+        if max_fires < 0:
+            raise ValueError("Trigger max_fires cannot be negative")
+        if cooldown_seconds < 0:
+            raise ValueError("Trigger cooldown_seconds cannot be negative")
+        resolved_type = TriggerType(trigger_type)
+        if resolved_type == TriggerType.CUSTOM_CONDITION:
+            expression = str(condition.get("expression") or "").strip()
+            if not expression:
+                raise ValueError("Custom trigger expression is required")
+            _parse_custom_expression(expression)
         trigger = Trigger(
             id=str(uuid.uuid4())[:8],
             name=name,
-            trigger_type=TriggerType(trigger_type),
+            trigger_type=resolved_type,
             condition=condition,
             action_command=action_command,
             max_fires=max_fires,
@@ -311,18 +425,27 @@ class TriggerEngine:
             return False
 
     async def _check_custom(self, condition: dict) -> bool:
-        """Evaluate a custom Python expression."""
-        expr = condition.get("expression", "")
+        """Evaluate a bounded expression over read-only system metrics."""
+        expr = str(condition.get("expression") or "").strip()
         if not expr:
             return False
         try:
             import psutil
         except ImportError:
-            psutil = None
+            return False
 
         try:
-            result = eval(expr, {"__builtins__": {}, "psutil": psutil, "time": time})
-            return bool(result)
+            battery = psutil.sensors_battery()
+            metrics: dict[str, float | bool] = {
+                "battery_percent": float(battery.percent) if battery is not None else -1.0,
+                "cpu_percent": float(await asyncio.to_thread(psutil.cpu_percent, interval=None)),
+                "disk_percent": float(psutil.disk_usage(condition.get("path", "/")).percent),
+                "hour": float(datetime.now().hour),
+                "memory_percent": float(psutil.virtual_memory().percent),
+                "on_battery": bool(battery is not None and not battery.power_plugged),
+                "timestamp": time.time(),
+            }
+            return bool(_evaluate_custom_node(_parse_custom_expression(expr), metrics))
         except Exception as e:
             logger.warning("Custom condition eval error: %s", e)
             return False
