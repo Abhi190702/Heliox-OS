@@ -95,6 +95,7 @@
   import { airHandoffGestureCommand } from "../gesture/airHandoffGesture";
   import {
     dispatchGestureToOwner,
+    latchedGestureAfterCursorOverride,
     ownerOverridesCursorMode,
     selectGestureDispatchOwner,
   } from "../gesture/gestureDispatchPolicy";
@@ -1161,6 +1162,10 @@
         // owns this gesture. Exit cursor mode and let the normal debounced
         // dispatch path below deliver it exactly once.
         exitCursorMode();
+        // Cursor mode displays recognized gestures without dispatching them.
+        // Release that display latch or the normal path below will mistake the
+        // override gesture for one that has already fired.
+        currentGesture = latchedGestureAfterCursorOverride(owner, currentGesture);
       } else {
         // Open palm is the hands-only escape hatch — checked before anything
         // else so it always wins over cursor tracking/pinch-click.

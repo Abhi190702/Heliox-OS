@@ -32,3 +32,8 @@ export async function dispatchGestureToOwner(
 export function ownerOverridesCursorMode(owner: GestureDispatchOwner): boolean {
   return owner === "workflow_control" || owner === "air_handoff";
 }
+
+/** Release the display/debounce latch when a higher-priority owner exits cursor mode. */
+export function latchedGestureAfterCursorOverride(owner: GestureDispatchOwner, currentGesture: string): string {
+  return ownerOverridesCursorMode(owner) ? "" : currentGesture;
+}

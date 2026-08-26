@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
 import {
   dispatchGestureToOwner,
+  latchedGestureAfterCursorOverride,
   ownerOverridesCursorMode,
   selectGestureDispatchOwner,
   type GestureDispatchOwner,
@@ -94,5 +95,12 @@ describe("selectGestureDispatchOwner", () => {
     expect(ownerOverridesCursorMode("air_handoff")).toBe(true);
     expect(ownerOverridesCursorMode("bound_workflow")).toBe(false);
     expect(ownerOverridesCursorMode("default")).toBe(false);
+  });
+
+  it("releases the recognized-gesture latch for cursor overrides", () => {
+    expect(latchedGestureAfterCursorOverride("workflow_control", "thumbs_up")).toBe("");
+    expect(latchedGestureAfterCursorOverride("air_handoff", "pinch")).toBe("");
+    expect(latchedGestureAfterCursorOverride("bound_workflow", "peace")).toBe("peace");
+    expect(latchedGestureAfterCursorOverride("default", "palm")).toBe("palm");
   });
 });
