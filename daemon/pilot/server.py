@@ -9525,12 +9525,19 @@ def handle_tool(tool_name, params):
             A dict with the list of workflows.
         """
         if not self._voice_gesture_workflows:
-            return {"workflows": []}
+            return {
+                "status": "error",
+                "message": "Voice/gesture workflow engine not initialized",
+                "workflows": [],
+            }
         try:
             include_terminal = _validated_bool(params, "include_terminal", False)
         except ValueError as exc:
             return {"status": "error", "message": str(exc)}
-        return {"workflows": await self._voice_gesture_workflows.list_workflows(include_terminal=include_terminal)}
+        return {
+            "status": "ok",
+            "workflows": await self._voice_gesture_workflows.list_workflows(include_terminal=include_terminal),
+        }
 
     async def _handle_voice_gesture_workflow_get(self, params: dict, ws: ServerConnection) -> dict:
         """Get a specific voice/gesture workflow by ID.
@@ -9564,7 +9571,14 @@ def handle_tool(tool_name, params):
             return {"status": "error", "message": "Voice/gesture workflow engine not initialized"}
         workflow_id = params.get("workflow_id", "")
         paused = await self._voice_gesture_workflows.pause(workflow_id)
-        return {"paused": paused, "workflow_id": workflow_id}
+        if not paused:
+            return {
+                "status": "error",
+                "message": f"Workflow could not be paused: {workflow_id}",
+                "paused": False,
+                "workflow_id": workflow_id,
+            }
+        return {"status": "ok", "paused": True, "workflow_id": workflow_id}
 
     async def _handle_voice_gesture_workflow_resume(self, params: dict, ws: ServerConnection) -> dict:
         """Resume a paused/waiting-for-trigger voice/gesture workflow.
@@ -9580,10 +9594,19 @@ def handle_tool(tool_name, params):
             return {"status": "error", "message": "Voice/gesture workflow engine not initialized"}
         workflow_id = params.get("workflow_id", "")
         workflow = await self._voice_gesture_workflows.resume(workflow_id)
+        if workflow is None:
+            return {
+                "status": "error",
+                "message": f"Workflow could not be resumed: {workflow_id}",
+                "resumed": False,
+                "workflow_id": workflow_id,
+                "workflow": None,
+            }
         return {
-            "resumed": workflow is not None,
+            "status": "ok",
+            "resumed": True,
             "workflow_id": workflow_id,
-            "workflow": workflow.to_dict() if workflow else None,
+            "workflow": workflow.to_dict(),
         }
 
     async def _handle_voice_gesture_workflow_cancel(self, params: dict, ws: ServerConnection) -> dict:
@@ -9600,7 +9623,14 @@ def handle_tool(tool_name, params):
             return {"status": "error", "message": "Voice/gesture workflow engine not initialized"}
         workflow_id = params.get("workflow_id", "")
         cancelled = await self._voice_gesture_workflows.cancel(workflow_id)
-        return {"cancelled": cancelled, "workflow_id": workflow_id}
+        if not cancelled:
+            return {
+                "status": "error",
+                "message": f"Workflow could not be cancelled: {workflow_id}",
+                "cancelled": False,
+                "workflow_id": workflow_id,
+            }
+        return {"status": "ok", "cancelled": True, "workflow_id": workflow_id}
 
     async def _handle_gesture_workflow_bindings_get(self, params: dict, ws: ServerConnection) -> dict:
         """Return the current gesture-to-goal workflow bindings for the Settings editor.

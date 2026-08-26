@@ -158,9 +158,10 @@ class TestSubmit:
 
 class TestListGetPauseResumeCancel:
     @pytest.mark.asyncio
-    async def test_list_empty_when_engine_not_initialized(self):
+    async def test_list_reports_engine_unavailable(self):
         server = PilotServer(PilotConfig())
         result = await server._handle_voice_gesture_workflow_list({}, ws=None)
+        assert result["status"] == "error"
         assert result["workflows"] == []
 
     @pytest.mark.asyncio
@@ -173,6 +174,7 @@ class TestListGetPauseResumeCancel:
         await _wait_settled(server, workflow_id)
 
         listed = await server._handle_voice_gesture_workflow_list({"include_terminal": True}, ws=None)
+        assert listed["status"] == "ok"
         assert any(w["workflow_id"] == workflow_id for w in listed["workflows"])
 
         got = await server._handle_voice_gesture_workflow_get({"workflow_id": workflow_id}, ws=None)
@@ -197,9 +199,11 @@ class TestListGetPauseResumeCancel:
         settled = await _wait_settled(server, workflow_id)
         if settled["state"] != "paused":
             return  # race: finished before the pause flag was checked, not a failure
+        assert paused["status"] == "ok"
         assert paused["paused"] is True
 
         resumed = await server._handle_voice_gesture_workflow_resume({"workflow_id": workflow_id}, ws=None)
+        assert resumed["status"] == "ok"
         assert resumed["resumed"] is True
         final = await _wait_settled(server, workflow_id)
         assert final["state"] == "success"
@@ -212,7 +216,20 @@ class TestListGetPauseResumeCancel:
         )
         workflow_id = submitted["workflow"]["workflow_id"]
         cancelled = await server._handle_voice_gesture_workflow_cancel({"workflow_id": workflow_id}, ws=None)
+        assert cancelled["status"] == "ok"
         assert cancelled["cancelled"] is True
+
+    @pytest.mark.asyncio
+    async def test_controls_report_unknown_workflow(self, tmp_path):
+        server = _server(tmp_path)
+
+        paused = await server._handle_voice_gesture_workflow_pause({"workflow_id": "missing"}, ws=None)
+        resumed = await server._handle_voice_gesture_workflow_resume({"workflow_id": "missing"}, ws=None)
+        cancelled = await server._handle_voice_gesture_workflow_cancel({"workflow_id": "missing"}, ws=None)
+
+        assert paused["status"] == "error"
+        assert resumed["status"] == "error"
+        assert cancelled["status"] == "error"
 
 
 class TestGestureWorkflowBindings:

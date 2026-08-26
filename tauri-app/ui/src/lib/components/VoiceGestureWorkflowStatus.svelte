@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import { call, onNotification, offNotification } from "../api/daemon";
+  import {
+    call,
+    onNotification,
+    offNotification,
+    requireOkResult,
+    requireResultStatus,
+    type DaemonStatusResult,
+  } from "../api/daemon";
 
   interface WorkflowStep {
     index: number;
@@ -44,7 +51,12 @@
 
   async function loadWorkflows() {
     try {
-      const result = (await call("voice_gesture_workflow_list", { include_terminal: includeTerminal })) as {
+      const result = requireOkResult(
+        (await call("voice_gesture_workflow_list", { include_terminal: includeTerminal })) as DaemonStatusResult & {
+          workflows: Workflow[];
+        },
+        "Voice/gesture workflows are unavailable.",
+      ) as DaemonStatusResult & {
         workflows: Workflow[];
       };
       workflows = result.workflows ?? [];
@@ -63,11 +75,14 @@
     submitting = true;
     error = "";
     try {
-      const result = (await call("voice_gesture_workflow_submit", {
-        goal: trimmedGoal,
-        invocation_source: source,
-      })) as { status: string; message?: string };
-      if (result.status !== "submitted") throw new Error(result.message || "Workflow was not submitted");
+      requireResultStatus(
+        (await call("voice_gesture_workflow_submit", {
+          goal: trimmedGoal,
+          invocation_source: source,
+        })) as DaemonStatusResult,
+        "submitted",
+        "Workflow was not submitted",
+      );
       goal = "";
       await loadWorkflows();
     } catch (cause) {
@@ -77,19 +92,26 @@
     }
   }
 
-  async function pause(id: string) {
-    await call("voice_gesture_workflow_pause", { workflow_id: id });
-    await loadWorkflows();
+  async function controlWorkflow(method: string, id: string, fallbackMessage: string) {
+    error = "";
+    try {
+      requireOkResult((await call(method, { workflow_id: id })) as DaemonStatusResult, fallbackMessage);
+      await loadWorkflows();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : fallbackMessage;
+    }
   }
 
-  async function resume(id: string) {
-    await call("voice_gesture_workflow_resume", { workflow_id: id });
-    await loadWorkflows();
+  function pause(id: string) {
+    return controlWorkflow("voice_gesture_workflow_pause", id, "Workflow could not be paused.");
   }
 
-  async function cancel(id: string) {
-    await call("voice_gesture_workflow_cancel", { workflow_id: id });
-    await loadWorkflows();
+  function resume(id: string) {
+    return controlWorkflow("voice_gesture_workflow_resume", id, "Workflow could not be resumed.");
+  }
+
+  function cancel(id: string) {
+    return controlWorkflow("voice_gesture_workflow_cancel", id, "Workflow could not be cancelled.");
   }
 
   function stateClass(state: string): string {
