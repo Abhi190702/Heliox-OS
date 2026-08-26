@@ -24,6 +24,7 @@
   let currentTime = $state("");
   let cpuHistory: number[] = $state(new Array(30).fill(0));
   let isExpanded = $state(false);
+  let telemetryAvailable = $state(false);
 
   // Update time every second
   let timeInterval: ReturnType<typeof setInterval>;
@@ -49,6 +50,7 @@
       try {
         const info: any = await invoke("system_info");
         if (info) {
+          telemetryAvailable = true;
           cpuPercent = Math.round(Number(info.cpu_percent ?? 0));
           ramPercent = Math.round(Number(info.memory_percent ?? 0));
           ramUsedGB = (Number(info.memory_used ?? 0) / 1024 ** 3).toFixed(1);
@@ -74,6 +76,7 @@
     try {
       const info = (await call("system_info")) as Record<string, any>;
       if (info) {
+        telemetryAvailable = true;
         cpuPercent = Math.round(Number(info.cpu_percent ?? 0));
         ramPercent = Math.round(Number(info.memory_percent ?? 0));
         ramUsedGB = (Number(info.memory_used ?? 0) / 1024 ** 3).toFixed(1);
@@ -98,6 +101,7 @@
       try {
         const info: any = await invoke("system_info");
         if (info) {
+          telemetryAvailable = true;
           cpuPercent = Math.round(Number(info.cpu_percent ?? 0));
           ramPercent = Math.round(Number(info.memory_percent ?? 0));
           ramUsedGB = (Number(info.memory_used ?? 0) / 1024 ** 3).toFixed(1);
@@ -117,14 +121,7 @@
           return;
         }
       } catch (e) {}
-      cpuPercent = 15 + Math.floor(Math.random() * 20);
-      ramPercent = 81;
-      ramUsedGB = "13.3";
-      ramTotalGB = "15.7";
-      diskPercent = 81;
-      diskUsedGB = "772";
-      diskTotalGB = "953";
-      cpuHistory = [...cpuHistory.slice(1), cpuPercent];
+      telemetryAvailable = false;
     }
   }
 
@@ -203,7 +200,9 @@
       <div class="stat-section">
         <div class="stat-header">
           <span class="stat-label">CPU</span>
-          <span class="stat-value" style="color: {getStatusColor(cpuPercent)}">{cpuPercent}%</span>
+          <span class="stat-value" style="color: {getStatusColor(cpuPercent)}"
+            >{telemetryAvailable ? `${cpuPercent}%` : "Unavailable"}</span
+          >
         </div>
         <div class="cpu-graph">
           <svg viewBox="0 0 200 40" preserveAspectRatio="none">
@@ -223,11 +222,11 @@
       <div class="stat-section">
         <div class="stat-header">
           <span class="stat-label">MEMORY</span>
-          <span class="stat-value">{ramUsedGB} / {ramTotalGB} GB</span>
+          <span class="stat-value">{telemetryAvailable ? `${ramUsedGB} / ${ramTotalGB} GB` : "Unavailable"}</span>
         </div>
         <div class="progress-bar">
           <div class="progress-fill" style="width: {ramPercent}%; background: {getStatusColor(ramPercent)};"></div>
-          <span class="progress-text">{ramPercent}%</span>
+          <span class="progress-text">{telemetryAvailable ? `${ramPercent}%` : "--"}</span>
         </div>
       </div>
 
@@ -235,11 +234,11 @@
       <div class="stat-section">
         <div class="stat-header">
           <span class="stat-label">DISK</span>
-          <span class="stat-value">{diskUsedGB} / {diskTotalGB} GB</span>
+          <span class="stat-value">{telemetryAvailable ? `${diskUsedGB} / ${diskTotalGB} GB` : "Unavailable"}</span>
         </div>
         <div class="progress-bar">
           <div class="progress-fill" style="width: {diskPercent}%; background: {getStatusColor(diskPercent)};"></div>
-          <span class="progress-text">{diskPercent}%</span>
+          <span class="progress-text">{telemetryAvailable ? `${diskPercent}%` : "--"}</span>
         </div>
       </div>
 
