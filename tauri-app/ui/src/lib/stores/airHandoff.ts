@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { call, onNotification } from "../api/daemon";
+import { call, onNotification, requireOkResult, type DaemonStatusResult } from "../api/daemon";
 import { airHandoffGestureCommand } from "../gesture/airHandoffGesture";
 import { resolveAirHandoffDelivery, type AirHandoffDeliveryEvent } from "../gesture/airHandoffDelivery";
 import { reconcileAirHandoffTarget } from "../gesture/airHandoffTarget";
@@ -109,8 +109,10 @@ function createAirHandoffStore() {
   async function invoke<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     update((state) => ({ ...state, busy: true, error: "" }));
     try {
-      const result = await call<T & { status?: string; message?: string }>(method, params);
-      if (result.status === "error") throw new Error(result.message || "Air Handoff failed");
+      const result = requireOkResult(
+        await call<T & DaemonStatusResult>(method, params),
+        `Air Handoff operation '${method}' was not acknowledged.`,
+      );
       return result;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Air Handoff failed";
@@ -123,7 +125,19 @@ function createAirHandoffStore() {
 
   async function refresh(): Promise<void> {
     try {
-      const result = await call<AirHandoffState>("air_handoff_status");
+      const result = requireOkResult(
+        await call<Partial<AirHandoffState> & DaemonStatusResult>("air_handoff_status"),
+        "Air Handoff status is unavailable.",
+      );
+      if (
+        typeof result.enabled !== "boolean" ||
+        typeof result.running !== "boolean" ||
+        typeof result.secure_storage_available !== "boolean" ||
+        !Array.isArray(result.paired_devices) ||
+        !Array.isArray(result.recent)
+      ) {
+        throw new Error("Air Handoff status is incomplete.");
+      }
       mergeRemote({ ...result, error: "" });
     } catch (cause) {
       update((state) => ({
@@ -137,11 +151,23 @@ function createAirHandoffStore() {
 
   async function setEnabled(enabled: boolean): Promise<void> {
     const result = await invoke<AirHandoffState>("air_handoff_set_enabled", { enabled });
+    if (result.enabled !== enabled || result.running !== enabled) {
+      throw new Error("Air Handoff receiver did not reach the requested state.");
+    }
     mergeRemote(result);
   }
 
   async function startPairing(): Promise<AirHandoffPairing> {
     const result = await invoke<AirHandoffPairing>("air_handoff_start_pairing");
+    if (
+      typeof result.session_id !== "string" ||
+      !result.session_id ||
+      typeof result.pairing_url !== "string" ||
+      !result.pairing_url ||
+      !Number.isFinite(Number(result.expires_at))
+    ) {
+      throw new Error("Air Handoff pairing response is incomplete.");
+    }
     const pairing: AirHandoffPairing = {
       session_id: result.session_id,
       expires_at: result.expires_at,
@@ -179,6 +205,9 @@ function createAirHandoffStore() {
     const result = await invoke<{ draft: AirHandoffDraft }>("air_handoff_grab", {
       kind: "screenshot",
     });
+    if (!result.draft || typeof result.draft.draft_id !== "string" || !result.draft.draft_id) {
+      throw new Error("Air Handoff did not return a captured screen draft.");
+    }
     mergeRemote({ draft: result.draft, message: "Screen grabbed. Push an open palm to send it." });
   }
 
@@ -188,6 +217,9 @@ function createAirHandoffStore() {
     const result = await invoke<{ transfer: { transfer_id: string } }>("air_handoff_drop", {
       target_device_id: state.selectedDeviceId,
     });
+    if (!result.transfer || typeof result.transfer.transfer_id !== "string" || !result.transfer.transfer_id) {
+      throw new Error("Air Handoff did not return a queued transfer.");
+    }
     const targetName =
       state.paired_devices.find((device) => device.device_id === state.selectedDeviceId)?.name || "selected phone";
     mergeRemote({
@@ -225,7 +257,17 @@ function createAirHandoffStore() {
 
   onNotification((method, params) => {
     if (method === "air_handoff_state" && params && typeof params === "object") {
-      mergeRemote(params as Partial<AirHandoffState>);
+      try {
+        const remote = requireOkResult(params as DaemonStatusResult, "Air Handoff status update was not acknowledged.");
+        mergeRemote(remote as Partial<AirHandoffState>);
+      } catch (cause) {
+        update((state) => ({
+          ...state,
+          running: false,
+          gestureArmed: false,
+          error: cause instanceof Error ? cause.message : "Air Handoff status update failed",
+        }));
+      }
     }
   });
 

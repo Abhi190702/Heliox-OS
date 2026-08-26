@@ -107,3 +107,44 @@ async def test_disable_persists_before_stopping_receiver() -> None:
     server._air_handoff_manager.cancel_draft.assert_awaited_once()
     assert receiver.stops == 1
     assert receiver.running is False
+
+
+@pytest.mark.asyncio
+async def test_status_reports_uninitialized_service_as_error() -> None:
+    server = PilotServer.__new__(PilotServer)
+    server._air_handoff_manager = None
+    server._air_handoff_server = None
+
+    result = await server._handle_air_handoff_status({}, None)
+
+    assert result == {
+        "status": "error",
+        "enabled": False,
+        "running": False,
+        "message": "Air Handoff is not initialized",
+    }
+
+
+@pytest.mark.asyncio
+async def test_status_acknowledges_complete_receiver_state() -> None:
+    server = PilotServer.__new__(PilotServer)
+    server.config = SimpleNamespace(air_handoff=SimpleNamespace(enabled=True, port=8766))
+    server._air_handoff_manager = SimpleNamespace(
+        status=AsyncMock(
+            return_value={
+                "paired_devices": [],
+                "pairing": None,
+                "draft": None,
+                "ready_transfers": 0,
+                "recent": [],
+                "secure_storage_available": True,
+            }
+        )
+    )
+    server._air_handoff_server = SimpleNamespace(running=True, base_url="http://192.0.2.1:8766")
+
+    result = await server._handle_air_handoff_status({}, None)
+
+    assert result["status"] == "ok"
+    assert result["enabled"] is True
+    assert result["running"] is True

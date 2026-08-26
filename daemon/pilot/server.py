@@ -8141,6 +8141,7 @@ def handle_tool(tool_name, params):
         """Return the complete local receiver state for the trusted UI."""
         if self._air_handoff_manager is None or self._air_handoff_server is None:
             return {
+                "status": "error",
                 "enabled": False,
                 "running": False,
                 "message": "Air Handoff is not initialized",
@@ -8148,6 +8149,7 @@ def handle_tool(tool_name, params):
         state = await self._air_handoff_manager.status()
         state.update(
             {
+                "status": "ok",
                 "enabled": bool(self.config.air_handoff.enabled),
                 "running": bool(self._air_handoff_server.running),
                 "receiver_url": (self._air_handoff_server.base_url if self._air_handoff_server.running else None),
