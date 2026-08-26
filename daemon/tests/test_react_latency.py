@@ -195,6 +195,6 @@ async def test_planner_bounds_memory_and_raw_history() -> None:
         "max_tokens": 1000,
     }
     assert memory.history_kwargs == {
-        "limit": 7,
+        "limit": 6,
         "session_id": "chat-42",
     }
