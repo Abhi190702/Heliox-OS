@@ -28,6 +28,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger("pilot.agents.execution_companion")
 
 _LOCAL_FOLLOW_UP_ACTIONS = {
+    "battery_info",
+    "cpu_usage",
+    "disk_usage",
+    "memory_usage",
+    "network_info",
     "open_application",
     "open_url",
     "notify",
@@ -242,6 +247,20 @@ class ExecutionCompanion:
                 [
                     "Compare the observed system values with the requirements of the app you plan to run",
                     "Save a compact system report so you can compare these values later",
+                ]
+            )
+        if "battery_info" in families:
+            suggestions.extend(
+                [
+                    "Compare the charge and power state with how long you expect to keep working",
+                    "Set a local low-battery reminder before starting a long task",
+                ]
+            )
+        if "network_info" in families:
+            suggestions.extend(
+                [
+                    "Check whether the active network interface matches the connection you intended to use",
+                    "Save a compact network baseline before troubleshooting a connection change",
                 ]
             )
         if any(action_type.startswith("file_") for action_type in families):

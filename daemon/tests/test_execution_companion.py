@@ -10,6 +10,7 @@ from pilot.actions import (
     ActionResult,
     ActionType,
     BrowserParams,
+    EmptyParams,
     OpenApplicationParams,
     SystemInfoParams,
     VerificationResult,
@@ -207,6 +208,36 @@ async def test_application_follow_up_is_immediate_and_does_not_call_model():
     assert follow_up is not None
     assert follow_up.source == "local_fallback"
     assert "inside the application" in follow_up.suggestions[0]
+    assert model.calls == []
+
+
+@pytest.mark.asyncio
+async def test_battery_follow_up_is_immediate_and_specific():
+    model = _Model(error=AssertionError("model should not be called"))
+    companion = ExecutionCompanion(model)
+    plan = ActionPlan(
+        actions=[
+            Action(
+                action_type=ActionType.BATTERY_INFO,
+                target="battery",
+                parameters=EmptyParams(),
+            )
+        ],
+        explanation="Check current battery status",
+    )
+    result = ActionResult(action=plan.actions[0], success=True, output="Charge: 100%")
+
+    follow_up = await companion.follow_up(
+        "Show current battery status.",
+        plan,
+        [result],
+        VerificationResult(passed=True, details=["verified"]),
+    )
+
+    assert follow_up is not None
+    assert follow_up.source == "local_fallback"
+    assert "charge and power state" in follow_up.suggestions[0]
+    assert "Review the verified result" not in follow_up.spoken_text()
     assert model.calls == []
 
 
