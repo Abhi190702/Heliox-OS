@@ -1250,6 +1250,8 @@ class PilotServer:
                 checkpoint_store=self._checkpoint_store,
                 adaptive_executor=self._autonomous,
                 memory=self._memory,
+                pending_trigger_window_seconds=self.config.gesture_workflows.pending_trigger_window_seconds,
+                paused_window_seconds=self.config.gesture_workflows.paused_window_seconds,
             )
             self._voice_gesture_workflows.set_broadcast(self._broadcast_notification)
             self._voice_gesture_workflows.set_speech(self._speak_companion_text)

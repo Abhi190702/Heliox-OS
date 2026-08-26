@@ -78,7 +78,7 @@ class _RaisingDecomposer(_StubDecomposer):
         raise RuntimeError("decomposer unavailable")
 
 
-def _engine(tmp_path, planner=None, executor=None, decomposer=None):
+def _engine(tmp_path, planner=None, executor=None, decomposer=None, **engine_options):
     workflow_store = VoiceGestureWorkflowStore(db_file=tmp_path / "workflows.db")
     checkpoint_store = WorkflowCheckpointStore(db_file=tmp_path / "checkpoints.db")
     return VoiceGestureWorkflowEngine(
@@ -87,6 +87,7 @@ def _engine(tmp_path, planner=None, executor=None, decomposer=None):
         decomposer or _StubDecomposer(),
         workflow_store,
         checkpoint_store,
+        **engine_options,
     )
 
 
@@ -471,6 +472,26 @@ class TestGatewayScoping:
 
 
 class TestExpiry:
+    @pytest.mark.asyncio
+    async def test_configured_windows_drive_pending_and_paused_deadlines(self, tmp_path):
+        engine = _engine(
+            tmp_path,
+            planner=_StubPlanner(error_on={"needs clarification"}),
+            pending_trigger_window_seconds=7,
+            paused_window_seconds=13,
+        )
+        waiting = await engine.start("needs clarification", InvocationSource.VOICE)
+        waiting = await _wait_until_terminal(engine, waiting.workflow_id)
+        waiting_seconds = datetime.fromisoformat(waiting.trigger_deadline).timestamp() - datetime.now(UTC).timestamp()
+        assert 5 <= waiting_seconds <= 7
+
+        await engine._workflow_store.initialize()
+        pending = await engine._workflow_store.create("pause this", InvocationSource.VOICE.value)
+        assert await engine.pause(pending.workflow_id) is True
+        paused = await engine._workflow_store.get(pending.workflow_id)
+        paused_seconds = datetime.fromisoformat(paused.trigger_deadline).timestamp() - datetime.now(UTC).timestamp()
+        assert 11 <= paused_seconds <= 13
+
     @pytest.mark.asyncio
     async def test_paused_workflow_gets_a_trigger_deadline(self, tmp_path):
         engine = _engine(tmp_path, decomposer=_StubDecomposer(subtasks=["a", "b"]))

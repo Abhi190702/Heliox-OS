@@ -137,6 +137,8 @@ class VoiceGestureWorkflowEngine:
         checkpoint_store: WorkflowCheckpointStore,
         adaptive_executor: AutonomousExecutor | None = None,
         memory: MemoryStore | None = None,
+        pending_trigger_window_seconds: float = WAITING_FOR_TRIGGER_SECONDS,
+        paused_window_seconds: float = PAUSED_WINDOW_SECONDS,
     ) -> None:
         self._planner = planner
         self._executor = executor
@@ -145,6 +147,8 @@ class VoiceGestureWorkflowEngine:
         self._checkpoint_store = checkpoint_store
         self._adaptive_executor = adaptive_executor
         self._memory = memory
+        self._pending_trigger_window_seconds = max(1.0, float(pending_trigger_window_seconds))
+        self._paused_window_seconds = max(1.0, float(paused_window_seconds))
         self._broadcast: Callable[[str, Any], Coroutine[Any, Any, None]] | None = None
         self._speech: Callable[[str, str, str], Coroutine[Any, Any, Any]] | None = None
         self._pause_requested: dict[str, bool] = {}
@@ -171,7 +175,7 @@ class VoiceGestureWorkflowEngine:
                     key="active_goal",
                     value={"goal": goal, "state": workflow.state},
                     priority=0.95,
-                    ttl_seconds=PAUSED_WINDOW_SECONDS,
+                    ttl_seconds=self._paused_window_seconds,
                 )
             except Exception:
                 logger.warning("Could not persist workflow working memory", exc_info=True)
@@ -196,7 +200,9 @@ class VoiceGestureWorkflowEngine:
             self._pause_requested[workflow_id] = True
         else:
             await self._workflow_store.set_state(
-                workflow_id, WorkflowState.PAUSED, trigger_deadline=self._deadline_iso(PAUSED_WINDOW_SECONDS)
+                workflow_id,
+                WorkflowState.PAUSED,
+                trigger_deadline=self._deadline_iso(self._paused_window_seconds),
             )
         return True
 
@@ -339,7 +345,7 @@ class VoiceGestureWorkflowEngine:
                     key="latest_correction",
                     value=correction,
                     priority=1.0,
-                    ttl_seconds=PAUSED_WINDOW_SECONDS,
+                    ttl_seconds=self._paused_window_seconds,
                 )
             except Exception:
                 logger.warning("Could not persist workflow correction memory", exc_info=True)
@@ -353,7 +359,7 @@ class VoiceGestureWorkflowEngine:
         if workflow is None:
             workflow = await self._workflow_store.find_pending_for_source(
                 invocation_source,
-                within_seconds=PAUSED_WINDOW_SECONDS,
+                within_seconds=self._paused_window_seconds,
             )
         if workflow is None:
             return False
@@ -384,7 +390,7 @@ class VoiceGestureWorkflowEngine:
         pending workflow, a stale/expired one, or unrecognized text), in
         which case normal dispatch proceeds completely unaffected."""
         workflow = await self._workflow_store.find_pending_for_source(
-            invocation_source, within_seconds=PAUSED_WINDOW_SECONDS
+            invocation_source, within_seconds=self._paused_window_seconds
         )
         if workflow is None:
             return False
@@ -421,7 +427,9 @@ class VoiceGestureWorkflowEngine:
             while True:
                 if self._pause_requested.pop(workflow_id, False):
                     await self._workflow_store.set_state(
-                        workflow_id, WorkflowState.PAUSED, trigger_deadline=self._deadline_iso(PAUSED_WINDOW_SECONDS)
+                        workflow_id,
+                        WorkflowState.PAUSED,
+                        trigger_deadline=self._deadline_iso(self._paused_window_seconds),
                     )
                     await self._notify(workflow_id)
                     return
@@ -496,7 +504,7 @@ class VoiceGestureWorkflowEngine:
             # "failed") so resume() naturally retries it with a fresh plan()
             # call, rather than needing separate retry bookkeeping.
             await self._workflow_store.update_step(workflow.workflow_id, step.index, status="pending", error=plan.error)
-            deadline = self._deadline_iso(WAITING_FOR_TRIGGER_SECONDS)
+            deadline = self._deadline_iso(self._pending_trigger_window_seconds)
             await self._workflow_store.set_state(
                 workflow.workflow_id, WorkflowState.WAITING_FOR_TRIGGER, trigger_deadline=deadline
             )
@@ -592,7 +600,7 @@ class VoiceGestureWorkflowEngine:
             await self._workflow_store.set_state(
                 workflow.workflow_id,
                 WorkflowState.WAITING_FOR_TRIGGER,
-                trigger_deadline=self._deadline_iso(WAITING_FOR_TRIGGER_SECONDS),
+                trigger_deadline=self._deadline_iso(self._pending_trigger_window_seconds),
             )
             await self._notify(workflow.workflow_id)
             return True
