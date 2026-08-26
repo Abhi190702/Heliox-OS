@@ -110,7 +110,28 @@ class Verifier:
         details: list[str] = []
         failed_indices: list[int] = []
 
-        for i, result in enumerate(results):
+        if len(results) != len(plan.actions):
+            details.append(
+                f"RESULT COUNT MISMATCH — planned {len(plan.actions)} action(s), received {len(results)} result(s)"
+            )
+
+        for i, planned_action in enumerate(plan.actions):
+            if i >= len(results):
+                details.append(
+                    f"Action {i} ({planned_action.action_type.value}): MISSING — executor returned no result"
+                )
+                failed_indices.append(i)
+                continue
+
+            result = results[i]
+            if result.action.model_dump(mode="json") != planned_action.model_dump(mode="json"):
+                details.append(
+                    f"Action {i} ({planned_action.action_type.value}): MISMATCH — "
+                    f"executor returned a result for {result.action.action_type.value}"
+                )
+                failed_indices.append(i)
+                continue
+
             if not result.success:
                 details.append(f"Action {i} ({result.action.action_type.value}): FAILED — {result.error}")
                 failed_indices.append(i)
@@ -122,6 +143,12 @@ class Verifier:
             else:
                 details.append(f"Action {i} ({result.action.action_type.value}): MISMATCH — {check_detail}")
                 failed_indices.append(i)
+
+        for i, result in enumerate(results[len(plan.actions) :], start=len(plan.actions)):
+            details.append(
+                f"Action {i} ({result.action.action_type.value}): UNEXPECTED — result was not present in the plan"
+            )
+            failed_indices.append(i)
 
         passed = len(failed_indices) == 0
         return VerificationResult(
