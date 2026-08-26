@@ -2,6 +2,7 @@
 
 from pilot.testing.evaluation import (
     CompositeEnvironmentProbe,
+    EfficiencyQualityReport,
     EnvironmentSnapshot,
     EvaluationReport,
     EvaluationScenario,
@@ -14,10 +15,12 @@ from pilot.testing.evaluation import (
     StateOperator,
     TraceEvaluator,
     default_release_scenarios,
+    evaluate_efficiency_quality,
 )
 
 __all__ = [
     "EnvironmentSnapshot",
+    "EfficiencyQualityReport",
     "EvaluationReport",
     "EvaluationScenario",
     "ExperienceTrace",
@@ -30,4 +33,5 @@ __all__ = [
     "StateOperator",
     "TraceEvaluator",
     "default_release_scenarios",
+    "evaluate_efficiency_quality",
 ]

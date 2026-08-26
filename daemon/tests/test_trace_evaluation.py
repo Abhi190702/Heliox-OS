@@ -15,7 +15,9 @@ from pilot.intelligence.experience import (
 )
 from pilot.testing.evaluation import (
     CompositeEnvironmentProbe,
+    EfficiencyQualityReport,
     EnvironmentSnapshot,
+    EvaluationReport,
     EvaluationScenario,
     ExperienceTrace,
     ExperienceTraceReplayer,
@@ -25,7 +27,9 @@ from pilot.testing.evaluation import (
     StateAssertion,
     StateOperator,
     TraceEvaluator,
+    TraceReplayResult,
     default_release_scenarios,
+    evaluate_efficiency_quality,
 )
 
 
@@ -178,6 +182,85 @@ async def test_replayer_accepts_explicitly_unexecuted_completion_without_start(l
     assert replay.violations == ()
     assert replay.started_action_ids == ()
     assert replay.completed_action_ids == ("action-skipped",)
+    assert replay.skipped_action_ids == ("action-skipped",)
+    assert replay.skip_reasons == ("already_satisfied",)
+
+
+def _quality_report(
+    scenario_id: str,
+    *,
+    started_actions: int,
+    outcome: float = 1.0,
+    driver_error: str = "",
+) -> EvaluationReport:
+    action_ids = tuple(f"action-{index}" for index in range(started_actions))
+    replay = TraceReplayResult(
+        task_id=scenario_id,
+        terminal_status="success" if outcome == 1.0 else "failed",
+        duration_ms=0,
+        event_counts={},
+        candidate_action_ids=action_ids,
+        started_action_ids=action_ids,
+        completed_action_ids=action_ids,
+        skipped_action_ids=(),
+        skip_reasons=(),
+        approval_decisions=(),
+        observation_sources=(),
+        correction_count=0,
+        violations=(),
+    )
+    return EvaluationReport(
+        scenario_id=scenario_id,
+        passed=outcome == 1.0 and not driver_error,
+        overall_score=outcome,
+        dimension_scores={"outcome": outcome},
+        evidence=(),
+        violations=(),
+        replay=replay,
+        before=EnvironmentSnapshot({}),
+        after=EnvironmentSnapshot({}),
+        driver_error=driver_error,
+    )
+
+
+def test_eqa_aggregates_success_and_canonical_step_efficiency() -> None:
+    report = evaluate_efficiency_quality(
+        (
+            _quality_report("first", started_actions=1),
+            _quality_report("second", started_actions=2),
+        ),
+        max_steps_per_task=10,
+    )
+
+    assert isinstance(report, EfficiencyQualityReport)
+    assert report.success_rate == 1.0
+    assert report.eqa == 0.9
+    assert report.efficiency_given_success == 0.9
+    assert report.redundant_step_bill == 0.1
+    assert report.total_skipped_actions == 0
+    assert report.canonical_task_order == ("first", "second")
+
+
+def test_eqa_treats_over_budget_completion_as_unsuccessful() -> None:
+    report = evaluate_efficiency_quality(
+        (
+            _quality_report("over-budget", started_actions=4),
+            _quality_report("failed", started_actions=1, outcome=0.0),
+        ),
+        max_steps_per_task=3,
+    )
+
+    assert report.success_rate == 0.0
+    assert report.eqa == 0.0
+    assert report.budget_exceeded_tasks == ("over-budget",)
+    assert report.total_started_actions == 5
+
+
+def test_eqa_validates_suite_and_budget() -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        evaluate_efficiency_quality((), max_steps_per_task=10)
+    with pytest.raises(ValueError, match="positive"):
+        evaluate_efficiency_quality((_quality_report("task", started_actions=0),), max_steps_per_task=0)
 
 
 @pytest.mark.parametrize(

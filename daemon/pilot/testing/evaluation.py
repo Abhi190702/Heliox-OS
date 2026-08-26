@@ -284,6 +284,8 @@ class TraceReplayResult:
     candidate_action_ids: tuple[str, ...]
     started_action_ids: tuple[str, ...]
     completed_action_ids: tuple[str, ...]
+    skipped_action_ids: tuple[str, ...]
+    skip_reasons: tuple[str, ...]
     approval_decisions: tuple[str, ...]
     observation_sources: tuple[str, ...]
     correction_count: int
@@ -305,6 +307,8 @@ class ExperienceTraceReplayer:
         candidate_ids: set[str] = set()
         started_counts: Counter[str] = Counter()
         completed_ids: list[str] = []
+        skipped_ids: list[str] = []
+        skip_reasons: list[str] = []
         approval_decisions: list[str] = []
         denied_sequence: int | None = None
         correction_sequences: list[int] = []
@@ -339,6 +343,9 @@ class ExperienceTraceReplayer:
                 )
                 if executed and started_counts[event.action_id] <= 0:
                     violations.append(f"action {event.action_id or '(missing)'} completed without starting")
+                if not executed:
+                    skipped_ids.append(event.action_id)
+                    skip_reasons.append(str(event.payload.get("skip_reason", "unspecified")))
                 completed_ids.append(event.action_id)
             elif event.event_type == ExperienceEventType.USER_CORRECTION:
                 correction_sequences.append(event.sequence)
@@ -366,6 +373,8 @@ class ExperienceTraceReplayer:
                 action_id for action_id, count in sorted(started_counts.items()) for _ in range(count)
             ),
             completed_action_ids=tuple(completed_ids),
+            skipped_action_ids=tuple(skipped_ids),
+            skip_reasons=tuple(skip_reasons),
             approval_decisions=tuple(approval_decisions),
             observation_sources=tuple(
                 event.source for event in events if event.event_type == ExperienceEventType.OBSERVATION
@@ -426,6 +435,88 @@ class EvaluationReport:
     before: EnvironmentSnapshot
     after: EnvironmentSnapshot
     driver_error: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class EfficiencyQualityReport:
+    """Suite-level success and action-efficiency evidence.
+
+    ``eqa`` follows MMBench-GUI's continuous formulation over a canonical
+    task order. It never substitutes for deterministic outcome or safety
+    checks; it only exposes how quickly verified outcomes were reached.
+    """
+
+    task_count: int
+    successful_tasks: int
+    success_rate: float
+    eqa: float
+    efficiency_given_success: float
+    redundant_step_bill: float
+    total_started_actions: int
+    total_skipped_actions: int
+    max_steps_per_task: int
+    budget_exceeded_tasks: tuple[str, ...]
+    canonical_task_order: tuple[str, ...]
+
+
+def evaluate_efficiency_quality(
+    reports: Sequence[EvaluationReport],
+    *,
+    max_steps_per_task: int,
+) -> EfficiencyQualityReport:
+    """Aggregate verified task reports using a fixed global step budget.
+
+    Every task consumes at least one evaluation step, matching the metric's
+    positive-step contract. A task that exceeds the per-task budget is treated
+    as unsuccessful at that budget even if it completed later.
+    """
+
+    if not reports:
+        raise ValueError("EQA requires at least one evaluation report")
+    if max_steps_per_task <= 0:
+        raise ValueError("max_steps_per_task must be positive")
+
+    task_count = len(reports)
+    total_budget = task_count * max_steps_per_task
+    cumulative_steps = 0
+    successful_tasks = 0
+    eqa_sum = 0.0
+    total_started_actions = 0
+    total_skipped_actions = 0
+    budget_exceeded: list[str] = []
+
+    for report in reports:
+        started_actions = len(report.replay.started_action_ids)
+        total_started_actions += started_actions
+        total_skipped_actions += len(report.replay.skipped_action_ids)
+        task_steps = max(1, started_actions)
+        within_budget = task_steps <= max_steps_per_task
+        if not within_budget:
+            budget_exceeded.append(report.scenario_id)
+        cumulative_steps += min(task_steps, max_steps_per_task)
+
+        outcome_succeeded = report.dimension_scores.get("outcome", 0.0) == 1.0 and not report.driver_error
+        if outcome_succeeded and within_budget:
+            successful_tasks += 1
+            normalized_completion = min(1.0, cumulative_steps / total_budget)
+            eqa_sum += 1.0 - normalized_completion
+
+    success_rate = successful_tasks / task_count
+    eqa = eqa_sum / task_count
+    efficiency_given_success = eqa / success_rate if success_rate else 0.0
+    return EfficiencyQualityReport(
+        task_count=task_count,
+        successful_tasks=successful_tasks,
+        success_rate=round(success_rate, 6),
+        eqa=round(eqa, 6),
+        efficiency_given_success=round(efficiency_given_success, 6),
+        redundant_step_bill=round(success_rate - eqa, 6),
+        total_started_actions=total_started_actions,
+        total_skipped_actions=total_skipped_actions,
+        max_steps_per_task=max_steps_per_task,
+        budget_exceeded_tasks=tuple(budget_exceeded),
+        canonical_task_order=tuple(report.scenario_id for report in reports),
+    )
 
 
 class TraceEvaluator:
