@@ -39,52 +39,37 @@ async def api_request(
     method: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS
     """
     method = method.upper()
-    last_error = None
+    async with create_httpx_client(PilotConfig.load(), timeout=timeout, follow_redirects=True, verify=True) as client:
+        kwargs: dict[str, Any] = {"params": params}
+        if headers:
+            kwargs["headers"] = headers
+        if auth:
+            kwargs["auth"] = auth
+        if body:
+            if isinstance(body, dict):
+                kwargs["json"] = body
+            else:
+                kwargs["content"] = body
+                kwargs.setdefault("headers", {})["Content-Type"] = "application/json"
 
-    # Try with SSL verification first, fallback without if cert issues
-    for verify in (True, False):
+        resp = await client.request(method, url, **kwargs)
+
+        result = {
+            "status": resp.status_code,
+            "url": str(resp.url),
+            "headers": dict(resp.headers),
+        }
+
+        # Parse response body
         try:
-            async with create_httpx_client(
-                PilotConfig.load(), timeout=timeout, follow_redirects=True, verify=verify
-            ) as client:
-                kwargs: dict[str, Any] = {"params": params}
-                if headers:
-                    kwargs["headers"] = headers
-                if auth:
-                    kwargs["auth"] = auth
-                if body:
-                    if isinstance(body, dict):
-                        kwargs["json"] = body
-                    else:
-                        kwargs["content"] = body
-                        kwargs.setdefault("headers", {})["Content-Type"] = "application/json"
+            result["body"] = resp.json()
+        except (json.JSONDecodeError, ValueError):
+            text = resp.text
+            if len(text) > 5000:
+                text = text[:5000] + f"... ({len(resp.text):,} chars total)"
+            result["body"] = text
 
-                resp = await client.request(method, url, **kwargs)
-
-                result = {
-                    "status": resp.status_code,
-                    "url": str(resp.url),
-                    "headers": dict(resp.headers),
-                }
-
-                # Parse response body
-                try:
-                    result["body"] = resp.json()
-                except (json.JSONDecodeError, ValueError):
-                    text = resp.text
-                    if len(text) > 5000:
-                        text = text[:5000] + f"... ({len(resp.text):,} chars total)"
-                    result["body"] = text
-
-                return json.dumps(result, indent=2, ensure_ascii=False)
-
-        except Exception as e:
-            last_error = e
-            if verify and "CERTIFICATE_VERIFY_FAILED" in str(e):
-                continue  # Retry without SSL
-            raise
-
-    raise last_error  # type: ignore[misc]
+        return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 # ── GitHub API ───────────────────────────────────────────────────────
@@ -267,7 +252,7 @@ async def scrape_url(
         PilotConfig.load(),
         timeout=30,
         follow_redirects=True,
-        verify=False,
+        verify=True,
         headers={"User-Agent": "Mozilla/5.0 (compatible; Pilot/0.3)"},
     ) as client:
         resp = await client.get(url)
