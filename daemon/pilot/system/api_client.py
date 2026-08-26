@@ -16,6 +16,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
 
+from pilot.actions import SUPPORTED_HTTP_METHODS
 from pilot.config import PilotConfig
 from pilot.system.http_client import create_httpx_client
 
@@ -39,6 +40,9 @@ async def api_request(
     method: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS
     """
     method = method.upper()
+    if method not in SUPPORTED_HTTP_METHODS:
+        supported = ", ".join(sorted(SUPPORTED_HTTP_METHODS))
+        raise ValueError(f"Unsupported HTTP method {method!r}; expected one of: {supported}")
     async with create_httpx_client(PilotConfig.load(), timeout=timeout, follow_redirects=True, verify=True) as client:
         kwargs: dict[str, Any] = {"params": params}
         if headers:

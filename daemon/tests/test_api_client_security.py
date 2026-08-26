@@ -41,6 +41,17 @@ async def test_api_request_never_retries_without_tls_verification(monkeypatch: p
 
 
 @pytest.mark.asyncio
+async def test_api_request_rejects_unsupported_method_before_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _unexpected_client(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("network client must not be constructed")
+
+    monkeypatch.setattr(api_client, "create_httpx_client", _unexpected_client)
+
+    with pytest.raises(ValueError, match="Unsupported HTTP method"):
+        await api_client.api_request("CONNECT", "https://example.com")
+
+
+@pytest.mark.asyncio
 async def test_scrape_url_keeps_tls_verification_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, object]] = []
 

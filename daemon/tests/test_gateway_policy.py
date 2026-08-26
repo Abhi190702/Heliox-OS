@@ -7,7 +7,7 @@ Executor/critic model calls involved, all pure/async-unit-level.
 
 import pytest
 
-from pilot.actions import Action, ActionPlan, ActionType, EmptyParams, PermissionTier
+from pilot.actions import Action, ActionPlan, ActionType, ApiRequestParams, EmptyParams, PermissionTier
 from pilot.config import PilotConfig
 from pilot.security.gateway import (
     DEFAULT_SOURCE_PROFILES,
@@ -25,6 +25,13 @@ from pilot.security.permissions import PermissionChecker
 class TestActionFamily:
     def test_shell_command_is_shell_family(self):
         assert action_family(ActionType.SHELL_COMMAND) == ActionFamily.SHELL
+
+    @pytest.mark.parametrize(
+        "action_type",
+        [ActionType.API_REQUEST, ActionType.API_GITHUB, ActionType.API_SCRAPE],
+    )
+    def test_api_actions_are_browsing_family(self, action_type):
+        assert action_family(action_type) == ActionFamily.BROWSING
 
     def test_ssh_command_is_shell_family(self):
         assert action_family(ActionType.SSH_COMMAND) == ActionFamily.SHELL
@@ -186,6 +193,22 @@ class TestAgentGatewayAuthorize:
         denied = await gateway.authorize(_plan(ActionType.FILE_WRITE), InvocationSource.NEURAL)
         assert allowed.allowed is True
         assert denied.allowed is False
+
+    @pytest.mark.asyncio
+    async def test_web_agent_can_reach_confirmable_api_writes(self, gateway):
+        plan = ActionPlan(
+            actions=[
+                Action(
+                    action_type=ActionType.API_REQUEST,
+                    parameters=ApiRequestParams(method="POST", url="https://example.com/items"),
+                )
+            ]
+        )
+
+        decision = await gateway.authorize(plan, InvocationSource.WEB_AGENT)
+
+        assert plan.actions[0].permission_tier == PermissionTier.SYSTEM_MODIFY
+        assert decision.allowed is True
 
 
 class TestPerSpecialistAgentSourceProfiles:

@@ -264,6 +264,10 @@ class PermissionTier(int, Enum):
     ROOT_CRITICAL = 4
 
 
+READ_ONLY_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+SUPPORTED_HTTP_METHODS = READ_ONLY_HTTP_METHODS | frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
 READ_ONLY_ACTIONS = {
     ActionType.FILE_READ,
     ActionType.FILE_LIST,
@@ -978,13 +982,16 @@ class Action(BaseModel):
             ActionType.DISK_USAGE,
             ActionType.MEMORY_USAGE,
             ActionType.SCREENSHOT,
-            ActionType.API_REQUEST,
-            ActionType.API_SCRAPE,
             ActionType.DOWNLOAD_FILE,
             ActionType.WASM_CALL,
         }
         if self.action_type in ALWAYS_SAFE:
             return PermissionTier.USER_WRITE
+        if self.action_type in {ActionType.API_REQUEST, ActionType.API_GITHUB}:
+            method = str(getattr(self.parameters, "method", "GET")).upper()
+            if method in READ_ONLY_HTTP_METHODS:
+                return PermissionTier.READ_ONLY
+            return PermissionTier.SYSTEM_MODIFY
         if self.action_type in READ_ONLY_ACTIONS:
             return PermissionTier.READ_ONLY
         if self.requires_root:
@@ -1017,6 +1024,9 @@ class Action(BaseModel):
             return True
         if self.dangerous_flags:
             return True
+        if self.action_type in {ActionType.API_REQUEST, ActionType.API_GITHUB}:
+            method = str(getattr(self.parameters, "method", "GET")).upper()
+            return method not in READ_ONLY_HTTP_METHODS
         return self.action_type in IRREVERSIBLE_ACTIONS
 
 

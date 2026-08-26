@@ -6,6 +6,7 @@ from pilot.actions import (
     SYSTEM_MODIFY_ACTIONS,
     Action,
     ActionType,
+    ApiRequestParams,
     EmptyParams,
     PermissionTier,
 )
@@ -45,6 +46,26 @@ def test_plugin_calls_require_confirmation():
     assert action.requires_confirmation is True
     assert action.permission_tier == PermissionTier.SYSTEM_MODIFY
     assert ActionType.PLUGIN_CALL in SYSTEM_MODIFY_ACTIONS
+
+
+@pytest.mark.parametrize("action_type", [ActionType.API_REQUEST, ActionType.API_GITHUB])
+@pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS"])
+def test_read_only_api_methods_do_not_require_confirmation(action_type, method):
+    action = Action(action_type=action_type, parameters=ApiRequestParams(method=method, url="https://example.com"))
+
+    assert action.permission_tier == PermissionTier.READ_ONLY
+    assert action.requires_confirmation is False
+    assert action.is_irreversible is False
+
+
+@pytest.mark.parametrize("action_type", [ActionType.API_REQUEST, ActionType.API_GITHUB])
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_mutating_api_methods_always_require_confirmation(action_type, method):
+    action = Action(action_type=action_type, parameters=ApiRequestParams(method=method, url="https://example.com"))
+
+    assert action.permission_tier == PermissionTier.SYSTEM_MODIFY
+    assert action.requires_confirmation is True
+    assert action.is_irreversible is True
 
 
 class TestBrowserActionRetiering:

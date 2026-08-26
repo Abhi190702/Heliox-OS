@@ -137,7 +137,12 @@ SHELL_ACTIONS: set[ActionType] = {
     ActionType.SSH_SCRIPT,
 }
 
-BROWSING_ACTIONS: set[ActionType] = {a for a in ActionType if a.value.startswith("browser_")}
+BROWSING_ACTIONS: set[ActionType] = {
+    *(action for action in ActionType if action.value.startswith("browser_")),
+    ActionType.API_REQUEST,
+    ActionType.API_GITHUB,
+    ActionType.API_SCRAPE,
+}
 
 SYSTEM_CONTROL_ACTIONS: set[ActionType] = {
     ActionType.MOUSE_CLICK,
