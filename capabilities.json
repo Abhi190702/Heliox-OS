@@ -19,11 +19,11 @@
   "sources": {
     "action_registry": {
       "path": "daemon/pilot/actions.py",
-      "sha256": "0e57ade6fe389c0304cbddbca355ee3ab113d8e7c944b5dedf1a389a57fc78d6"
+      "sha256": "0c3f7da0ef6698bb08671dc55ef99781727690a481f880648b993068a711661b"
     },
     "postcondition_verifier": {
       "path": "daemon/pilot/agents/verifier.py",
-      "sha256": "0ecc513bb20fc69055da4a883d807faba793f1847a4e7754475466ffd1b69ec3"
+      "sha256": "8c699b7a97978138bd7aa0845e140aca28fb549933744e40aa451fcae57ad645"
     },
     "plugin_manifests": [
       {
