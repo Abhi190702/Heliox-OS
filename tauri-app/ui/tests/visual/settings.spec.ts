@@ -93,17 +93,18 @@ test.describe("Settings Panel", () => {
   });
 
   test("toggle active state renders correctly", async ({ page }) => {
-    // Click the Root Access toggle and verify the active CSS class is applied
-    const rootToggle = page.locator(".setting-row").filter({ hasText: "Root Access" }).locator(".toggle");
+    // Use the local theme control; Root Access correctly stays disabled until
+    // the daemon has returned its current privilege policy.
+    const themeToggle = page.locator(".setting-row").filter({ hasText: "Light Mode" }).locator(".toggle");
 
-    await expect(rootToggle).toBeVisible();
+    await expect(themeToggle).toBeVisible();
     // Capture inactive state
-    await expect(rootToggle).toHaveScreenshot("settings-toggle-inactive.png");
+    await expect(themeToggle).toHaveScreenshot("settings-toggle-inactive.png");
 
     // Click to activate
-    await rootToggle.click();
+    await themeToggle.click();
     await page.waitForTimeout(100);
-    await expect(rootToggle).toHaveScreenshot("settings-toggle-active.png");
+    await expect(themeToggle).toHaveScreenshot("settings-toggle-active.png");
   });
 
   test("light mode settings panel matches baseline", async ({ page }) => {
@@ -247,7 +248,7 @@ test.describe("Settings Panel", () => {
     await section.scrollIntoViewIfNeeded();
 
     await expect(section).toContainText("21");
-    await expect(section).toContainText("156 / 156");
+    await expect(section).toContainText("157 / 157");
     await expect(section).toContainText("Complete action coverage");
     await expect(section).toContainText("FileOperationsAgent");
     await expect(section).toContainText("GitAgent");

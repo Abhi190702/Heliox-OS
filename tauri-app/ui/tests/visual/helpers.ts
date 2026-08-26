@@ -34,9 +34,14 @@ export async function mockTauriIpc(page: Page): Promise<void> {
       return mockTime;
     };
 
+    const invoke = async (cmd: string) => {
+      if (cmd === "get_system_stats") return { cpu: 18, ram: 62 };
+      return null;
+    };
+
     // Minimal Tauri v2 internals stub
     (window as any).__TAURI_INTERNALS__ = {
-      invoke: async (_cmd: string, _args?: unknown) => null,
+      invoke,
       transformCallback: (cb: Function) => cb,
       convertFileSrc: (src: string) => src,
     };
@@ -47,7 +52,7 @@ export async function mockTauriIpc(page: Page): Promise<void> {
 
     // Stub the plugin APIs used by the app
     (window as any).__TAURI__ = {
-      core: { invoke: async () => null },
+      core: { invoke },
       event: {
         listen: async () => () => {},
         once: async () => () => {},
@@ -122,6 +127,7 @@ export async function mockTauriIpc(page: Page): Promise<void> {
           request.method === "agent_routing" ||
           request.method === "subscription_status" ||
           request.method === "subscription_login" ||
+          request.method === "update_config" ||
           request.method.startsWith("air_handoff_")
         ) {
           let result: Record<string, unknown>;
@@ -175,12 +181,13 @@ export async function mockTauriIpc(page: Page): Promise<void> {
               },
             });
             result = {
+              status: "ok",
               enabled: true,
               total_specialists: 21,
               executable_specialists: 21,
               external_capability_providers: 0,
-              registered_action_types: 156,
-              available_action_types: 156,
+              registered_action_types: 157,
+              available_action_types: 157,
               coverage_complete: true,
               uncovered_action_types: [],
               sources: { builtin: 21 },
@@ -220,6 +227,7 @@ export async function mockTauriIpc(page: Page): Promise<void> {
             };
           } else if (request.method === "subscription_status") {
             result = {
+              status: "ok",
               provider: request.params?.provider ?? "codex",
               installed: true,
               authenticated: true,

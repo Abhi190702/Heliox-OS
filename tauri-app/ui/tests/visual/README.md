@@ -59,9 +59,9 @@ The `visual-regression` job in `.github/workflows/ci.yml`:
 - Uploads diff images as artifacts (retained 7 days) when tests fail
 - Reviewers can download the artifact to see exactly what changed visually
 
-The current suite contains 24 scenarios, including a visible world-model
+The current suite contains 26 scenarios, including a visible world-model
 interrupt, long-chat scroll retention, durable workflow controls, honest
-outdated-daemon status, and 21-specialist/156-action coverage.
+outdated-daemon status, and 21-specialist/157-action coverage.
 
 ## Pixel diff tolerance
 
