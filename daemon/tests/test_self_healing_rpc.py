@@ -145,3 +145,25 @@ async def test_config_update_rejects_unsupported_metric_without_partial_mutation
 
     assert result["status"] == "error"
     assert config.self_healing.enabled is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("params", "message"),
+    [
+        ({"enabled": "false"}, "enabled must be a boolean"),
+        ({"auto_execute_max_tier": 1.5}, "auto_execute_max_tier must be an integer"),
+        ({"cooldown_seconds": float("nan")}, "cooldown_seconds must be finite"),
+    ],
+)
+async def test_config_update_rejects_coercive_values_atomically(monkeypatch, params, message):
+    config = PilotConfig()
+    monkeypatch.setattr(config, "save", lambda: pytest.fail("invalid config was saved"))
+    server = PilotServer(config)
+
+    result = await server._handle_self_healing_config_update(params, ws=None)
+
+    assert result == {"status": "error", "message": message}
+    assert config.self_healing.enabled is False
+    assert config.self_healing.auto_execute_max_tier == 1
+    assert config.self_healing.cooldown_seconds == 600.0

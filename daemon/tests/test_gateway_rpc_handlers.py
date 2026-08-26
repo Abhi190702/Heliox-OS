@@ -155,3 +155,13 @@ class TestRiskGateStatusAndUpdate:
         assert result["enabled"] is False
         assert server.config.gateway.risk_gate_enabled is False
         assert saved is True
+
+    @pytest.mark.asyncio
+    async def test_update_rejects_truthy_string_without_mutation(self, monkeypatch):
+        server = PilotServer(PilotConfig())
+        monkeypatch.setattr(server.config, "save", lambda: pytest.fail("invalid config was saved"))
+
+        result = await server._handle_risk_gate_config_update({"enabled": "false"}, ws=None)
+
+        assert result == {"status": "error", "message": "enabled must be a boolean"}
+        assert server.config.gateway.risk_gate_enabled is True

@@ -214,3 +214,28 @@ async def test_already_enabled_transition_does_not_restart_hook(monkeypatch):
 
     assert server._supervision_hook.start_count == 0
     assert server._background.started_tasks == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("params", "message"),
+    [
+        ({"enabled": "false"}, "enabled must be a boolean"),
+        ({"stress_coaching_threshold": 1.1}, "stress_coaching_threshold must be at most 1"),
+        ({"tick_interval_seconds": float("nan")}, "tick_interval_seconds must be finite"),
+        ({"ocr_snippet_max_chars": False}, "ocr_snippet_max_chars must be an integer"),
+    ],
+)
+async def test_config_update_rejects_coercive_values_atomically(monkeypatch, params, message):
+    config = PilotConfig()
+    monkeypatch.setattr(config, "save", lambda: pytest.fail("invalid config was saved"))
+    server = PilotServer(config)
+
+    result = await server._handle_supervision_config_update(
+        {"cognitive_coaching_enabled": False, **params},
+        ws=None,
+    )
+
+    assert result == {"status": "error", "message": message}
+    assert config.supervision.cognitive_coaching_enabled is True
+    assert config.supervision.enabled is False

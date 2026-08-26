@@ -308,3 +308,22 @@ class TestGestureWorkflowBindings:
 
         assert result["status"] == "error"
         assert "enable at least one" in result["message"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"enabled": "false"},
+            {"bindings": [{"gesture_name": "palm", "goal_template": "run briefing", "enabled": "false"}]},
+        ],
+    )
+    async def test_update_rejects_truthy_strings_atomically(self, monkeypatch, params):
+        server = PilotServer(PilotConfig())
+        monkeypatch.setattr(server.config, "save", lambda: pytest.fail("invalid config was saved"))
+
+        result = await server._handle_gesture_workflow_bindings_update(params, ws=None)
+
+        assert result["status"] == "error"
+        assert "must be a boolean" in result["message"]
+        assert server.config.gesture_workflows.enabled is False
+        assert server.config.gesture_workflows.bindings == []

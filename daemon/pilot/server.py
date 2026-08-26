@@ -106,6 +106,55 @@ def _resolve_dry_run(configured: bool, requested: object = False) -> bool:
     return bool(configured or requested)
 
 
+def _validated_bool(params: dict[str, Any], key: str, default: bool) -> bool:
+    """Return a JSON boolean without accepting truthy strings or numbers."""
+    value = params.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be a boolean")
+    return value
+
+
+def _validated_float(
+    params: dict[str, Any],
+    key: str,
+    default: float,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float:
+    """Return a finite numeric RPC value within optional inclusive bounds."""
+    value = params.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{key} must be numeric")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{key} must be finite")
+    if minimum is not None and result < minimum:
+        raise ValueError(f"{key} must be at least {minimum:g}")
+    if maximum is not None and result > maximum:
+        raise ValueError(f"{key} must be at most {maximum:g}")
+    return result
+
+
+def _validated_int(
+    params: dict[str, Any],
+    key: str,
+    default: int,
+    *,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    """Return a strict integer RPC value within optional inclusive bounds."""
+    value = params.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{key} must be an integer")
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{key} must be at least {minimum}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{key} must be at most {maximum}")
+    return value
+
+
 def _sanitize_summary(text: object, limit: int = 160) -> str:
     """Collapse whitespace and bound user-visible/event summaries."""
     clean = " ".join(str(text).split())
@@ -5940,8 +5989,11 @@ class PilotServer:
 
     async def _handle_risk_gate_config_update(self, params: dict, ws: ServerConnection) -> dict:
         """Enable or disable risk-world-model evaluation and persist it."""
-        if "enabled" in params:
-            self.config.gateway.risk_gate_enabled = bool(params["enabled"])
+        try:
+            enabled = _validated_bool(params, "enabled", self.config.gateway.risk_gate_enabled)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+        self.config.gateway.risk_gate_enabled = enabled
         self.config.save()
         return await self._handle_risk_gate_status({}, ws)
 
@@ -6011,19 +6063,29 @@ class PilotServer:
             A dict with status and the updated config.
         """
         cfg = self.config.self_healing
-        enabled = bool(params.get("enabled", cfg.enabled))
         try:
-            max_tier = int(params.get("auto_execute_max_tier", cfg.auto_execute_max_tier))
-            cooldown = float(params.get("cooldown_seconds", cfg.cooldown_seconds))
-            confirm_timeout = float(params.get("confirm_timeout_seconds", cfg.confirm_timeout_seconds))
-        except (TypeError, ValueError):
-            return {"status": "error", "message": "tier and timeout values must be numeric"}
-        if not 0 <= max_tier <= 3:
-            return {"status": "error", "message": "auto_execute_max_tier must be between 0 and 3"}
-        if cooldown < 0:
-            return {"status": "error", "message": "cooldown_seconds must be non-negative"}
-        if confirm_timeout <= 0:
-            return {"status": "error", "message": "confirm_timeout_seconds must be positive"}
+            enabled = _validated_bool(params, "enabled", cfg.enabled)
+            max_tier = _validated_int(
+                params,
+                "auto_execute_max_tier",
+                cfg.auto_execute_max_tier,
+                minimum=0,
+                maximum=3,
+            )
+            cooldown = _validated_float(
+                params,
+                "cooldown_seconds",
+                cfg.cooldown_seconds,
+                minimum=0,
+            )
+            confirm_timeout = _validated_float(
+                params,
+                "confirm_timeout_seconds",
+                cfg.confirm_timeout_seconds,
+                minimum=0.001,
+            )
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
 
         watched_metrics = list(cfg.watched_metrics)
         if "watched_metrics" in params:
@@ -6097,27 +6159,53 @@ class PilotServer:
             A dict with status and the updated config.
         """
         cfg = self.config.narration
-        if "enabled" in params:
-            cfg.enabled = bool(params["enabled"])
-        if "narrate_steps" in params:
-            cfg.narrate_steps = bool(params["narrate_steps"])
-        if "interrupt_on_risk" in params:
-            cfg.interrupt_on_risk = bool(params["interrupt_on_risk"])
-        if "proactive_review_enabled" in params:
-            cfg.proactive_review_enabled = bool(params["proactive_review_enabled"])
-        if "live_corrections_enabled" in params:
-            cfg.live_corrections_enabled = bool(params["live_corrections_enabled"])
-        if "follow_up_enabled" in params:
-            cfg.follow_up_enabled = bool(params["follow_up_enabled"])
-        if "advisory_timeout_seconds" in params:
-            cfg.advisory_timeout_seconds = max(
-                1.0,
-                min(30.0, float(params["advisory_timeout_seconds"])),
+        try:
+            enabled = _validated_bool(params, "enabled", cfg.enabled)
+            narrate_steps = _validated_bool(params, "narrate_steps", cfg.narrate_steps)
+            interrupt_on_risk = _validated_bool(params, "interrupt_on_risk", cfg.interrupt_on_risk)
+            proactive_review_enabled = _validated_bool(
+                params,
+                "proactive_review_enabled",
+                cfg.proactive_review_enabled,
             )
-        if "max_auto_revisions" in params:
-            cfg.max_auto_revisions = max(0, min(5, int(params["max_auto_revisions"])))
-        if "confirm_timeout_seconds" in params:
-            cfg.confirm_timeout_seconds = float(params["confirm_timeout_seconds"])
+            live_corrections_enabled = _validated_bool(
+                params,
+                "live_corrections_enabled",
+                cfg.live_corrections_enabled,
+            )
+            follow_up_enabled = _validated_bool(params, "follow_up_enabled", cfg.follow_up_enabled)
+            advisory_timeout_seconds = _validated_float(
+                params,
+                "advisory_timeout_seconds",
+                cfg.advisory_timeout_seconds,
+                minimum=1,
+                maximum=30,
+            )
+            max_auto_revisions = _validated_int(
+                params,
+                "max_auto_revisions",
+                cfg.max_auto_revisions,
+                minimum=0,
+                maximum=5,
+            )
+            confirm_timeout_seconds = _validated_float(
+                params,
+                "confirm_timeout_seconds",
+                cfg.confirm_timeout_seconds,
+                minimum=0.001,
+            )
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+        cfg.enabled = enabled
+        cfg.narrate_steps = narrate_steps
+        cfg.interrupt_on_risk = interrupt_on_risk
+        cfg.proactive_review_enabled = proactive_review_enabled
+        cfg.live_corrections_enabled = live_corrections_enabled
+        cfg.follow_up_enabled = follow_up_enabled
+        cfg.advisory_timeout_seconds = advisory_timeout_seconds
+        cfg.max_auto_revisions = max_auto_revisions
+        cfg.confirm_timeout_seconds = confirm_timeout_seconds
 
         self.config.save()
         return {
@@ -6179,31 +6267,88 @@ class PilotServer:
         cfg = self.config.supervision
         was_enabled = cfg.enabled
         was_hook_enabled = cfg.keyboard_mouse_hook_enabled
+        try:
+            enabled = _validated_bool(params, "enabled", cfg.enabled)
+            hook_enabled = _validated_bool(
+                params,
+                "keyboard_mouse_hook_enabled",
+                cfg.keyboard_mouse_hook_enabled,
+            )
+            coaching_enabled = _validated_bool(
+                params,
+                "cognitive_coaching_enabled",
+                cfg.cognitive_coaching_enabled,
+            )
+            risk_detection_enabled = _validated_bool(
+                params,
+                "risk_pattern_detection_enabled",
+                cfg.risk_pattern_detection_enabled,
+            )
+            tick_interval = _validated_float(
+                params,
+                "tick_interval_seconds",
+                cfg.tick_interval_seconds,
+                minimum=0.001,
+            )
+            ocr_interval = _validated_float(
+                params,
+                "ocr_interval_seconds",
+                cfg.ocr_interval_seconds,
+                minimum=0.001,
+            )
+            stress_threshold = _validated_float(
+                params,
+                "stress_coaching_threshold",
+                cfg.stress_coaching_threshold,
+                minimum=0,
+                maximum=1,
+            )
+            load_threshold = _validated_float(
+                params,
+                "cognitive_load_coaching_threshold",
+                cfg.cognitive_load_coaching_threshold,
+                minimum=0,
+                maximum=1,
+            )
+            coaching_cooldown = _validated_float(
+                params,
+                "coaching_cooldown_seconds",
+                cfg.coaching_cooldown_seconds,
+                minimum=0,
+            )
+            risk_cooldown = _validated_float(
+                params,
+                "risk_cooldown_seconds",
+                cfg.risk_cooldown_seconds,
+                minimum=0,
+            )
+            keystroke_buffer_max = _validated_int(
+                params,
+                "keystroke_buffer_max_chars",
+                cfg.keystroke_buffer_max_chars,
+                minimum=1,
+            )
+            ocr_snippet_max = _validated_int(
+                params,
+                "ocr_snippet_max_chars",
+                cfg.ocr_snippet_max_chars,
+                minimum=1,
+            )
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
 
-        if "enabled" in params:
-            cfg.enabled = bool(params["enabled"])
-        if "keyboard_mouse_hook_enabled" in params:
-            cfg.keyboard_mouse_hook_enabled = bool(params["keyboard_mouse_hook_enabled"])
-        if "cognitive_coaching_enabled" in params:
-            cfg.cognitive_coaching_enabled = bool(params["cognitive_coaching_enabled"])
-        if "risk_pattern_detection_enabled" in params:
-            cfg.risk_pattern_detection_enabled = bool(params["risk_pattern_detection_enabled"])
-        if "tick_interval_seconds" in params:
-            cfg.tick_interval_seconds = float(params["tick_interval_seconds"])
-        if "ocr_interval_seconds" in params:
-            cfg.ocr_interval_seconds = float(params["ocr_interval_seconds"])
-        if "stress_coaching_threshold" in params:
-            cfg.stress_coaching_threshold = float(params["stress_coaching_threshold"])
-        if "cognitive_load_coaching_threshold" in params:
-            cfg.cognitive_load_coaching_threshold = float(params["cognitive_load_coaching_threshold"])
-        if "coaching_cooldown_seconds" in params:
-            cfg.coaching_cooldown_seconds = float(params["coaching_cooldown_seconds"])
-        if "risk_cooldown_seconds" in params:
-            cfg.risk_cooldown_seconds = float(params["risk_cooldown_seconds"])
-        if "keystroke_buffer_max_chars" in params:
-            cfg.keystroke_buffer_max_chars = int(params["keystroke_buffer_max_chars"])
-        if "ocr_snippet_max_chars" in params:
-            cfg.ocr_snippet_max_chars = int(params["ocr_snippet_max_chars"])
+        cfg.enabled = enabled
+        cfg.keyboard_mouse_hook_enabled = hook_enabled
+        cfg.cognitive_coaching_enabled = coaching_enabled
+        cfg.risk_pattern_detection_enabled = risk_detection_enabled
+        cfg.tick_interval_seconds = tick_interval
+        cfg.ocr_interval_seconds = ocr_interval
+        cfg.stress_coaching_threshold = stress_threshold
+        cfg.cognitive_load_coaching_threshold = load_threshold
+        cfg.coaching_cooldown_seconds = coaching_cooldown
+        cfg.risk_cooldown_seconds = risk_cooldown
+        cfg.keystroke_buffer_max_chars = keystroke_buffer_max
+        cfg.ocr_snippet_max_chars = ocr_snippet_max
 
         supervision_hook = getattr(self, "_supervision_hook", None)
         if supervision_hook is not None:
@@ -9150,7 +9295,10 @@ def handle_tool(tool_name, params):
 
         from pilot.config import SUPPORTED_GESTURE_WORKFLOW_GESTURES, GestureWorkflowBinding
 
-        enabled = bool(params.get("enabled", self.config.gesture_workflows.enabled))
+        try:
+            enabled = _validated_bool(params, "enabled", self.config.gesture_workflows.enabled)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
         parsed = list(self.config.gesture_workflows.bindings)
         if "bindings" in params:
             raw_bindings = params["bindings"]
@@ -9178,11 +9326,17 @@ def handle_tool(tool_name, params):
                 if len(goal_template) > 2000:
                     return {"status": "error", "message": f"binding {index + 1} goal is too long"}
                 seen_gestures.add(gesture_name)
+                binding_enabled = item.get("enabled", True)
+                if not isinstance(binding_enabled, bool):
+                    return {
+                        "status": "error",
+                        "message": f"binding {index + 1} enabled must be a boolean",
+                    }
                 parsed.append(
                     GestureWorkflowBinding(
                         gesture_name=gesture_name,
                         goal_template=goal_template,
-                        enabled=bool(item.get("enabled", True)),
+                        enabled=binding_enabled,
                     )
                 )
         if enabled and not any(binding.enabled for binding in parsed):

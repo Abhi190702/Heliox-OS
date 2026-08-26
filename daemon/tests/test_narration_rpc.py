@@ -73,3 +73,27 @@ async def test_status_reflects_updated_config(monkeypatch):
     await server._handle_narration_config_update({"enabled": True}, ws=None)
     result = await server._handle_narration_status({}, ws=None)
     assert result["enabled"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("params", "message"),
+    [
+        ({"enabled": "false"}, "enabled must be a boolean"),
+        ({"max_auto_revisions": True}, "max_auto_revisions must be an integer"),
+        ({"advisory_timeout_seconds": float("inf")}, "advisory_timeout_seconds must be finite"),
+    ],
+)
+async def test_config_update_rejects_coercive_values_atomically(monkeypatch, params, message):
+    config = PilotConfig()
+    monkeypatch.setattr(config, "save", lambda: pytest.fail("invalid config was saved"))
+    server = PilotServer(config)
+
+    result = await server._handle_narration_config_update(
+        {"narrate_steps": False, **params},
+        ws=None,
+    )
+
+    assert result == {"status": "error", "message": message}
+    assert config.narration.narrate_steps is True
+    assert config.narration.enabled is False
