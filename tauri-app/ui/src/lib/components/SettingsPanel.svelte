@@ -2,7 +2,7 @@
   import { settings } from "../stores/settings";
   import { _, locale } from "svelte-i18n";
   import { session } from "../stores/session";
-  import { call, requireOkResult, type DaemonStatusResult } from "../api/daemon";
+  import { call, requireOkResult, requireResultStatus, type DaemonStatusResult } from "../api/daemon";
   import { invoke } from "../api/invoke";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
   import ConfirmPrompt from "./ConfirmPrompt.svelte";
@@ -126,6 +126,7 @@
 
   let availableOllamaModels = $state<string[]>([]);
   type SubscriptionStatus = {
+    status?: string;
     provider: string;
     installed: boolean;
     authenticated: boolean;
@@ -141,12 +142,18 @@
 
   $effect(() => {
     call("list_ollama_models")
-      .then((res: any) => {
-        if (res && res.models) {
-          availableOllamaModels = res.models;
-        }
+      .then((raw) => {
+        const result = requireOkResult(
+          raw as DaemonStatusResult & { models?: string[] },
+          "Ollama model discovery is unavailable.",
+        );
+        if (!Array.isArray(result.models)) throw new Error("Ollama model discovery is incomplete.");
+        availableOllamaModels = result.models;
       })
-      .catch(console.error);
+      .catch((error) => {
+        availableOllamaModels = [];
+        console.error(error);
+      });
   });
 
   $effect(() => {
@@ -424,7 +431,10 @@
     subscriptionStatusLoading = true;
     subscriptionActionMessage = "";
     try {
-      subscriptionStatus = await call<SubscriptionStatus>("subscription_status", { provider, refresh });
+      subscriptionStatus = requireOkResult(
+        await call<SubscriptionStatus>("subscription_status", { provider, refresh }),
+        "Subscription status is unavailable.",
+      );
     } catch (error) {
       subscriptionStatus = {
         provider,
@@ -441,10 +451,14 @@
   async function startSubscriptionLogin() {
     subscriptionActionMessage = "";
     try {
-      const result = await call<{ status: string; message: string }>("subscription_login", {
-        provider: $settings.model.subscription_provider,
-      });
-      subscriptionActionMessage = result.message;
+      const result = requireResultStatus(
+        await call<{ status?: string; message?: string; error?: string }>("subscription_login", {
+          provider: $settings.model.subscription_provider,
+        }),
+        "started",
+        "The official subscription sign-in flow did not start.",
+      );
+      subscriptionActionMessage = result.message ?? "";
     } catch (error) {
       subscriptionActionMessage = error instanceof Error ? error.message : "Could not start the official sign-in flow.";
     }

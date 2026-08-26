@@ -5590,7 +5590,7 @@ class PilotServer:
             refresh = _validated_bool(params, "refresh", False)
         except ValueError as exc:
             return {"status": "error", "message": str(exc)}
-        return await self._subscription_client().status(provider, refresh=refresh)
+        return {"status": "ok", **await self._subscription_client().status(provider, refresh=refresh)}
 
     async def _handle_subscription_login(self, params: dict, ws: ServerConnection) -> dict:
         """Start the official provider login flow; Heliox never handles its credentials."""
@@ -5615,9 +5615,9 @@ class PilotServer:
         client = OllamaClient(self.config.model.ollama_base_url)
         try:
             models = await client.list_models()
-            return {"models": models, "available": True}
+            return {"status": "ok", "models": models, "available": True}
         except Exception:
-            return {"models": [], "available": False}
+            return {"status": "ok", "models": [], "available": False}
 
     # -- Health --
 

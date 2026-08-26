@@ -1,6 +1,6 @@
 <script lang="ts">
   import { settings } from "../stores/settings";
-  import { call } from "../api/daemon";
+  import { call, requireOkResult, requireResultStatus, type DaemonStatusResult } from "../api/daemon";
   import { onMount } from "svelte";
 
   interface Props {
@@ -32,7 +32,13 @@
 
   onMount(async () => {
     try {
-      const result = (await call("list_ollama_models")) as { models: string[]; available: boolean };
+      const result = requireOkResult(
+        (await call("list_ollama_models")) as DaemonStatusResult & { models?: string[]; available?: boolean },
+        "Ollama model discovery is unavailable.",
+      );
+      if (!Array.isArray(result.models) || typeof result.available !== "boolean") {
+        throw new Error("Ollama model discovery is incomplete.");
+      }
       ollamaModels = result.models ?? [];
       ollamaAvailable = result.available ?? false;
       if (ollamaModels.length > 0) {
@@ -49,12 +55,16 @@
   async function refreshSubscriptionStatus(refresh = true): Promise<boolean> {
     subscriptionChecking = true;
     try {
-      const result = await call<{ subscription: boolean; message: string }>("subscription_status", {
-        provider: subscriptionProvider,
-        refresh,
-      });
+      const result = requireOkResult(
+        await call<DaemonStatusResult & { subscription?: boolean; message?: string }>("subscription_status", {
+          provider: subscriptionProvider,
+          refresh,
+        }),
+        "Subscription status is unavailable.",
+      );
+      if (typeof result.subscription !== "boolean") throw new Error("Subscription status is incomplete.");
       subscriptionConnected = result.subscription;
-      subscriptionMessage = result.message;
+      subscriptionMessage = result.message ?? "";
       return result.subscription;
     } catch (error) {
       subscriptionConnected = false;
@@ -75,8 +85,12 @@
   async function startSubscriptionLogin() {
     subscriptionMessage = "";
     try {
-      const result = await call<{ message: string }>("subscription_login", { provider: subscriptionProvider });
-      subscriptionMessage = result.message;
+      const result = requireResultStatus(
+        await call<DaemonStatusResult>("subscription_login", { provider: subscriptionProvider }),
+        "started",
+        "The official subscription sign-in flow did not start.",
+      );
+      subscriptionMessage = result.message ?? "";
     } catch (error) {
       subscriptionMessage = error instanceof Error ? error.message : "Could not start the official sign-in flow.";
     }

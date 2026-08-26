@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Settings security status wiring", () => {
   const source = readFileSync(resolve("src/lib/components/SettingsPanel.svelte"), "utf8");
+  const setupSource = readFileSync(resolve("src/lib/components/SetupWizard.svelte"), "utf8");
 
   it("requires acknowledged root and snapshot status before enabling mutations", () => {
     expect(source).toContain('(await call("get_security_status")) as DaemonStatusResult');
@@ -24,5 +25,14 @@ describe("Settings security status wiring", () => {
     expect(source).toContain('>("list_audio_input_devices")');
     expect(source).toContain('requireOkResult(result, "Microphone inputs are unavailable.")');
     expect(source).toContain("disabled={speechSaving || audioInputDevices.length === 0}");
+  });
+
+  it("validates local and subscription model discovery in settings and first-run setup", () => {
+    expect(source).toContain('"Ollama model discovery is unavailable."');
+    expect(source).toContain('"Subscription status is unavailable."');
+    expect(source).toContain('"started"');
+    expect(setupSource).toContain('"Ollama model discovery is unavailable."');
+    expect(setupSource).toContain('"Subscription status is unavailable."');
+    expect(setupSource).toContain('"The official subscription sign-in flow did not start."');
   });
 });

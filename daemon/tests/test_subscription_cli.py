@@ -142,6 +142,7 @@ async def test_subscription_status_and_login_rpcs_delegate_to_selected_cli():
     )
     login = await server._handle_subscription_login({"provider": "claude"}, MagicMock())
 
+    assert status["status"] == "ok"
     assert status["subscription"] is True
     assert login["status"] == "started"
     client.status.assert_awaited_once_with("claude", refresh=True)
