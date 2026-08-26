@@ -68,12 +68,22 @@ class TriggerEngine:
         self._triggers: dict[str, Trigger] = {}
         self._running = False
         self._task: asyncio.Task | None = None
-        self._fire_callback: Callable[[Trigger], Coroutine] | None = None
+        self._fire_callback: Callable[[Trigger], Coroutine[Any, Any, None]] | None = None
+        self._callback_tasks: set[asyncio.Task[None]] = set()
         self._file_cache: dict[str, dict[str, float]] = {}  # path -> {file: mtime}
 
-    def set_fire_callback(self, callback: Callable[[Trigger], Coroutine]) -> None:
+    def set_fire_callback(self, callback: Callable[[Trigger], Coroutine[Any, Any, None]] | None) -> None:
         """Set callback that runs when a trigger fires."""
         self._fire_callback = callback
+
+    def _callback_done(self, task: asyncio.Task[None]) -> None:
+        self._callback_tasks.discard(task)
+        if task.cancelled():
+            return
+        try:
+            task.result()
+        except Exception:
+            logger.exception("Trigger action callback failed")
 
     # ── CRUD ─────────────────────────────────────────────────────────
 
@@ -135,6 +145,12 @@ class TriggerEngine:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
+            self._task = None
+        callback_tasks = tuple(self._callback_tasks)
+        for task in callback_tasks:
+            task.cancel()
+        if callback_tasks:
+            await asyncio.gather(*callback_tasks, return_exceptions=True)
         logger.info("Trigger engine stopped")
 
     async def _run_loop(self) -> None:
@@ -156,7 +172,12 @@ class TriggerEngine:
                                 trigger.fire_count,
                             )
                             if self._fire_callback:
-                                asyncio.create_task(self._fire_callback(trigger))
+                                task = asyncio.create_task(
+                                    self._fire_callback(trigger),
+                                    name=f"trigger_action_{trigger.id}",
+                                )
+                                self._callback_tasks.add(task)
+                                task.add_done_callback(self._callback_done)
                     except Exception as e:
                         logger.warning("Trigger %s eval error: %s", trigger.id, e)
 

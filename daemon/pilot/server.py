@@ -621,6 +621,7 @@ class PilotServer:
         self._companion_follow_up_tasks: set[asyncio.Task[None]] = set()
         self._interaction_speech_tasks: set[asyncio.Task[SpeechOutcome]] = set()
         self._mcp_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
+        self._trigger_engine: Any = None
         self._mcp_task_results: dict[str, dict[str, Any]] = {}
         self._mcp_reserved_task_id = ""
         # Cognitive intelligence (lightweight heuristic engine)
@@ -1135,6 +1136,14 @@ class PilotServer:
             logger.info("AutonomousExecutor initialized")
         except Exception:
             logger.warning("AutonomousExecutor init failed (non-critical)", exc_info=True)
+
+        # Reactive triggers must enter the same guarded autonomous pipeline as
+        # proactive suggestions. This preserves planning, permission checks,
+        # UI approval, world-model review, and postcondition verification.
+        from pilot.system.triggers import get_engine
+
+        self._trigger_engine = get_engine()
+        self._trigger_engine.set_fire_callback(self._dispatch_reactive_trigger)
 
         # ── Autonomous Healing Engine (passive system-health monitoring +
         # tiered auto-remediation, see pilot.agents.autonomous_healing) ──
@@ -5788,6 +5797,34 @@ class PilotServer:
         """
         return await self._reflector.get_stats()
 
+    async def _dispatch_reactive_trigger(self, trigger: Any) -> None:
+        """Submit one fired trigger through guarded autonomous execution."""
+        if not self._running or self._autonomous is None:
+            logger.warning("Trigger %s fired while autonomous execution was unavailable", trigger.id)
+            await self._broadcast_notification(
+                "trigger_dispatch_failed",
+                {
+                    "trigger_id": trigger.id,
+                    "name": trigger.name,
+                    "reason": "Guarded autonomous execution is unavailable",
+                },
+            )
+            return
+
+        job = await self._autonomous.submit(
+            trigger.action_command,
+            source="trigger",
+            session_id=f"trigger:{trigger.id}",
+        )
+        await self._broadcast_notification(
+            "trigger_dispatched",
+            {
+                "trigger_id": trigger.id,
+                "name": trigger.name,
+                "job_id": job.job_id,
+            },
+        )
+
     async def _handle_background_tasks(self, params: dict, ws: ServerConnection) -> dict:
         """List all registered background monitoring tasks.
 
@@ -7908,6 +7945,9 @@ def handle_tool(tool_name, params):
             await asyncio.gather(*mcp_tasks, return_exceptions=True)
         self._mcp_tasks.clear()
 
+        if self._trigger_engine is not None:
+            self._trigger_engine.set_fire_callback(None)
+            await self._trigger_engine.stop()
         if self._autonomous is not None:
             await self._autonomous.stop()
 
