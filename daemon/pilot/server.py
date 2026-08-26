@@ -6571,8 +6571,8 @@ class PilotServer:
         ws: ServerConnection,
     ) -> dict:
         if self._agent_mesh is None:
-            return {"enabled": False, "message": "Agent mesh is not initialized"}
-        return self._agent_mesh.status()
+            return {"status": "error", "enabled": False, "message": "Agent mesh is not initialized"}
+        return {"status": "ok", **self._agent_mesh.status()}
 
     async def _handle_agent_spawn(self, params: dict, ws: ServerConnection) -> dict:
         """Dynamically spawn a new specialist agent.

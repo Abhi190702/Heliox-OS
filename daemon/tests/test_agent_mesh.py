@@ -333,6 +333,21 @@ async def test_server_exposes_mesh_status_without_mutating_it():
 
     status = await server._handle_agent_mesh_status({}, None)
 
+    assert status["status"] == "ok"
     assert status["total_specialists"] == 1
     assert status["delegation"]["maximum_depth"] == 3
     assert status["routing"]["fixed_numeric_ceiling"] is False
+
+
+@pytest.mark.asyncio
+async def test_server_reports_unavailable_mesh_explicitly():
+    server = object.__new__(PilotServer)
+    server._agent_mesh = None
+
+    status = await server._handle_agent_mesh_status({}, None)
+
+    assert status == {
+        "status": "error",
+        "enabled": False,
+        "message": "Agent mesh is not initialized",
+    }

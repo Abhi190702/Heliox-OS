@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { call } from "../api/daemon";
+  import { call, requireOkResult, type DaemonStatusResult } from "../api/daemon";
 
   interface Specialist {
     agent_key: string;
@@ -40,6 +40,7 @@
   }
 
   interface MeshStatus {
+    status?: string;
     enabled: boolean;
     total_specialists: number;
     executable_specialists: number;
@@ -92,7 +93,10 @@
     loading = true;
     error = "";
     try {
-      status = (await call("agent_mesh_status")) as MeshStatus;
+      status = requireOkResult(
+        (await call("agent_mesh_status")) as MeshStatus & DaemonStatusResult,
+        "The daemon did not return the specialist mesh.",
+      );
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       error = /method not found.*agent_mesh/i.test(message)
@@ -111,6 +115,9 @@
       const result = (await call("agent_routing", { input: routeInput })) as {
         orchestrator?: { assigned_specialists?: RouteMatch[] };
       };
+      if (!result.orchestrator) {
+        throw new Error("Specialist routing is unavailable in the connected daemon.");
+      }
       routeMatches = result.orchestrator?.assigned_specialists ?? [];
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "Could not preview routing.";
