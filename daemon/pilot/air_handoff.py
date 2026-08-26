@@ -374,17 +374,25 @@ class AirHandoffManager:
         return sorted(result, key=lambda item: item["last_seen_at"], reverse=True)
 
     async def revoke_device(self, device_id: str) -> None:
-        device = self._devices.get(device_id)
-        if device is None:
-            raise AirHandoffError("Unknown Air Handoff device")
-        try:
-            await self._vault.delete_key(self._vault_key(device_id))
-        except VaultUnavailableError as exc:
-            raise AirHandoffError(str(exc)) from exc
-        device.revoked = True
-        self._save_metadata()
-        self._used_nonces.pop(device_id, None)
-        self._recent.appendleft({"event": "revoked", "device_id": device_id, "name": device.name, "at": self._now()})
+        async with self._lock:
+            device = self._devices.get(device_id)
+            if device is None:
+                raise AirHandoffError("Unknown Air Handoff device")
+            try:
+                await self._vault.delete_key(self._vault_key(device_id))
+            except VaultUnavailableError as exc:
+                raise AirHandoffError(str(exc)) from exc
+            device.revoked = True
+            self._save_metadata()
+            self._used_nonces.pop(device_id, None)
+            for transfer_id, transfer in list(self._transfers.items()):
+                if transfer.target_device_id != device_id:
+                    continue
+                self._delete_path(Path(transfer.path))
+                self._transfers.pop(transfer_id, None)
+            self._recent.appendleft(
+                {"event": "revoked", "device_id": device_id, "name": device.name, "at": self._now()}
+            )
 
     async def authenticate_request(
         self,

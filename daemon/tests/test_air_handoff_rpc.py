@@ -43,7 +43,7 @@ def make_server(config: FakeConfig, receiver: FakeReceiver) -> PilotServer:
     server = PilotServer.__new__(PilotServer)
     server.config = config
     server._vault = SimpleNamespace(available=True)
-    server._air_handoff_manager = SimpleNamespace(cancel_draft=AsyncMock())
+    server._air_handoff_manager = SimpleNamespace(clear_ephemeral=AsyncMock())
     server._air_handoff_server = receiver
     server._publish_air_handoff_state = AsyncMock(
         return_value={"enabled": config.air_handoff.enabled, "running": receiver.running}
@@ -104,7 +104,7 @@ async def test_disable_persists_before_stopping_receiver() -> None:
 
     assert result["status"] == "ok"
     assert config.saved_values == [False]
-    server._air_handoff_manager.cancel_draft.assert_awaited_once()
+    server._air_handoff_manager.clear_ephemeral.assert_awaited_once()
     assert receiver.stops == 1
     assert receiver.running is False
 

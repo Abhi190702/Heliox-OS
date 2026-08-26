@@ -8234,7 +8234,7 @@ def handle_tool(tool_name, params):
             if enabled:
                 await self._air_handoff_server.start()
             else:
-                await self._air_handoff_manager.cancel_draft()
+                await self._air_handoff_manager.clear_ephemeral()
                 await self._air_handoff_server.stop()
         except Exception as exc:
             logger.exception("Could not change Air Handoff receiver state")

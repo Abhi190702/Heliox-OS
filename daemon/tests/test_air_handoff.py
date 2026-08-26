@@ -155,6 +155,23 @@ async def test_pair_authenticate_reject_replay_and_revoke(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_revoke_purges_transfers_targeted_to_device(tmp_path: Path) -> None:
+    manager = AirHandoffManager(FakeVault(), data_dir=tmp_path)
+    credential, _ = await pair_device(manager)
+    await manager.grab_text("private revoked transfer")
+    transfer = await manager.drop(credential["device_id"])
+    metadata, _ = await manager.transfer_bytes(credential["device_id"], transfer["transfer_id"])
+    payload_path = Path(metadata.path)
+    assert payload_path.exists()
+
+    await manager.revoke_device(credential["device_id"])
+
+    assert not payload_path.exists()
+    status = await manager.status()
+    assert status["ready_transfers"] == 0
+
+
+@pytest.mark.asyncio
 async def test_drop_is_encrypted_and_visible_only_to_target(tmp_path: Path) -> None:
     vault = FakeVault()
     manager = AirHandoffManager(vault, data_dir=tmp_path)
