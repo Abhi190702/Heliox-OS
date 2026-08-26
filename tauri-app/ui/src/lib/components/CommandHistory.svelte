@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { call } from "../api/daemon";
+  import { call, requireResultStatus } from "../api/daemon";
+  import { loadLocalCommandHistory } from "../utils/chatSessions";
 
   // Props
   let { onReplay }: { onReplay: (command: string) => void } = $props();
@@ -14,48 +15,42 @@
 
   let history: HistoryEntry[] = $state([]);
   let loading = $state(false);
+  let historyNotice = $state("");
 
   // Fetch history when panel opens
   async function fetchHistory() {
     loading = true;
+    historyNotice = "";
     try {
-      const result = await call<{ plans?: HistoryEntry[] }>("get_plan_history", { limit: 30, offset: 0 });
+      const result = await call<{
+        status?: string;
+        message?: string;
+        error?: string;
+        plans?: HistoryEntry[];
+      }>("get_plan_history", { limit: 30, offset: 0 });
+      requireResultStatus(result, "ok", "Command history is unavailable.");
       let loaded = result.plans ?? [];
-      if (loaded.length === 0 && typeof localStorage !== "undefined") {
-        try {
-          const localMsgs = JSON.parse(localStorage.getItem("heliox_session_history") || "[]");
-          loaded = localMsgs
-            .filter((m: any) => m.type === "user" && m.text)
-            .map((m: any) => ({
-              raw_input: m.text,
-              created_at: new Date(m.timestamp || Date.now()).toISOString(),
-              execution_status: "success",
-            }))
-            .reverse();
-        } catch (e) {}
+      if (loaded.length === 0) {
+        loaded = localHistory();
+        if (loaded.length > 0) historyNotice = "Showing local chat records; daemon plan history is empty.";
       }
       history = loaded;
     } catch (e) {
-      if (typeof localStorage !== "undefined") {
-        try {
-          const localMsgs = JSON.parse(localStorage.getItem("heliox_session_history") || "[]");
-          history = localMsgs
-            .filter((m: any) => m.type === "user" && m.text)
-            .map((m: any) => ({
-              raw_input: m.text,
-              created_at: new Date(m.timestamp || Date.now()).toISOString(),
-              execution_status: "success",
-            }))
-            .reverse();
-        } catch (err) {
-          history = [];
-        }
-      } else {
-        history = [];
-      }
+      history = localHistory();
+      historyNotice = `Daemon plan history is unavailable; showing local records only. ${
+        e instanceof Error ? e.message : String(e)
+      }`;
     } finally {
       loading = false;
     }
+  }
+
+  function localHistory(): HistoryEntry[] {
+    return loadLocalCommandHistory(typeof localStorage === "undefined" ? null : localStorage).map((entry) => ({
+      raw_input: entry.text,
+      created_at: new Date(entry.timestamp).toISOString(),
+      execution_status: entry.status,
+    }));
   }
 
   function togglePanel() {
@@ -95,32 +90,37 @@
 
       {#if loading}
         <div class="history-loading">Loading...</div>
-      {:else if history.length === 0}
-        <div class="history-empty">No commands yet.</div>
       {:else}
-        <div class="history-list">
-          {#each history as entry}
-            <div class="history-item">
-              <span class="status-dot {statusClass(entry.execution_status)}">
-                {statusLabel(entry.execution_status)}
-              </span>
-              <div class="entry-info">
-                <span class="entry-cmd">{entry.raw_input}</span>
-                <span class="entry-time">{formatTime(entry.created_at)}</span>
+        {#if historyNotice}
+          <div class="history-notice" role="status">{historyNotice}</div>
+        {/if}
+        {#if history.length === 0}
+          <div class="history-empty">No commands yet.</div>
+        {:else}
+          <div class="history-list">
+            {#each history as entry}
+              <div class="history-item">
+                <span class="status-dot {statusClass(entry.execution_status)}">
+                  {statusLabel(entry.execution_status)}
+                </span>
+                <div class="entry-info">
+                  <span class="entry-cmd">{entry.raw_input}</span>
+                  <span class="entry-time">{formatTime(entry.created_at)}</span>
+                </div>
+                <button
+                  class="replay-btn"
+                  title="Replay this command"
+                  onclick={() => {
+                    onReplay(entry.raw_input);
+                    isOpen = false;
+                  }}
+                >
+                  ↩ Replay
+                </button>
               </div>
-              <button
-                class="replay-btn"
-                title="Replay this command"
-                onclick={() => {
-                  onReplay(entry.raw_input);
-                  isOpen = false;
-                }}
-              >
-                ↩ Replay
-              </button>
-            </div>
-          {/each}
-        </div>
+            {/each}
+          </div>
+        {/if}
       {/if}
     </div>
   {/if}
@@ -203,6 +203,14 @@
     text-align: center;
     font-size: 12px;
     color: var(--text-muted);
+  }
+
+  .history-notice {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--warning);
+    color: var(--warning);
+    font-size: 11px;
+    line-height: 1.35;
   }
 
   .history-list {

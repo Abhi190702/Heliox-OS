@@ -34,6 +34,16 @@ export interface ChatSessionCollection {
   activeSessionId: string;
 }
 
+export type LocalCommandStatus = "success" | "error" | "partial_failure" | "unverified";
+
+export interface LocalCommandRecord {
+  id: string;
+  timestamp: number;
+  text: string;
+  status: LocalCommandStatus;
+  explanation: string;
+}
+
 function makeId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -186,4 +196,64 @@ export function summarizeChatSessions(sessions: ChatSessionRecord[]): ChatSessio
         messageCount: session.messages.length,
       };
     });
+}
+
+function localCommandOutcome(
+  messages: Message[],
+  userIndex: number,
+): Pick<LocalCommandRecord, "status" | "explanation"> {
+  const following = messages.slice(userIndex + 1);
+  const nextUserIndex = following.findIndex((message) => message.type === "user");
+  const responseWindow = nextUserIndex === -1 ? following : following.slice(0, nextUserIndex);
+  const terminal = [...responseWindow]
+    .reverse()
+    .find((message) => message.type === "result" || message.type === "error");
+  if (!terminal) {
+    return {
+      status: "unverified",
+      explanation: "Local chat record; daemon execution outcome is unavailable.",
+    };
+  }
+  if (terminal.type === "error") return { status: "error", explanation: terminal.text };
+
+  const results = terminal.actionResults ?? [];
+  if (results.length > 0) {
+    const succeeded = results.filter((result) => result.success).length;
+    if (succeeded === results.length && terminal.verification?.passed !== false) {
+      return { status: "success", explanation: terminal.text };
+    }
+    return {
+      status: succeeded > 0 ? "partial_failure" : "error",
+      explanation: terminal.text,
+    };
+  }
+  if (terminal.verification) {
+    return {
+      status: terminal.verification.passed ? "success" : "error",
+      explanation: terminal.text,
+    };
+  }
+  return {
+    status: "unverified",
+    explanation: "Local chat response exists, but no execution result was recorded.",
+  };
+}
+
+export function loadLocalCommandHistory(storage: Storage | null): LocalCommandRecord[] {
+  const { sessions } = loadChatSessions(storage);
+  return sessions
+    .flatMap((session) =>
+      session.messages.flatMap((message, index) => {
+        if (message.type !== "user" || !message.text.trim()) return [];
+        return [
+          {
+            id: `${session.id}:${message.timestamp}:${index}`,
+            timestamp: message.timestamp,
+            text: message.text,
+            ...localCommandOutcome(session.messages, index),
+          },
+        ];
+      }),
+    )
+    .sort((left, right) => right.timestamp - left.timestamp);
 }

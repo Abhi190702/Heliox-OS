@@ -5285,7 +5285,7 @@ class PilotServer:
         limit = params.get("limit", 50)
         offset = params.get("offset", 0)
         entries = await self._memory.get_history(limit=limit, offset=offset)
-        return {"entries": entries}
+        return {"status": "ok", "entries": entries}
 
     async def _handle_memory_checkpoint(self, params: dict, ws: ServerConnection) -> dict:
         """Manually trigger a SQLite WAL checkpoint for the memory store.
@@ -9999,7 +9999,7 @@ def handle_tool(tool_name, params):
             ``limit``   — limit used
         """
         if not self._plan_history:
-            return {"error": "Plan history store is not initialized", "plans": []}
+            return {"status": "error", "error": "Plan history store is not initialized", "plans": []}
 
         raw_limit = params.get("limit", 50)
         raw_offset = params.get("offset", 0)
@@ -10009,7 +10009,7 @@ def handle_tool(tool_name, params):
             limit = max(1, min(int(raw_limit), 200))
             offset = max(0, int(raw_offset))
         except (TypeError, ValueError):
-            return {"error": "limit and offset must be integers", "plans": []}
+            return {"status": "error", "error": "limit and offset must be integers", "plans": []}
 
         plans = await self._plan_history.get_list(
             limit=limit,
@@ -10017,6 +10017,7 @@ def handle_tool(tool_name, params):
             status_filter=status_filter,
         )
         return {
+            "status": "ok",
             "plans": plans,
             "count": len(plans),
             "offset": offset,

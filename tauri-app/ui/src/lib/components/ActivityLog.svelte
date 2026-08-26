@@ -1,63 +1,58 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { call } from "../api/daemon";
+  import { call, requireResultStatus } from "../api/daemon";
   import { invoke } from "../api/invoke";
+  import { loadLocalCommandHistory, type LocalCommandStatus } from "../utils/chatSessions";
 
   async function openLogsFolder() {
     await invoke("open_logs_folder");
   }
 
   interface HistoryEntry {
-    id: number;
+    id: number | string;
     timestamp: string;
     user_input: string;
-    success: boolean;
+    outcome: LocalCommandStatus;
     explanation: string;
   }
 
   let entries: HistoryEntry[] = $state([]);
   let loading = $state(true);
+  let historyNotice = $state("");
+
+  function localEntries(): HistoryEntry[] {
+    return loadLocalCommandHistory(typeof localStorage === "undefined" ? null : localStorage).map((entry) => ({
+      id: entry.id,
+      timestamp: new Date(entry.timestamp).toISOString(),
+      user_input: entry.text,
+      outcome: entry.status,
+      explanation: entry.explanation,
+    }));
+  }
 
   onMount(async () => {
     try {
-      const result = (await call("get_history", { limit: 100 })) as { entries: HistoryEntry[] };
-      let loaded = result.entries ?? [];
-      if (loaded.length === 0 && typeof localStorage !== "undefined") {
-        try {
-          const localMsgs = JSON.parse(localStorage.getItem("heliox_session_history") || "[]");
-          loaded = localMsgs
-            .filter((m: any) => m.type === "user" && m.text)
-            .map((m: any, idx: number) => ({
-              id: idx,
-              timestamp: new Date(m.timestamp || Date.now()).toISOString(),
-              user_input: m.text,
-              success: true,
-              explanation: "Locally executed neural command",
-            }))
-            .reverse();
-        } catch (e) {}
+      const result = (await call("get_history", { limit: 100 })) as {
+        status?: string;
+        message?: string;
+        error?: string;
+        entries?: Array<Omit<HistoryEntry, "outcome"> & { success: boolean }>;
+      };
+      requireResultStatus(result, "ok", "Activity history is unavailable.");
+      let loaded: HistoryEntry[] = (result.entries ?? []).map(({ success, ...entry }) => ({
+        ...entry,
+        outcome: success ? "success" : "error",
+      }));
+      if (loaded.length === 0) {
+        loaded = localEntries();
+        if (loaded.length > 0) historyNotice = "Showing local chat records because daemon activity history is empty.";
       }
       entries = loaded;
-    } catch {
-      if (typeof localStorage !== "undefined") {
-        try {
-          const localMsgs = JSON.parse(localStorage.getItem("heliox_session_history") || "[]");
-          entries = localMsgs
-            .filter((m: any) => m.type === "user" && m.text)
-            .map((m: any, idx: number) => ({
-              id: idx,
-              timestamp: new Date(m.timestamp || Date.now()).toISOString(),
-              user_input: m.text,
-              success: true,
-              explanation: "Locally executed neural command",
-            }))
-            .reverse();
-        } catch (err) {
-          entries = [];
-        }
-      } else {
-        entries = [];
-      }
+    } catch (cause) {
+      entries = localEntries();
+      historyNotice = `Daemon activity history is unavailable; showing local records only. ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`;
     } finally {
       loading = false;
     }
@@ -84,25 +79,44 @@
 
   {#if loading}
     <div class="empty">Loading...</div>
-  {:else if entries.length === 0}
-    <div class="empty">No activity yet. Send a command to get started.</div>
   {:else}
-    <div class="log-list">
-      {#each entries as entry}
-        <div class="log-entry" class:failed={!entry.success}>
-          <div class="entry-header">
-            <span class="entry-status" class:success={entry.success}>
-              {entry.success ? "OK" : "FAIL"}
-            </span>
-            <span class="entry-time">{formatTime(entry.timestamp)}</span>
+    {#if historyNotice}
+      <div class="history-notice" role="status">{historyNotice}</div>
+    {/if}
+    {#if entries.length === 0}
+      <div class="empty">No activity yet. Send a command to get started.</div>
+    {:else}
+      <div class="log-list">
+        {#each entries as entry}
+          <div
+            class="log-entry"
+            class:failed={entry.outcome === "error" || entry.outcome === "partial_failure"}
+            class:unverified={entry.outcome === "unverified"}
+          >
+            <div class="entry-header">
+              <span
+                class="entry-status"
+                class:success={entry.outcome === "success"}
+                class:unverified={entry.outcome === "unverified"}
+              >
+                {entry.outcome === "success"
+                  ? "OK"
+                  : entry.outcome === "partial_failure"
+                    ? "PARTIAL"
+                    : entry.outcome === "unverified"
+                      ? "LOCAL"
+                      : "FAIL"}
+              </span>
+              <span class="entry-time">{formatTime(entry.timestamp)}</span>
+            </div>
+            <div class="entry-input">{entry.user_input}</div>
+            {#if entry.explanation}
+              <div class="entry-explanation">{entry.explanation}</div>
+            {/if}
           </div>
-          <div class="entry-input">{entry.user_input}</div>
-          {#if entry.explanation}
-            <div class="entry-explanation">{entry.explanation}</div>
-          {/if}
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -147,6 +161,13 @@
     padding: 8px 16px;
   }
 
+  .history-notice {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--warning);
+    color: var(--warning);
+    font-size: 11px;
+  }
+
   .log-entry {
     padding: 10px 12px;
     background: var(--bg-secondary);
@@ -157,6 +178,10 @@
 
   .log-entry.failed {
     border-color: var(--danger);
+  }
+
+  .log-entry.unverified {
+    border-color: var(--warning);
   }
 
   .entry-header {
@@ -178,6 +203,11 @@
   .entry-status.success {
     background: rgba(74, 222, 128, 0.1);
     color: var(--success);
+  }
+
+  .entry-status.unverified {
+    background: rgba(245, 158, 11, 0.12);
+    color: var(--warning);
   }
 
   .entry-time {

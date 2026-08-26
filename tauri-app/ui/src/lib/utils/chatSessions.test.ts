@@ -6,6 +6,7 @@ import {
   createChatSession,
   deriveChatTitle,
   loadChatSessions,
+  loadLocalCommandHistory,
   saveChatSessions,
   summarizeChatSessions,
   redactSensitiveChatText,
@@ -136,5 +137,44 @@ describe("chat session persistence", () => {
 
   it("redacts standalone Google API key shapes", () => {
     expect(redactSensitiveChatText("key: AIzaSyExampleSecretValue123456789")).toBe("key: [redacted]");
+  });
+
+  it("does not invent successful execution for a local user message", () => {
+    const target = storage();
+    const session = createChatSession(10);
+    session.messages = [{ type: "user", text: "Hello Heliox", timestamp: 10 }];
+    saveChatSessions(target, [session], session.id);
+
+    expect(loadLocalCommandHistory(target)[0]).toMatchObject({
+      text: "Hello Heliox",
+      status: "unverified",
+      explanation: "Local chat record; daemon execution outcome is unavailable.",
+    });
+  });
+
+  it("derives local execution status only from recorded action evidence", () => {
+    const target = storage();
+    const session = createChatSession(10);
+    session.messages = [
+      { type: "user", text: "Open the report", timestamp: 10 },
+      {
+        type: "result",
+        text: "The report opened.",
+        timestamp: 11,
+        actionResults: [
+          { action_type: "open_file", target: "report.pdf", success: true, output: "opened", error: null },
+        ],
+        verification: { passed: true, details: ["window observed"] },
+      },
+      { type: "user", text: "Delete the archive", timestamp: 12 },
+      { type: "error", text: "The action was denied.", timestamp: 13 },
+    ];
+    saveChatSessions(target, [session], session.id);
+
+    const history = loadLocalCommandHistory(target);
+    expect(history.map((entry) => [entry.text, entry.status])).toEqual([
+      ["Delete the archive", "error"],
+      ["Open the report", "success"],
+    ]);
   });
 });
