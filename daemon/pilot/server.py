@@ -5481,7 +5481,10 @@ class PilotServer:
         """Report CLI installation and subscription login without exposing account data."""
 
         provider = str(params.get("provider") or self.config.model.subscription_provider)
-        refresh = bool(params.get("refresh", False))
+        try:
+            refresh = _validated_bool(params, "refresh", False)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
         return await self._subscription_client().status(provider, refresh=refresh)
 
     async def _handle_subscription_login(self, params: dict, ws: ServerConnection) -> dict:
@@ -6502,11 +6505,16 @@ class PilotServer:
 
         from pilot.multimodal.fusion import InputEvent, ModalityType
 
+        try:
+            is_final = _validated_bool(params, "is_final", False)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
         event = InputEvent(
             modality=ModalityType.VOICE,
             transcript=params.get("transcript", ""),
             voice_confidence=params.get("confidence", 0.8),
-            is_final=params.get("is_final", False),
+            is_final=is_final,
         )
         voice_confidence = params.get("confidence", 0.8)
         await self._append_experience(
@@ -6515,7 +6523,7 @@ class PilotServer:
             source="voice",
             payload={
                 "transcript": params.get("transcript", ""),
-                "is_final": bool(params.get("is_final", False)),
+                "is_final": is_final,
             },
             confidence=(
                 float(voice_confidence)
@@ -6760,17 +6768,16 @@ class PilotServer:
     ) -> dict:
         if self._strategy_evolution is None:
             return {"candidates": [], "message": "Strategy evolution is not initialized"}
+        try:
+            include_content = _validated_bool(params, "include_content", False)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
         stage = params.get("stage")
         candidates = await self._strategy_evolution.list_candidates(
             stage=str(stage) if stage else None,
             limit=int(params.get("limit", 100)),
         )
-        return {
-            "candidates": [
-                candidate.to_dict(include_content=bool(params.get("include_content", False)))
-                for candidate in candidates
-            ]
-        }
+        return {"candidates": [candidate.to_dict(include_content=include_content) for candidate in candidates]}
 
     async def _handle_strategy_propose(
         self,
@@ -6859,10 +6866,14 @@ class PilotServer:
     ) -> dict:
         if self._strategy_evolution is None:
             return {"status": "error", "message": "Strategy evolution is not initialized"}
+        try:
+            consent_confirmed = _validated_bool(params, "consent_confirmed", False)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
         candidate = await self._strategy_evolution.start_canary(
             str(params.get("candidate_id", "")),
             actor=str(params.get("actor", "")),
-            consent_confirmed=bool(params.get("consent_confirmed", False)),
+            consent_confirmed=consent_confirmed,
         )
         return {"status": candidate.stage.value, "candidate": candidate.to_dict()}
 
@@ -6941,17 +6952,17 @@ class PilotServer:
     ) -> dict:
         if self._evolution_harness is None:
             return {"candidates": [], "message": "Evolution harness is not initialized"}
+        try:
+            include_patch = _validated_bool(params, "include_patch", False)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
         run_id = str(params.get("run_id", "")).strip()
         candidates = await self._evolution_harness.list_candidates(
             run_id=run_id or None,
             limit=max(1, min(int(params.get("limit", 100)), 500)),
-            include_patch=bool(params.get("include_patch", False)),
+            include_patch=include_patch,
         )
-        return {
-            "candidates": [
-                candidate.to_dict(include_patch=bool(params.get("include_patch", False))) for candidate in candidates
-            ]
-        }
+        return {"candidates": [candidate.to_dict(include_patch=include_patch) for candidate in candidates]}
 
     async def _handle_evolution_create_run(
         self,
@@ -7046,7 +7057,10 @@ class PilotServer:
             A dict with success status, plugin name, and enabled state.
         """
         name = params.get("name", "")
-        enabled = params.get("enabled", True)
+        try:
+            enabled = _validated_bool(params, "enabled", True)
+        except ValueError as exc:
+            return {"error": str(exc)}
         if not name:
             return {"error": "No plugin name provided"}
         if self._plugin_registry:
@@ -7706,11 +7720,25 @@ def handle_tool(tool_name, params):
         Returns:
             A dict with status and enabled state.
         """
-        enabled = params.get("enabled", True)
+        try:
+            enabled = _validated_bool(params, "enabled", True)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
         if self._screen_vision:
             if enabled:
-                interval = params.get("interval_seconds", self.config.screen_vision.capture_interval_seconds)
-                describe = params.get("enable_describe", False)
+                try:
+                    describe = _validated_bool(params, "enable_describe", False)
+                    from pilot.agents.screen_vision import MAX_CAPTURE_INTERVAL_SECONDS, MIN_CAPTURE_INTERVAL_SECONDS
+
+                    interval = _validated_float(
+                        params,
+                        "interval_seconds",
+                        self.config.screen_vision.capture_interval_seconds,
+                        minimum=MIN_CAPTURE_INTERVAL_SECONDS,
+                        maximum=MAX_CAPTURE_INTERVAL_SECONDS,
+                    )
+                except ValueError as exc:
+                    return {"status": "error", "message": str(exc)}
                 await self._screen_vision.start(interval, describe)
             else:
                 await self._screen_vision.stop()
@@ -8330,7 +8358,11 @@ def handle_tool(tool_name, params):
         """
         if not self._attention_ui:
             return {"error": "Attention UI not initialized"}
-        enabled = self._attention_ui.toggle(params.get("enabled"))
+        try:
+            requested = _validated_bool(params, "enabled", False) if "enabled" in params else None
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+        enabled = self._attention_ui.toggle(requested)
         return {"enabled": enabled}
 
     async def _handle_stress_gate_toggle(self, params: dict, ws: ServerConnection) -> dict:
@@ -8345,7 +8377,11 @@ def handle_tool(tool_name, params):
         """
         if not self._stress_gate:
             return {"error": "Stress gate not initialized"}
-        enabled = self._stress_gate.toggle(params.get("enabled"))
+        try:
+            requested = _validated_bool(params, "enabled", False) if "enabled" in params else None
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+        enabled = self._stress_gate.toggle(requested)
         return {"enabled": enabled}
 
     async def _handle_intent_predictor_toggle(self, params: dict, ws: ServerConnection) -> dict:
@@ -8360,7 +8396,11 @@ def handle_tool(tool_name, params):
         """
         if not self._intent_predictor:
             return {"error": "Intent predictor not initialized"}
-        enabled = self._intent_predictor.toggle(params.get("enabled"))
+        try:
+            requested = _validated_bool(params, "enabled", False) if "enabled" in params else None
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+        enabled = self._intent_predictor.toggle(requested)
         return {"enabled": enabled}
 
     async def _handle_cognitive_model_toggle(self, params: dict, ws: ServerConnection) -> dict:
@@ -9345,7 +9385,10 @@ def handle_tool(tool_name, params):
         """
         if not self._voice_gesture_workflows:
             return {"workflows": []}
-        include_terminal = bool(params.get("include_terminal", False))
+        try:
+            include_terminal = _validated_bool(params, "include_terminal", False)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
         return {"workflows": await self._voice_gesture_workflows.list_workflows(include_terminal=include_terminal)}
 
     async def _handle_voice_gesture_workflow_get(self, params: dict, ws: ServerConnection) -> dict:
