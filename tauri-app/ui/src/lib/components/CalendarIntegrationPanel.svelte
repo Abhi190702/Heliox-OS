@@ -6,6 +6,7 @@
   let enabled = $state(false);
   let caldavUrl = $state("");
   let username = $state("");
+  let icsFiles = $state("");
   let password = $state("");
   let passwordSaved = $state(false);
   let edited = $state(false);
@@ -18,6 +19,7 @@
       enabled = $settings.calendar?.enabled ?? false;
       caldavUrl = $settings.calendar?.caldav_url ?? "";
       username = $settings.calendar?.caldav_username ?? "";
+      icsFiles = ($settings.calendar?.ics_files ?? []).join("\n");
     }
   });
 
@@ -52,6 +54,10 @@
     message = "";
     messageType = "";
     try {
+      const localSources = icsFiles
+        .split(/\r?\n/)
+        .map((path) => path.trim())
+        .filter(Boolean);
       if (password.trim()) {
         const stored = await call<{ status: string; message?: string }>("store_api_key", {
           provider: "caldav",
@@ -69,14 +75,17 @@
           caldav_url: caldavUrl.trim(),
           caldav_username: username.trim(),
           caldav_password_provider: "caldav",
+          ics_files: localSources,
         },
         { requireDaemon: true },
       );
       if (!saved) throw new Error("The daemon did not confirm the calendar configuration.");
       edited = false;
       message = enabled
-        ? "CalDAV settings saved. Test the connection before using calendar actions."
-        : "CalDAV disabled.";
+        ? `Calendar settings saved with ${localSources.length} local source${localSources.length === 1 ? "" : "s"}. Test the CalDAV connection before using remote actions.`
+        : localSources.length > 0
+          ? `Saved ${localSources.length} local calendar source${localSources.length === 1 ? "" : "s"}; CalDAV remains disabled.`
+          : "CalDAV disabled.";
       messageType = "ok";
     } catch (error) {
       message = error instanceof Error ? error.message : "Calendar settings could not be saved.";
@@ -173,6 +182,22 @@
     </label>
   </div>
 
+  <label class="local-sources">
+    <span>Local .ics files <small>(one absolute path per line)</small></span>
+    <textarea
+      value={icsFiles}
+      rows="3"
+      placeholder="C:\Users\you\Calendar\personal.ics"
+      oninput={(event) => {
+        icsFiles = event.currentTarget.value;
+        markEdited();
+      }}></textarea>
+    <small
+      >Local files remain available when CalDAV is off. Invalid or unreadable sources are reported without suppressing
+      other calendars.</small
+    >
+  </label>
+
   <div class="actions">
     <button class="primary" type="button" disabled={busy} onclick={save}>{busy ? "Working…" : "Save"}</button>
     <button class="secondary" type="button" disabled={busy || !enabled || edited} onclick={testConnection}
@@ -264,13 +289,24 @@
     color: var(--text-secondary);
     font-size: 11px;
   }
-  input {
+  input,
+  textarea {
     min-width: 0;
     padding: 9px 10px;
     border: 1px solid var(--border);
     border-radius: 7px;
     background: var(--bg-primary);
     color: var(--text-primary);
+  }
+  textarea {
+    resize: vertical;
+    font-family: var(--font-mono);
+  }
+  .local-sources {
+    padding: 0 20px 10px;
+  }
+  .local-sources small {
+    color: var(--text-tertiary, var(--text-secondary));
   }
   .actions {
     display: flex;
