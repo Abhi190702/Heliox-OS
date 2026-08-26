@@ -12,6 +12,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from pilot.actions import (
+    Action,
     ActionPlan,
     ActionResult,
     ActionType,
@@ -55,12 +56,54 @@ POSTCONDITION_VERIFIERS: dict[ActionType, str] = {
     ActionType.SCHEDULE_DELETE: "schedule_absence_postcondition",
 }
 
+_PRECHECKABLE_POSTCONDITIONS = frozenset(
+    {
+        ActionType.FILE_WRITE,
+        ActionType.FILE_DELETE,
+        ActionType.PACKAGE_INSTALL,
+        ActionType.PACKAGE_REMOVE,
+        ActionType.SERVICE_START,
+        ActionType.SERVICE_STOP,
+        ActionType.GNOME_SETTING_WRITE,
+        ActionType.PROCESS_KILL,
+        ActionType.WINDOW_CLOSE,
+        ActionType.DISK_UNMOUNT,
+        ActionType.SCHEDULE_DELETE,
+    }
+)
+
 
 class Verifier:
     """Verifies execution results against expected outcomes."""
 
     def __init__(self, model_router: ModelRouter) -> None:
         self._model = model_router
+
+    async def check_already_satisfied(self, action: Action) -> tuple[bool, str] | None:
+        """Prove whether an action's intended state is already present.
+
+        Only deterministic, side-effect-free checks are eligible. ``None``
+        means execution must continue; a failed or unavailable check never
+        suppresses an action.
+        """
+
+        if action.action_type in {
+            ActionType.BROWSER_NAVIGATE,
+            ActionType.BROWSER_TYPE,
+            ActionType.BROWSER_SELECT,
+            ActionType.BROWSER_FILL_FORM,
+        }:
+            from pilot.system.browser import browser_action_already_satisfied
+
+            return await browser_action_already_satisfied(action.action_type.value, action.parameters)
+
+        if action.action_type not in _PRECHECKABLE_POSTCONDITIONS:
+            return None
+        if action.action_type == ActionType.PACKAGE_INSTALL:
+            params: PackageParams = action.parameters  # type: ignore[assignment]
+            if params.version or params.repository:
+                return None
+        return await self._verify_single(ActionResult(action=action, success=True))
 
     async def verify(self, plan: ActionPlan, results: list[ActionResult]) -> VerificationResult:
         """Verify all action results against the plan."""

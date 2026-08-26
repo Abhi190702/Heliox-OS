@@ -846,6 +846,7 @@ class PilotServer:
         await prepare_system_probes()
         self._executor.set_durable_task_store(self._durable_tasks)
         self._verifier = Verifier(model_router)
+        self._executor.set_step_checker(self._verifier)
 
         # Destructive Critic Agent — secondary safety reviewer for Tier 4 plans.
         from pilot.agents.destructive_critic import DestructiveCriticAgent

@@ -29,6 +29,7 @@ import re
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from pilot.system.browser_backend import BrowserBackend
 
@@ -149,6 +150,80 @@ async def get_real_page_for_clone() -> Any | None:
     if not has_active_session():
         return None
     return await _get_page()
+
+
+def _canonical_browser_url(value: str) -> str:
+    """Normalize only browser-safe URL syntax used for exact state checks."""
+
+    candidate = value.strip()
+    if not candidate.startswith(("http://", "https://", "file://")):
+        candidate = "https://" + candidate
+    parsed = urlsplit(candidate)
+    scheme = parsed.scheme.casefold()
+    netloc = parsed.netloc.casefold()
+    if scheme == "https" and netloc.endswith(":443"):
+        netloc = netloc[:-4]
+    elif scheme == "http" and netloc.endswith(":80"):
+        netloc = netloc[:-3]
+    return urlunsplit((scheme, netloc, parsed.path or "/", parsed.query, parsed.fragment))
+
+
+async def browser_action_already_satisfied(action_type: str, params: Any) -> tuple[bool, str] | None:
+    """Read the live page to prove a conservative browser postcondition.
+
+    ``None`` means the current state cannot prove anything. Clicks, submitted
+    forms, append-style typing, and Enter-key actions are deliberately never
+    skipped because equality of the visible input state does not prove their
+    side effect has already happened.
+    """
+
+    if (
+        action_type
+        not in {
+            "browser_navigate",
+            "browser_type",
+            "browser_select",
+            "browser_fill_form",
+        }
+        or not has_active_session()
+    ):
+        return None
+
+    try:
+        page = await _get_page(int(getattr(params, "tab_index", -1)))
+        if action_type == "browser_navigate":
+            target = str(getattr(params, "url", "") or "")
+            if not target:
+                return None
+            satisfied = _canonical_browser_url(page.url) == _canonical_browser_url(target)
+            return satisfied, f"current URL is {page.url}"
+
+        if action_type == "browser_type":
+            if not bool(getattr(params, "clear_first", True)) or bool(getattr(params, "press_enter", False)):
+                return None
+            fields = {str(getattr(params, "selector", "") or ""): str(getattr(params, "text", "") or "")}
+        elif action_type == "browser_select":
+            fields = {str(getattr(params, "selector", "") or ""): str(getattr(params, "value", "") or "")}
+        else:
+            if getattr(params, "submit_selector", None):
+                return None
+            fields = {
+                str(selector): str(value) for selector, value in dict(getattr(params, "fields", {}) or {}).items()
+            }
+
+        if not fields or any(not selector for selector in fields):
+            return None
+        for selector, expected in fields.items():
+            locator = page.locator(selector)
+            if await locator.count() != 1 or not await locator.is_visible():
+                return None
+            actual = await locator.input_value()
+            if actual != expected:
+                return False, f"{selector} has a different value"
+        return True, f"all {len(fields)} browser field value(s) already match"
+    except Exception:
+        logger.debug("Browser step-state check failed for %s", action_type, exc_info=True)
+        return None
 
 
 def _append_diff(base_output: str, before: Any, after: Any, action_desc: str) -> str:

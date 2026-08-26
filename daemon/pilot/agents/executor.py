@@ -158,6 +158,7 @@ class Executor:
         self._speech: Any = None
         self._experience_ledger: ExperienceLedger | None = None
         self._world_model_outcome_recorder: Any = None
+        self._step_checker: Any = None
         self._durable_task_store: DurableTaskStore | None = None
         self._controller_lease: ControllerLeaseManager | None = None
         self._collab_executor: Any = None
@@ -419,6 +420,11 @@ class Executor:
     def set_world_model_outcome_recorder(self, recorder: Any) -> None:
         """Wire verified execution outcomes into historical world-model risk."""
         self._world_model_outcome_recorder = recorder
+
+    def set_step_checker(self, checker: Any) -> None:
+        """Wire the deterministic pre-action state checker."""
+
+        self._step_checker = checker
 
     def set_durable_task_store(self, store: DurableTaskStore) -> None:
         """Wire exactly-once execution claims for durable interactive tasks."""
@@ -1078,12 +1084,45 @@ class Executor:
                         return idx, result
                     claimed = True
 
+                action = self._inject_previous_output(action)
+
+                if self._step_checker is not None:
+                    try:
+                        step_state = await self._step_checker.check_already_satisfied(action)
+                    except Exception:
+                        logger.warning("Pre-action step check failed; continuing execution", exc_info=True)
+                        step_state = None
+                    if step_state is not None and step_state[0]:
+                        result = ActionResult(
+                            action=action,
+                            success=True,
+                            output=f"Already satisfied: {step_state[1]}",
+                            executed=False,
+                            skip_reason="already_satisfied",
+                        )
+                        if claimed and self._durable_task_store is not None:
+                            from pilot.workflows.durable_tasks import ActionExecutionStatus
+
+                            await self._durable_task_store.finish_action(
+                                task_id=get_experience_context().task_id,
+                                action_key=action_key,
+                                lease_owner=claim_owner,
+                                status=ActionExecutionStatus.COMPLETED,
+                                result=result.model_dump(mode="json"),
+                                error="",
+                            )
+                        await self._audit.log_action_result(result, plan_id)
+                        if on_action_complete:
+                            await on_action_complete(result)
+                        if self._narrator is not None:
+                            await self._narrator.on_action_complete(result)
+                        return idx, result
+
                 await self._audit.log_action_start(action, plan_id)
                 if on_action_start:
                     await on_action_start(action)
                 if self._narrator is not None:
                     await self._narrator.on_action_start(action)
-                action = self._inject_previous_output(action)
 
                 # Pre-execution target assessment for browser interaction
                 # actions -- the same check SimulationSandbox.simulate()
