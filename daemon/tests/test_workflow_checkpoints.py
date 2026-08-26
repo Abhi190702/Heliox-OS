@@ -112,13 +112,23 @@ async def test_resume_plan_skips_completed_actions_and_verifies_full_plan(tmp_pa
 async def test_resume_plan_returns_success_when_checkpoint_already_complete(tmp_path):
     store = WorkflowCheckpointStore(tmp_path / "checkpoints.db")
     plan = ActionPlan(actions=[_notify_action("one")], explanation="done")
+    checkpoint_result = ActionResult(action=plan.actions[0], success=True, output="done")
     await store.start_plan("plan-1", "send notification", plan)
-    await store.record_result("plan-1", ActionResult(action=plan.actions[0], success=True, output="done"))
+    await store.record_result("plan-1", checkpoint_result)
     await store.mark_status("plan-1", "complete")
 
     server = PilotServer(PilotConfig())
     server._checkpoint_store = store
     server._executor = SimpleNamespace(execute=AsyncMock())
+    server._verifier = SimpleNamespace(
+        verify=AsyncMock(
+            return_value=VerificationResult(
+                passed=True,
+                details=["checkpoint postconditions verified"],
+                failed_actions=[],
+            )
+        )
+    )
     ws = MagicMock()
     ws.send = AsyncMock()
 
@@ -126,7 +136,44 @@ async def test_resume_plan_returns_success_when_checkpoint_already_complete(tmp_
 
     assert response["status"] == "success"
     assert response["resumed"] is False
-    assert response["message"] == "Plan already completed."
+    assert response["message"] == "done"
+    assert response["verification"]["passed"] is True
+    server._executor.execute.assert_not_called()
+    server._verifier.verify.assert_awaited_once_with(plan, [checkpoint_result])
+
+
+@pytest.mark.asyncio
+async def test_complete_checkpoint_fails_closed_when_postcondition_is_not_verified(tmp_path):
+    store = WorkflowCheckpointStore(tmp_path / "checkpoints.db")
+    plan = ActionPlan(actions=[_notify_action("one")], explanation="done")
+    checkpoint_result = ActionResult(action=plan.actions[0], success=True, output="done")
+    await store.start_plan("plan-1", "send notification", plan)
+    await store.record_result("plan-1", checkpoint_result)
+    await store.mark_status("plan-1", "complete")
+
+    server = PilotServer(PilotConfig())
+    server._checkpoint_store = store
+    server._executor = SimpleNamespace(execute=AsyncMock())
+    server._verifier = SimpleNamespace(
+        verify=AsyncMock(
+            return_value=VerificationResult(
+                passed=False,
+                details=["Action 0 (notify): MISMATCH — notification was not observed"],
+                failed_actions=[0],
+            )
+        )
+    )
+    ws = MagicMock()
+    ws.send = AsyncMock()
+
+    response = await server._handle_resume_plan({"plan_id": "plan-1"}, ws)
+    checkpoint = await store.get("plan-1")
+
+    assert response["status"] == "partial_failure"
+    assert response["verification"]["passed"] is False
+    assert "notification was not observed" in response["message"]
+    assert checkpoint is not None
+    assert checkpoint.status == "failed"
     server._executor.execute.assert_not_called()
 
 

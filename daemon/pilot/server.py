@@ -3986,13 +3986,29 @@ class PilotServer:
         )
 
         if not remaining_actions:
-            await self._checkpoint_store.mark_status(plan_id, "complete")
+            from pilot.response_contract import partial_failure_message, success_message
+
+            verification = await self._verifier.verify(checkpoint.plan, checkpoint.results)
+            if verification.passed:
+                await self._checkpoint_store.mark_status(plan_id, "complete")
+                status = "success"
+                message = success_message(
+                    checkpoint.plan,
+                    checkpoint.results,
+                    verification,
+                    dry_run=False,
+                )
+            else:
+                await self._checkpoint_store.mark_status(plan_id, "failed")
+                status = "partial_failure"
+                message = partial_failure_message(checkpoint.results, verification)
             return {
-                "status": "success",
+                "status": status,
                 "plan_id": plan_id,
                 "resumed": False,
-                "message": "Plan already completed.",
+                "message": message,
                 "results": [result.model_dump() for result in checkpoint.results],
+                "verification": verification.model_dump(),
             }
 
         self._cancel_event = asyncio.Event()
