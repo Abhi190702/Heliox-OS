@@ -86,4 +86,39 @@ describe("settings daemon synchronization", () => {
     expect(get(settings).theme).toBe("light");
     expect(daemonMocks.call).not.toHaveBeenCalled();
   });
+
+  it("keeps the displayed settings when the daemon rejects a factory reset", async () => {
+    localStorage.setItem("heliox_settings", JSON.stringify({ model: { provider: "cloud" } }));
+    daemonMocks.call.mockImplementation((method: string) => {
+      if (method === "get_config") return Promise.resolve({ model: { provider: "cloud" } });
+      return Promise.reject(new Error("daemon unavailable"));
+    });
+
+    const { settings } = await import("./settings");
+    await vi.waitFor(() => expect(get(settings).model.provider).toBe("cloud"));
+
+    const reset = await settings.reset();
+
+    expect(reset).toBe(false);
+    expect(get(settings).model.provider).toBe("cloud");
+    expect(JSON.parse(localStorage.getItem("heliox_settings") || "{}").model.provider).toBe("cloud");
+  });
+
+  it("clears local state only after the daemon confirms a factory reset", async () => {
+    localStorage.setItem("heliox_settings", JSON.stringify({ model: { provider: "cloud" } }));
+    daemonMocks.call.mockImplementation((method: string) => {
+      if (method === "get_config") return Promise.resolve({ model: { provider: "cloud" } });
+      if (method === "reset_config") return Promise.resolve({ status: "ok", runtime_reconciled: true });
+      return Promise.reject(new Error(`unexpected method: ${method}`));
+    });
+
+    const { settings } = await import("./settings");
+    await vi.waitFor(() => expect(get(settings).model.provider).toBe("cloud"));
+
+    const reset = await settings.reset();
+
+    expect(reset).toBe(true);
+    expect(get(settings).model.provider).toBe("ollama");
+    expect(localStorage.getItem("heliox_settings")).toBeNull();
+  });
 });

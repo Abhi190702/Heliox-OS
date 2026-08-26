@@ -5021,8 +5021,19 @@ class PilotServer:
         """Reset configuration to factory defaults."""
 
         if self._air_handoff_server and self._air_handoff_server.running:
-            await self._air_handoff_manager.cancel_draft()
             await self._air_handoff_server.stop()
+        if self._air_handoff_manager:
+            await self._air_handoff_manager.clear_ephemeral()
+
+        if self._mesh:
+            await self._mesh.stop()
+            self._mesh = None
+
+        supervision_hook = getattr(self, "_supervision_hook", None)
+        if supervision_hook is not None:
+            supervision_hook.stop()
+        if self._background is not None:
+            self._background.stop("user_supervision")
 
         default_config = PilotConfig()
 
@@ -5036,9 +5047,25 @@ class PilotServer:
             else:
                 setattr(self.config, field_name, val)
 
-        self.config.save()
+        self._sync_self_healing_monitors()
+        if self._screen_vision is not None:
+            self._screen_vision.set_interval(self.config.screen_vision.capture_interval_seconds)
 
-        return {"status": "ok"}
+        from pilot.air_handoff import AirHandoffManager, AirHandoffServer
+
+        self._air_handoff_manager = AirHandoffManager(
+            self._vault,
+            max_transfer_bytes=self.config.air_handoff.max_transfer_mb * 1024 * 1024,
+        )
+        self._air_handoff_server = AirHandoffServer(
+            self._air_handoff_manager,
+            host="0.0.0.0",
+            port=self.config.air_handoff.port,
+        )
+        self.config.save()
+        self._start_tts_warmup()
+
+        return {"status": "ok", "runtime_reconciled": True}
 
     # -- History --
 

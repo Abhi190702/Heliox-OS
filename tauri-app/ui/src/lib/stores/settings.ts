@@ -320,21 +320,24 @@ function createSettings() {
       }
     });
   }
-  async function reset() {
-    // Reset app state immediately
-    set(defaultSettings);
+  async function reset(): Promise<boolean> {
+    try {
+      const result = await call<{ status?: string; message?: string }>("reset_config");
+      if (result?.status !== "ok") {
+        throw new Error(result?.message || "Daemon rejected the factory reset");
+      }
+    } catch (err) {
+      console.warn("Failed to reset backend config:", err);
+      return false;
+    }
 
-    // Remove cached local settings
+    set(defaultSettings);
     try {
       localStorage.removeItem("heliox_settings");
     } catch {
       /* ignore */
     }
-
-    // Tell backend/daemon to reset config
-    call("reset_config").catch((err) => {
-      console.warn("Failed to reset backend config:", err);
-    });
+    return true;
   }
 
   return {
