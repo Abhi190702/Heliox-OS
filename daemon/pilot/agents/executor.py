@@ -596,7 +596,7 @@ class Executor:
             "user_confirmed": user_confirmed,
             "action_index_offset": action_index_offset,
         }
-        collab = self._collab_executor
+        collab = getattr(self, "_collab_executor", None)
         if (
             allow_collaboration
             and collab is not None
@@ -608,10 +608,11 @@ class Executor:
             batches = self._analyze_dependencies(plan.actions)
             if collab.should_distribute(plan, batches):
                 return await collab.distribute(plan, batches, execution_options=kwargs)
-        if self._controller_lease is None:
+        controller_lease = getattr(self, "_controller_lease", None)
+        if controller_lease is None:
             return await self._execute_without_controller_lease(plan, **kwargs)
         owner = f"{invocation_source.value}:{plan_id or uuid.uuid4()}"
-        async with self._controller_lease.claim(
+        async with controller_lease.claim(
             owner,
             wait=invocation_source != InvocationSource.NEURAL,
         ):
