@@ -7629,7 +7629,11 @@ def handle_tool(tool_name, params):
 
         # ── Start LAN mesh if enabled ──
         if self._mesh:
-            asyncio.create_task(self._mesh.start())
+            try:
+                await self._mesh.start()
+            except Exception:
+                logger.exception("LAN mesh failed to start; continuing without peer collaboration")
+                await self._mesh.stop()
 
         if self.config.air_handoff.enabled and self._air_handoff_server:
             try:

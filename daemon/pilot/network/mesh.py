@@ -77,6 +77,25 @@ class HelioxMesh:
         self._collab: Any = None  # CollabExecutor (lazy import)
         self._p2p_server: Any = None  # inbound WebSocket server
         self._running = False
+        self._tasks: set[asyncio.Task[Any]] = set()
+
+    def _spawn(self, coroutine: Any) -> asyncio.Task[Any]:
+        """Run mesh-owned work and retain it until completion or shutdown."""
+        task = asyncio.create_task(coroutine)
+        self._tasks.add(task)
+        task.add_done_callback(self._task_done)
+        return task
+
+    def _task_done(self, task: asyncio.Task[Any]) -> None:
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        try:
+            error = task.exception()
+        except asyncio.CancelledError:
+            return
+        if error is not None:
+            logger.warning("HelioxMesh background task failed: %s", error)
 
     # ── Properties ────────────────────────────────────────────────────────────
 
@@ -113,7 +132,7 @@ class HelioxMesh:
         )
 
         # Start inbound P2P WebSocket server
-        asyncio.create_task(self._start_p2p_server())
+        await self._start_p2p_server()
 
         # Start mDNS discovery
         self._discovery = PeerDiscovery(
@@ -125,7 +144,7 @@ class HelioxMesh:
         await self._discovery.start()
 
         # Start periodic capability updates
-        asyncio.create_task(self._periodic_capability_update())
+        self._spawn(self._periodic_capability_update())
 
         logger.info(
             "HelioxMesh started (instance=%s, port=%d)",
@@ -137,6 +156,13 @@ class HelioxMesh:
         """Shut down all connections and deregister from mDNS."""
         self._running = False
 
+        tasks = tuple(self._tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._tasks.clear()
+
         # Close all peer connections
         for conn in list(self._connections.values()):
             await conn.disconnect()
@@ -145,11 +171,13 @@ class HelioxMesh:
         # Stop discovery
         if self._discovery:
             await self._discovery.stop()
+            self._discovery = None
 
         # Stop P2P server
         if self._p2p_server:
             self._p2p_server.close()
             await self._p2p_server.wait_closed()
+            self._p2p_server = None
 
         logger.info("HelioxMesh stopped")
 
@@ -172,13 +200,14 @@ class HelioxMesh:
 
     def _on_peer_found(self, peer_info: Any) -> None:
         """Called by PeerDiscovery when a new peer is found on the LAN."""
-        asyncio.ensure_future(self._connect_to_peer(peer_info))
+        if self._running:
+            self._spawn(self._connect_to_peer(peer_info))
 
     def _on_peer_lost(self, peer_id: str) -> None:
         """Called by PeerDiscovery when a peer deregisters."""
         conn = self._connections.pop(peer_id, None)
         if conn:
-            asyncio.ensure_future(conn.disconnect())
+            self._spawn(conn.disconnect())
         logger.info("HelioxMesh: peer %s left the mesh", peer_id)
 
     async def _connect_to_peer(self, peer_info: Any) -> None:
@@ -198,12 +227,15 @@ class HelioxMesh:
         )
         success = await conn.connect()
         if success:
+            if not self._running:
+                await conn.disconnect()
+                return
             self._connections[peer_id] = conn
             logger.info("HelioxMesh: joined mesh with peer %s", peer_id)
 
             # Broadcast our loaded plugins to the new peer
             if self._config.skill_sync_enabled and self._skill_sync:
-                asyncio.create_task(self._sync_plugins_to_peer(peer_id))
+                self._spawn(self._sync_plugins_to_peer(peer_id))
 
     async def _periodic_capability_update(self) -> None:
         """Periodically refresh VRAM/CPU stats and update discovery/peers."""
@@ -244,7 +276,7 @@ class HelioxMesh:
             )
 
         elif msg_type == "task_delegate" and self._config.collab_exec_enabled:
-            asyncio.create_task(self._handle_delegated_task(peer_id, payload))
+            self._spawn(self._handle_delegated_task(peer_id, payload))
 
         elif msg_type == "task_result":
             if self._collab:
