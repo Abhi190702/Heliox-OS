@@ -87,21 +87,20 @@
           alert(`Screenshot Saved Successfully!\n\nFile Location:\n${shotPath}`);
           break;
         case "Voice Command":
-          if (typeof window !== "undefined" && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-            const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-            const rec = new SpeechRec();
-            rec.onresult = (e: any) => {
-              const transcript = e.results[0][0].transcript;
-              alert(`Voice Input Captured: "${transcript}"`);
-            };
-            rec.start();
-            clearMessage = "Listening for voice command...";
-            setTimeout(() => {
-              clearMessage = "";
-            }, 4000);
-          } else {
-            throw new Error("Speech recognition is unavailable in this runtime.");
-          }
+          let voiceRequestHandled = false;
+          window.dispatchEvent(
+            new CustomEvent("heliox:voice-command-request", {
+              detail: {
+                respond(message: string) {
+                  voiceRequestHandled = true;
+                  clearMessage = message;
+                },
+              },
+            }),
+          );
+          setTimeout(() => {
+            clearMessage = voiceRequestHandled ? "" : "Voice controls are unavailable on this screen";
+          }, 4000);
           break;
       }
     } catch (err) {

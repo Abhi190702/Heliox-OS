@@ -240,9 +240,30 @@
     }
   };
 
+  const handleVoiceCommandRequest = (event: Event) => {
+    const respond = (event as CustomEvent<{ respond?: (message: string) => void }>).detail?.respond;
+    // The dashboard must reuse this component's recognizer. Starting another
+    // Web Speech instance would contend with continuous listening and can
+    // deliver the same phrase twice. When the daemon listener is active, it
+    // already owns the microphone and the user can speak the wake phrase.
+    if (wakeWordActive) {
+      error = "";
+      pulseIntensity = 0.6;
+      respond?.("Always listening is active - say 'Hey Heliox' followed by your command");
+      return;
+    }
+    if (!SpeechRecognition) {
+      respond?.("Speech recognition is unavailable in this runtime");
+      return;
+    }
+    startListening(false);
+    respond?.("Listening for your Heliox command...");
+  };
+
   onNotification(voiceStatusHandler);
   onDestroy(() => {
     offNotification(voiceStatusHandler);
+    window.removeEventListener("heliox:voice-command-request", handleVoiceCommandRequest);
     if (listenerHealthTimer) clearInterval(listenerHealthTimer);
   });
 
@@ -270,6 +291,7 @@
   }
 
   onMount(() => {
+    window.addEventListener("heliox:voice-command-request", handleVoiceCommandRequest);
     void ensureContinuousListener();
     // Re-arm after a daemon restart or transient disconnect. The persisted
     // preference remains false when the user explicitly turns listening off.
