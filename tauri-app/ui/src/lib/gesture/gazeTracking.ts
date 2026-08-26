@@ -47,6 +47,18 @@ export function resolveHandBackend(
   return gazeEnabled || configured === "tasks" ? "tasks" : "legacy";
 }
 
+/** A live camera must be rebuilt before switching between the incompatible
+ * legacy Hands and Tasks-Vision WASM runtimes. */
+export function cameraBackendNeedsRestart(
+  cameraActive: boolean,
+  cameraStarting: boolean,
+  activeBackend: HandTrackingBackend,
+  configuredBackend: HandTrackingBackend | undefined,
+  gazeEnabled: boolean,
+): boolean {
+  return cameraActive && !cameraStarting && activeBackend !== resolveHandBackend(configuredBackend, gazeEnabled);
+}
+
 // Fusion only considers readings inside its short correlation window. A
 // steady gaze therefore needs a heartbeat as well as change-based updates;
 // otherwise an unchanged region silently expires after the first event.

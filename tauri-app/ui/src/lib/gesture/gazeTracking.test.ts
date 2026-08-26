@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   GAZE_INFERENCE_INTERVAL_MS,
   GAZE_HEARTBEAT_MS,
+  cameraBackendNeedsRestart,
   estimateGazeRegion,
   resolveHandBackend,
   shouldRunGazeInference,
@@ -132,5 +133,21 @@ describe("resolveHandBackend", () => {
   it("preserves the configured backend when gaze is disabled", () => {
     expect(resolveHandBackend("legacy", false)).toBe("legacy");
     expect(resolveHandBackend("tasks", false)).toBe("tasks");
+  });
+});
+
+describe("cameraBackendNeedsRestart", () => {
+  it("restarts a live legacy camera before gaze loads Tasks-Vision", () => {
+    expect(cameraBackendNeedsRestart(true, false, "legacy", "legacy", true)).toBe(true);
+  });
+
+  it("restarts when a live camera changes its configured hand backend", () => {
+    expect(cameraBackendNeedsRestart(true, false, "tasks", "legacy", false)).toBe(true);
+  });
+
+  it("does not restart an idle, starting, or already compatible camera", () => {
+    expect(cameraBackendNeedsRestart(false, false, "legacy", "legacy", true)).toBe(false);
+    expect(cameraBackendNeedsRestart(true, true, "legacy", "legacy", true)).toBe(false);
+    expect(cameraBackendNeedsRestart(true, false, "tasks", "legacy", true)).toBe(false);
   });
 });

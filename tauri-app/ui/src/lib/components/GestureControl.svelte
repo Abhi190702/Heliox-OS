@@ -75,6 +75,7 @@
   } from "../gesture/worldModel";
   import { TemporalGestureVerifier } from "../gesture/temporalGestureVerifier";
   import {
+    cameraBackendNeedsRestart,
     estimateGazeRegion,
     resolveHandBackend,
     shouldRunGazeInference,
@@ -875,6 +876,19 @@
     void unsubscribeFromWorkflowState();
 
     stopping = false;
+  }
+
+  let cameraBackendRestarting = false;
+
+  async function restartCameraForBackendChange(): Promise<void> {
+    if (cameraBackendRestarting || !isActive || isStarting) return;
+    cameraBackendRestarting = true;
+    stopGestures();
+    try {
+      await startGestures();
+    } finally {
+      cameraBackendRestarting = false;
+    }
   }
 
   async function detectFrame() {
@@ -1753,6 +1767,14 @@
       ctx.fill();
     });
   }
+
+  $effect(() => {
+    const configuredBackend = $settings.vision?.mediapipe_backend;
+    const gazeEnabled = $settings.vision?.gaze_tracking_enabled ?? false;
+    if (cameraBackendNeedsRestart(isActive, isStarting, activeBackend, configuredBackend, gazeEnabled)) {
+      void restartCameraForBackendChange();
+    }
+  });
 
   $effect(() => {
     const enabled = $settings.vision?.gaze_tracking_enabled ?? false;
