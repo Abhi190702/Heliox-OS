@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { call } from "../api/daemon";
+  import { call, requireResultStatus } from "../api/daemon";
 
   interface LastEvaluation {
     evaluated_at: string;
@@ -34,6 +34,8 @@
 
   interface RiskStatus {
     status?: string;
+    message?: string;
+    error?: string;
     enabled: boolean;
     weights_loaded: boolean;
     model_version: string;
@@ -96,9 +98,7 @@
     error = "";
     try {
       const result = (await call("risk_gate_status")) as RiskStatus;
-      if (result.status && result.status !== "ok") {
-        throw new Error("The daemon rejected the world-model status request.");
-      }
+      requireResultStatus(result, "ok", "The daemon rejected the world-model status request.");
       applyStatus(result);
     } catch (cause) {
       statusAvailable = false;
@@ -114,9 +114,7 @@
     error = "";
     try {
       const result = (await call("risk_gate_config_update", { enabled })) as RiskStatus;
-      if (result.status && result.status !== "ok") {
-        throw new Error("The daemon rejected the world-model setting.");
-      }
+      requireResultStatus(result, "ok", "The daemon rejected the world-model setting.");
       applyStatus(result);
       saved = true;
       setTimeout(() => (saved = false), 2500);
@@ -252,7 +250,7 @@
     </div>
 
     {#if error}
-      <div class="error">{error}</div>
+      <div class="error" role="alert">{error}</div>
     {/if}
 
     <div class="actions">
