@@ -3,6 +3,7 @@
   import { call } from "../api/daemon";
 
   type MeshStatus = {
+    status: string;
     enabled: boolean;
     configured_enabled: boolean;
     authenticated: boolean;
@@ -27,6 +28,7 @@
   async function refresh(syncDraft = true) {
     try {
       const next = await call<MeshStatus>("mesh_status");
+      if (next.status !== "ok") throw new Error(next.reason || "Could not read Peer Mesh status.");
       status = next;
       if (syncDraft && !busy) {
         skillSyncEnabled = next.skill_sync_enabled;

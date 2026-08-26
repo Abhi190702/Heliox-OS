@@ -7,6 +7,7 @@ const daemonMocks = vi.hoisted(() => ({ call: vi.fn() }));
 vi.mock("../api/daemon", () => ({ call: daemonMocks.call }));
 
 const offlineStatus = {
+  status: "ok",
   enabled: false,
   configured_enabled: false,
   authenticated: false,
@@ -25,7 +26,6 @@ describe("PeerMeshPanel", () => {
       if (method === "mesh_status") return Promise.resolve(offlineStatus);
       if (method === "mesh_configure") {
         return Promise.resolve({
-          status: "ok",
           ...offlineStatus,
           enabled: true,
           configured_enabled: true,
@@ -64,5 +64,19 @@ describe("PeerMeshPanel", () => {
     await fireEvent.click(await screen.findByRole("switch", { name: "Toggle Peer Mesh" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("shared secret required");
+  });
+
+  it("keeps controls unavailable when status discovery is rejected", async () => {
+    daemonMocks.call.mockImplementation((method: string) => {
+      if (method === "mesh_status") return Promise.resolve({ status: "error", reason: "mesh runtime unavailable" });
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    render(PeerMeshPanel);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("mesh runtime unavailable");
+    expect(((await screen.findByRole("switch", { name: "Toggle Peer Mesh" })) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 });

@@ -5557,12 +5557,14 @@ class PilotServer:
             providers = await self._vault.list_providers()
         except VaultUnavailableError as exc:
             return {
+                "status": "error",
                 "providers": [],
                 "available": False,
                 "backend": self._vault.backend_name,
                 "message": str(exc),
             }
         return {
+            "status": "ok",
             "providers": providers,
             "available": self._vault.available,
             "backend": self._vault.backend_name,
@@ -8319,6 +8321,7 @@ def handle_tool(tool_name, params):
         secret_configured = bool(mesh_secret and len(mesh_secret.encode("utf-8")) >= 32)
         if not self._mesh:
             return {
+                "status": "ok",
                 "enabled": False,
                 "configured_enabled": self.config.network.enabled,
                 "authenticated": False,
@@ -8329,6 +8332,7 @@ def handle_tool(tool_name, params):
                 "port": self.config.network.port,
             }
         return {
+            "status": "ok",
             "enabled": True,
             "configured_enabled": self.config.network.enabled,
             "authenticated": True,

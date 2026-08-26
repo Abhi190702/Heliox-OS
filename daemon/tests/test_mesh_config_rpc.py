@@ -62,6 +62,7 @@ async def test_mesh_status_distinguishes_configured_and_live_state(monkeypatch):
 
     result = await server._handle_mesh_status({}, ws=None)
 
+    assert result["status"] == "ok"
     assert result["enabled"] is False
     assert result["configured_enabled"] is True
     assert result["authenticated"] is False

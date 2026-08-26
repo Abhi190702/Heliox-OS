@@ -33,7 +33,7 @@ vi.mock("../stores/settings", () => ({
 describe("CalendarIntegrationPanel", () => {
   beforeEach(() => {
     daemonMocks.call.mockReset();
-    daemonMocks.call.mockResolvedValue({ providers: [] });
+    daemonMocks.call.mockResolvedValue({ status: "ok", available: true, providers: [] });
     settingsMocks.updateSection.mockReset();
     settingsMocks.updateSection.mockResolvedValue(true);
     settingsMocks.set({
@@ -83,5 +83,18 @@ describe("CalendarIntegrationPanel", () => {
     expect((screen.getByLabelText(/Local \.ics files/) as HTMLTextAreaElement).value).toBe(
       "C:\\Calendars\\personal.ics",
     );
+  });
+
+  it("surfaces unavailable secure credential storage", async () => {
+    daemonMocks.call.mockResolvedValue({
+      status: "error",
+      available: false,
+      providers: [],
+      message: "Credential store read failed.",
+    });
+
+    render(CalendarIntegrationPanel);
+
+    expect(await screen.findByText("Credential store read failed.")).toBeTruthy();
   });
 });

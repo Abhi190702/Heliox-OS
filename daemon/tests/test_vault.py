@@ -114,6 +114,7 @@ async def test_list_api_keys_reports_backend_health():
 
     result = await server._handle_list_api_keys({}, None)
 
+    assert result["status"] == "ok"
     assert result["providers"] == []
     assert result["available"] is False
     assert "cannot be persisted" in result["message"]
@@ -128,6 +129,7 @@ async def test_list_api_keys_surfaces_broken_keyring():
     result = await server._handle_list_api_keys({}, None)
 
     assert result == {
+        "status": "error",
         "providers": [],
         "available": False,
         "backend": "BrokenBackend",

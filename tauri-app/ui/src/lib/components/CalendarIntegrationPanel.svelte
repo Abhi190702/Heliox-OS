@@ -35,10 +35,17 @@
 
   async function refreshCredentialStatus() {
     try {
-      const result = await call<{ providers?: string[] }>("list_api_keys");
+      const result = await call<{ status: string; providers?: string[]; available?: boolean; message?: string }>(
+        "list_api_keys",
+      );
+      if (result.status !== "ok" || result.available === false) {
+        throw new Error(result.message || "Secure credential storage is unavailable.");
+      }
       passwordSaved = result.providers?.includes("caldav") ?? false;
-    } catch {
+    } catch (error) {
       passwordSaved = false;
+      message = error instanceof Error ? error.message : "Secure credential storage is unavailable.";
+      messageType = "error";
     }
   }
 
