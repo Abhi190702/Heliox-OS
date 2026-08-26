@@ -92,7 +92,11 @@
   import { classifyControlGesture } from "../gesture/workflowControl";
   import { defaultGestureAction } from "../gesture/actionPolicy";
   import { airHandoffGestureCommand } from "../gesture/airHandoffGesture";
-  import { dispatchGestureToOwner, selectGestureDispatchOwner } from "../gesture/gestureDispatchPolicy";
+  import {
+    dispatchGestureToOwner,
+    ownerOverridesCursorMode,
+    selectGestureDispatchOwner,
+  } from "../gesture/gestureDispatchPolicy";
   import {
     activeGestureWorkflowBindings,
     controlGestureWorkflow,
@@ -1117,24 +1121,44 @@
     }
 
     if (cursorModeActive) {
-      // Open palm is the hands-only escape hatch — checked before anything
-      // else so it always wins over cursor tracking/pinch-click.
-      if (gesture.name === "palm") {
+      const workflowId = pendingWorkflowId;
+      const controlIntent = workflowId ? classifyControlGesture(gesture.name) : "unknown";
+      const handoffCommand = airHandoffGestureCommand(
+        $airHandoff.gestureArmed,
+        Boolean($airHandoff.draft),
+        gesture.name,
+      );
+      const owner = selectGestureDispatchOwner({
+        hasPendingWorkflow: Boolean(workflowId),
+        controlIntent,
+        handoffCommand,
+        hasBoundWorkflow: false,
+      });
+      if (ownerOverridesCursorMode(owner)) {
+        // A paused workflow control or explicitly armed Air Handoff command
+        // owns this gesture. Exit cursor mode and let the normal debounced
+        // dispatch path below deliver it exactly once.
         exitCursorMode();
+      } else {
+        // Open palm is the hands-only escape hatch — checked before anything
+        // else so it always wins over cursor tracking/pinch-click.
+        if (gesture.name === "palm") {
+          exitCursorMode();
+          drawLandmarks(landmarks);
+          return;
+        }
+        // Cursor mode pauses gesture actions to prevent accidental commands,
+        // but recognition remains visible so users can tell that the hand
+        // model is working.
+        currentGesture = gesture.name;
+        confidence = gesture.confidence;
+        updateGestureCursor(filteredLandmarks);
+        // Every other discrete gesture is suppressed while pointing/clicking —
+        // reaching for a swipe/peace/thumbs-up mid-point would otherwise
+        // misfire constantly.
         drawLandmarks(landmarks);
         return;
       }
-      // Cursor mode pauses gesture actions to prevent accidental commands,
-      // but recognition remains visible so users can tell that the hand
-      // model is working.
-      currentGesture = gesture.name;
-      confidence = gesture.confidence;
-      updateGestureCursor(filteredLandmarks);
-      // Every other discrete gesture is suppressed while pointing/clicking —
-      // reaching for a swipe/peace/thumbs-up mid-point would otherwise
-      // misfire constantly.
-      drawLandmarks(landmarks);
-      return;
     }
 
     // Track index finger for air drawing

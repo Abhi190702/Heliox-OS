@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
-import { dispatchGestureToOwner, selectGestureDispatchOwner, type GestureDispatchOwner } from "./gestureDispatchPolicy";
+import {
+  dispatchGestureToOwner,
+  ownerOverridesCursorMode,
+  selectGestureDispatchOwner,
+  type GestureDispatchOwner,
+} from "./gestureDispatchPolicy";
 
 describe("selectGestureDispatchOwner", () => {
   it("keeps paused-workflow controls above every other consumer", () => {
@@ -83,4 +88,11 @@ describe("selectGestureDispatchOwner", () => {
       }
     },
   );
+
+  it("lets safety workflow and armed handoff commands override cursor mode", () => {
+    expect(ownerOverridesCursorMode("workflow_control")).toBe(true);
+    expect(ownerOverridesCursorMode("air_handoff")).toBe(true);
+    expect(ownerOverridesCursorMode("bound_workflow")).toBe(false);
+    expect(ownerOverridesCursorMode("default")).toBe(false);
+  });
 });

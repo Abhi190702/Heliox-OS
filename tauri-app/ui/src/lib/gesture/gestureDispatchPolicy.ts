@@ -27,3 +27,8 @@ export async function dispatchGestureToOwner(
 ): Promise<void> {
   await handlers[owner]();
 }
+
+/** Safety/workflow owners may exit cursor mode; ordinary bindings and defaults stay suppressed. */
+export function ownerOverridesCursorMode(owner: GestureDispatchOwner): boolean {
+  return owner === "workflow_control" || owner === "air_handoff";
+}
