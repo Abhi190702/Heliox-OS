@@ -4840,8 +4840,14 @@ class PilotServer:
                 return {"status": "error", "message": "Unknown top-level config value"}
             if not isinstance(values["first_run_complete"], bool):
                 return {"status": "error", "message": "first_run_complete must be a boolean"}
+            previous_first_run_complete = self.config.first_run_complete
             self.config.first_run_complete = values["first_run_complete"]
-            self.config.save()
+            try:
+                self.config.save()
+            except Exception as exc:
+                self.config.first_run_complete = previous_first_run_complete
+                logger.warning("First-run config update was not persisted", exc_info=True)
+                return {"status": "error", "message": f"Config update was not saved: {exc}"}
             return {"status": "ok"}
 
         if section == "air_handoff":
@@ -5092,7 +5098,10 @@ class PilotServer:
                 logger.warning("Voice listener rejected updated recorder settings: %s", exc)
                 for key, value in previous_values.items():
                     setattr(target, key, value)
-                self.config.save()
+                try:
+                    self.config.save()
+                except Exception:
+                    logger.exception("Could not persist the previous voice settings after rollback")
                 try:
                     await self._replace_voice_listener(voice_wake_words)
                 except Exception:
@@ -5106,27 +5115,43 @@ class PilotServer:
             self._start_tts_warmup()
 
         if section == "screen_vision" and "capture_interval_seconds" in values and self._screen_vision:
-            self._screen_vision.set_interval(self.config.screen_vision.capture_interval_seconds)
+            try:
+                self._screen_vision.set_interval(self.config.screen_vision.capture_interval_seconds)
+            except Exception as exc:
+                for key, value in previous_values.items():
+                    setattr(target, key, value)
+                try:
+                    self.config.save()
+                    self._screen_vision.set_interval(self.config.screen_vision.capture_interval_seconds)
+                except Exception:
+                    logger.exception("Could not restore screen-vision settings after rollback")
+                return {
+                    "status": "error",
+                    "message": f"Screen-vision setting was not applied: {exc}",
+                }
 
         if section == "model":
             model_router = self._model_router or (self._planner._model if self._planner is not None else None)
-            if model_router is not None:
-                try:
+            try:
+                if model_router is not None:
                     await model_router.reconfigure(set(normalized_values))
-                except Exception as exc:
-                    for key, value in previous_values.items():
-                        setattr(target, key, value)
-                    try:
-                        self.config.save()
+                if "max_consecutive_failures" in normalized_values and self._circuit_breaker is not None:
+                    self._circuit_breaker.reconfigure(self.config.model.max_consecutive_failures)
+            except Exception as exc:
+                for key, value in previous_values.items():
+                    setattr(target, key, value)
+                try:
+                    self.config.save()
+                    if model_router is not None:
                         await model_router.reconfigure(set(normalized_values))
-                    except Exception:
-                        logger.exception("Could not restore model runtime after config rollback")
-                    return {
-                        "status": "error",
-                        "message": f"Model setting was not applied: {exc}",
-                    }
-            if "max_consecutive_failures" in normalized_values and self._circuit_breaker is not None:
-                self._circuit_breaker.reconfigure(self.config.model.max_consecutive_failures)
+                    if "max_consecutive_failures" in normalized_values and self._circuit_breaker is not None:
+                        self._circuit_breaker.reconfigure(self.config.model.max_consecutive_failures)
+                except Exception:
+                    logger.exception("Could not restore model runtime after config rollback")
+                return {
+                    "status": "error",
+                    "message": f"Model setting was not applied: {exc}",
+                }
 
         return {"status": "ok"}
 

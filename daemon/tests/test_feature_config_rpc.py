@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -22,6 +22,21 @@ async def test_first_run_update_requires_boolean(value):
     assert result == {"status": "error", "message": "first_run_complete must be a boolean"}
     assert config.first_run_complete is False
     config.save.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_first_run_save_failure_restores_live_value():
+    config = PilotConfig()
+    config.save = MagicMock(side_effect=OSError("disk full"))
+    server = PilotServer(config)
+
+    result = await server._handle_update_config(
+        {"section": "", "values": {"first_run_complete": True}},
+        MagicMock(),
+    )
+
+    assert result == {"status": "error", "message": "Config update was not saved: disk full"}
+    assert config.first_run_complete is False
 
 
 @pytest.mark.asyncio
@@ -56,6 +71,25 @@ async def test_screen_vision_interval_rejects_invalid_or_unbounded_values(value)
     assert "capture_interval_seconds must be from 0.5 to 60.0" in result["message"]
     assert config.screen_vision.capture_interval_seconds == 3.0
     config.save.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_screen_vision_runtime_failure_restores_persisted_and_live_interval():
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+    screen_vision = SimpleNamespace(set_interval=MagicMock(side_effect=[RuntimeError("timer failed"), None]))
+    server._screen_vision = screen_vision
+
+    result = await server._handle_update_config(
+        {"section": "screen_vision", "values": {"capture_interval_seconds": 5}},
+        MagicMock(),
+    )
+
+    assert result == {"status": "error", "message": "Screen-vision setting was not applied: timer failed"}
+    assert config.screen_vision.capture_interval_seconds == 3.0
+    assert config.save.call_count == 2
+    assert screen_vision.set_interval.call_args_list == [call(5.0), call(3.0)]
 
 
 @pytest.mark.asyncio
@@ -210,6 +244,28 @@ async def test_failure_threshold_update_reconfigures_live_circuit_breaker():
     assert result["status"] == "ok"
     model_router.reconfigure.assert_awaited_once_with({"max_consecutive_failures"})
     circuit_breaker.reconfigure.assert_called_once_with(7)
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_failure_restores_model_router_and_threshold():
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+    model_router = SimpleNamespace(reconfigure=AsyncMock())
+    circuit_breaker = SimpleNamespace(reconfigure=MagicMock(side_effect=[RuntimeError("breaker failed"), None]))
+    server._model_router = model_router
+    server._circuit_breaker = circuit_breaker
+
+    result = await server._handle_update_config(
+        {"section": "model", "values": {"max_consecutive_failures": 7}},
+        MagicMock(),
+    )
+
+    assert result == {"status": "error", "message": "Model setting was not applied: breaker failed"}
+    assert config.model.max_consecutive_failures == 3
+    assert config.save.call_count == 2
+    assert model_router.reconfigure.await_count == 2
+    assert circuit_breaker.reconfigure.call_args_list == [call(7), call(3)]
 
 
 @pytest.mark.asyncio
