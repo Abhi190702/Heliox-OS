@@ -288,7 +288,6 @@ subscription_max_prompt_chars = 48000
 
 [security]
 root_enabled = false
-confirm_tier2 = true
 snapshot_on_destructive = true
 
 [vision]

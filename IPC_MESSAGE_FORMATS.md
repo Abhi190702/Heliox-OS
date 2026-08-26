@@ -315,7 +315,6 @@ Return the daemon's full runtime configuration.
   },
   "security": {
     "root_enabled": false,
-    "confirm_tier2": true,
     "dry_run": false,
     "snapshot_on_destructive": true,
     "snapshot_backend": "auto",
@@ -345,7 +344,7 @@ Update one config section.
 ```json
 {
   "section": "security",
-  "values": { "dry_run": true, "confirm_tier2": false }
+  "values": { "dry_run": true }
 }
 ```
 Use `section: ""` with `values: { "first_run_complete": true }` to set top-level fields.
@@ -1942,7 +1941,7 @@ Defined in `schemas/action_plan.schema.json` and `daemon/pilot/actions.py`.
 | Destructive (11) | `file_delete`, `package_remove`, `process_kill`, `power_shutdown`, `power_restart`, `power_logout`, `schedule_delete`, `window_close`, `disk_unmount`, `browser_execute_js`, `calendar_delete_event` |
 | Root critical | Any action carrying validated `requires_root: true`; root critical is an action-instance elevation, not a fixed enum list |
 
-Actions at **Tier 2 (System modify) and above** set `requires_confirmation: true` when `confirm_tier2` is enabled in the security config (the default).
+Actions at **Tier 2 (System modify) and above** always set `requires_confirmation: true`. This safety boundary is not configurable.
 
 **Irreversibility is orthogonal to tier.** `Action.is_irreversible` (computed, not sent as a raw field on `plan_preview`/`action_start` — surfaced explicitly as `irreversible` in the `confirm_required` payload) is `true` when the action cannot be undone via `rollback_plan`, regardless of its tier:
 - Any Tier 4 (root-critical) action

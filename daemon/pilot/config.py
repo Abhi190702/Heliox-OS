@@ -109,7 +109,6 @@ class ModelConfig:
 @dataclass
 class SecurityConfig:
     root_enabled: bool = False
-    confirm_tier2: bool = True
     dry_run: bool = False
     snapshot_on_destructive: bool = True
     snapshot_backend: str = "auto"  # "auto" | "btrfs" | "timeshift" | "none"
@@ -666,7 +665,6 @@ def _validate_config_types(raw: dict) -> None:
         },
         "security": {
             "root_enabled": bool,
-            "confirm_tier2": bool,
             "dry_run": bool,
             "snapshot_on_destructive": bool,
             "snapshot_backend": str,
