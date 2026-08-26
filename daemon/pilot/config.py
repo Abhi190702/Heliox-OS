@@ -184,7 +184,6 @@ class ScreenVisionConfig:
 
 @dataclass
 class VisionConfig:
-    camera_index: int = 0
     # "legacy" keeps the existing @mediapipe/hands normalized-2D pipeline;
     # "tasks" switches to @mediapipe/tasks-vision's HandLandmarker, which
     # additionally exposes real-metric-scale worldLandmarks (see
@@ -707,7 +706,6 @@ def _validate_config_types(raw: dict) -> None:
             "auto_resume_after_seconds": (int, float),
         },
         "vision": {
-            "camera_index": int,
             "mediapipe_backend": str,
             "gaze_tracking_enabled": bool,
         },
