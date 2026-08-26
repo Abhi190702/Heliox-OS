@@ -747,6 +747,8 @@ class Executor:
                     "index": index,
                     "action_idempotency_key": action_id,
                     "success": result.success,
+                    "executed": result.executed,
+                    "skip_reason": result.skip_reason,
                     "output_excerpt": (result.output or "")[:1000],
                     "error": (result.error or "")[:1000],
                     "callback_observed": callback_observed,
@@ -756,6 +758,7 @@ class Executor:
             )
             if (
                 callback_observed
+                and result.executed
                 and self._world_model_outcome_recorder is not None
                 and not (result.output or "").startswith("(dry run)")
             ):
@@ -838,6 +841,8 @@ class Executor:
                         ),
                         success=False,
                         error=f"Gateway denied: {'; '.join(gateway_decision.reasons)}",
+                        executed=False,
+                        skip_reason="gateway_denied",
                     )
                 ]
 
@@ -860,6 +865,8 @@ class Executor:
                             ),
                             success=False,
                             error="Stopped by user after risk interrupt",
+                            executed=False,
+                            skip_reason="risk_interrupt",
                         )
                     ]
 
@@ -876,6 +883,8 @@ class Executor:
                     ),
                     success=False,
                     error=f"Permission denied: {'; '.join(reasons)}",
+                    executed=False,
+                    skip_reason="permission_denied",
                 )
             ]
 
@@ -909,6 +918,8 @@ class Executor:
                             action=plan.actions[0],
                             success=False,
                             error=f"Validation failed: {'; '.join(errors)}",
+                            executed=False,
+                            skip_reason="validation_failed",
                         )
                     ]
             else:
@@ -917,6 +928,8 @@ class Executor:
                         action=plan.actions[0],
                         success=False,
                         error=f"Validation failed: {'; '.join(errors)}",
+                        executed=False,
+                        skip_reason="validation_failed",
                     )
                 ]
 
@@ -943,6 +956,8 @@ class Executor:
                         action=plan.actions[0],
                         success=False,
                         error=f"Safety stop: required pre-action snapshot failed. No actions ran. {e}",
+                        executed=False,
+                        skip_reason="snapshot_failed",
                     )
                 ]
             if not snapshot_id:
@@ -954,14 +969,10 @@ class Executor:
                         error=(
                             "Safety stop: Auto-Snapshot is enabled, but no snapshot backend is ready. No actions ran."
                         ),
+                        executed=False,
+                        skip_reason="snapshot_unavailable",
                     )
                 ]
-
-        for i, action in enumerate(plan.actions):
-            if cancel_event and cancel_event.is_set():
-                logger.info("Executor: cancel_event set — stopping at action %d", i)
-                break
-            await self._audit.log_action_start(action, plan_id)
 
         batches = self._analyze_dependencies(plan.actions)
         durable_action_indices = {id(action): index + action_index_offset for index, action in enumerate(plan.actions)}
@@ -986,10 +997,16 @@ class Executor:
 
             if cancel_event and cancel_event.is_set():
                 logger.info("Executor: cancel_event set — stopping at batch %d", batch_idx)
-                for remaining_batch in batches[batch_idx + 1 :]:
+                for remaining_batch in batches[batch_idx:]:
                     for action in remaining_batch:
                         results.append(
-                            ActionResult(action=action, success=False, error="Skipped due to cancel request")
+                            ActionResult(
+                                action=action,
+                                success=False,
+                                error="Skipped due to cancel request",
+                                executed=False,
+                                skip_reason="cancelled",
+                            )
                         )
                 break
 
@@ -1017,6 +1034,8 @@ class Executor:
                                 action=action,
                                 success=False,
                                 error="Safety stop: completed action has no durable result.",
+                                executed=False,
+                                skip_reason="durable_result_missing",
                             )
                         else:
                             result = ActionResult.model_validate(
@@ -1027,8 +1046,11 @@ class Executor:
                                     # instead of re-inferring its parameter type
                                     # from generic JSON during replay.
                                     "action": action,
+                                    "executed": False,
+                                    "skip_reason": "durable_replay",
                                 }
                             )
+                        await self._audit.log_action_result(result, plan_id)
                         if on_action_complete:
                             await on_action_complete(result)
                         return idx, result
@@ -1047,7 +1069,10 @@ class Executor:
                             action=action,
                             success=False,
                             error=f"Safety stop: {reason}.",
+                            executed=False,
+                            skip_reason=claim.decision.value,
                         )
+                        await self._audit.log_action_result(result, plan_id)
                         if on_action_complete:
                             await on_action_complete(result)
                         return idx, result
@@ -1080,6 +1105,8 @@ class Executor:
                                     action=action,
                                     success=False,
                                     error=f"Skipped after interrupt: {assessment.reason}",
+                                    executed=False,
+                                    skip_reason="target_interrupt",
                                 )
                                 await self._audit.log_action_result(result, plan_id)
                                 if on_action_complete:
@@ -1105,6 +1132,8 @@ class Executor:
                                     "Safety stop: Simulate Before Executing is enabled, "
                                     "but a real preview could not be generated. No action ran."
                                 ),
+                                executed=False,
+                                skip_reason="preview_unavailable",
                             )
                             await self._audit.log_action_result(result, plan_id)
                             if on_action_complete:
@@ -1119,6 +1148,8 @@ class Executor:
                                 action=action,
                                 success=False,
                                 error="Skipped after preview interrupt",
+                                executed=False,
+                                skip_reason="preview_interrupt",
                             )
                             await self._audit.log_action_result(result, plan_id)
                             if on_action_complete:
@@ -1172,7 +1203,13 @@ class Executor:
                 for remaining_batch in batches[batch_idx + 1 :]:
                     for action in remaining_batch:
                         results.append(
-                            ActionResult(action=action, success=False, error="Skipped due to earlier batch failure")
+                            ActionResult(
+                                action=action,
+                                success=False,
+                                error="Skipped due to earlier batch failure",
+                                executed=False,
+                                skip_reason="dependency_failed",
+                            )
                         )
 
         return results
@@ -1203,7 +1240,13 @@ class Executor:
             else:
                 output = f"(dry run) Would execute {action.action_type.value} on {action.target or 'target'}"
 
-            result = ActionResult(action=action, success=True, output=output)
+            result = ActionResult(
+                action=action,
+                success=True,
+                output=output,
+                executed=False,
+                skip_reason="dry_run",
+            )
             await self._audit.log_action_result(result, plan_id, dry_run=True)
 
             if on_action_complete:

@@ -331,7 +331,12 @@ class ExperienceTraceReplayer:
                     violations.append("action started after approval was denied or expired")
                 started_counts[event.action_id] += 1
             elif event.event_type == ExperienceEventType.ACTION_COMPLETED:
-                executed = bool(event.payload.get("callback_observed", True))
+                executed = bool(
+                    event.payload.get(
+                        "executed",
+                        event.payload.get("callback_observed", True),
+                    )
+                )
                 if executed and started_counts[event.action_id] <= 0:
                     violations.append(f"action {event.action_id or '(missing)'} completed without starting")
                 completed_ids.append(event.action_id)

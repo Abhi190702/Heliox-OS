@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -88,6 +89,8 @@ async def test_executor_replays_completed_durable_action_without_second_side_eff
         await store.transition("task-1", TaskStatus.EXECUTING, plan_id="plan-1")
         executor = _executor(tmp_path)
         executor.set_durable_task_store(store)
+        outcome_recorder = MagicMock()
+        executor.set_world_model_outcome_recorder(outcome_recorder)
         plan = _cpu_plan()
         effect = AsyncMock(
             return_value=ActionResult(
@@ -102,11 +105,39 @@ async def test_executor_replays_completed_durable_action_without_second_side_eff
             first = await executor.execute(plan, plan_id="plan-1")
             replayed = await executor.execute(plan, plan_id="plan-1")
 
-        assert first == replayed
         assert first[0].success is True
+        assert first[0].executed is True
+        assert replayed[0].success is True
+        assert replayed[0].executed is False
+        assert replayed[0].skip_reason == "durable_replay"
+        assert replayed[0].output == first[0].output
         effect.assert_awaited_once()
+        outcome_recorder.assert_called_once_with(ActionType.CPU_USAGE, True)
+        audit_entries = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text("utf-8").splitlines()]
+        assert [entry["event_type"] for entry in audit_entries] == [
+            "action_start",
+            "action_complete",
+            "action_complete",
+        ]
+        assert audit_entries[-1]["details"]["executed"] is False
+        assert audit_entries[-1]["details"]["skip_reason"] == "durable_replay"
     finally:
         await store.close()
+
+
+@pytest.mark.asyncio
+async def test_pre_cancelled_batch_reports_every_action_as_not_executed(tmp_path):
+    executor = _executor(tmp_path)
+    plan = _cpu_plan()
+    cancel_event = asyncio.Event()
+    cancel_event.set()
+
+    results = await executor.execute(plan, cancel_event=cancel_event)
+
+    assert len(results) == 1
+    assert results[0].success is False
+    assert results[0].executed is False
+    assert results[0].skip_reason == "cancelled"
 
 
 @pytest.mark.asyncio

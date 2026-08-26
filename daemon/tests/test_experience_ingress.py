@@ -101,6 +101,8 @@ async def test_all_executor_ingress_sources_emit_action_lifecycle(tmp_path, ledg
     assert {event.task_id for event in events} == {"task-a"}
     assert events[1].action_id == events[2].action_id == events[3].action_id
     assert events[1].payload["action_idempotency_key"] == events[1].action_id
+    assert events[3].payload["executed"] is False
+    assert events[3].payload["skip_reason"] == "dry_run"
 
 
 @pytest.mark.asyncio

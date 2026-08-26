@@ -152,6 +152,34 @@ async def test_replayer_flags_action_after_denied_approval(ledger):
     assert "action started after approval was denied or expired" in replay.violations
 
 
+@pytest.mark.asyncio
+async def test_replayer_accepts_explicitly_unexecuted_completion_without_start(ledger):
+    with experience_scope(task_id="skipped-task"):
+        await ledger.append(
+            ExperienceEventType.CANDIDATE_ACTION,
+            idempotency_key="skipped:candidate",
+            action_id="action-skipped",
+        )
+        await ledger.append(
+            ExperienceEventType.ACTION_COMPLETED,
+            idempotency_key="skipped:complete",
+            action_id="action-skipped",
+            payload={"success": True, "executed": False, "skip_reason": "already_satisfied"},
+        )
+        await ledger.append(
+            ExperienceEventType.OUTCOME_VERIFIED,
+            idempotency_key="skipped:terminal",
+            payload={"status": "success"},
+        )
+
+    trace = await ExperienceTrace.from_ledger(ledger, "skipped-task")
+    replay = ExperienceTraceReplayer().replay(trace)
+
+    assert replay.violations == ()
+    assert replay.started_action_ids == ()
+    assert replay.completed_action_ids == ("action-skipped",)
+
+
 @pytest.mark.parametrize(
     ("assertion", "passed"),
     [

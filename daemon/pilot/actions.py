@@ -1077,6 +1077,8 @@ class ActionResult(BaseModel):
     output: str = ""
     error: str | None = None
     snapshot_id: str | None = None
+    executed: bool = True
+    skip_reason: str | None = None
 
 
 class VerificationResult(BaseModel):

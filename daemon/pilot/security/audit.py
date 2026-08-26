@@ -90,6 +90,8 @@ class AuditLogger:
                 "output_preview": result.output[:200] if result.output else "",
                 "error": result.error,
                 "snapshot_id": result.snapshot_id,
+                "executed": result.executed,
+                "skip_reason": result.skip_reason,
                 "dry_run": dry_run,
             },
         )
