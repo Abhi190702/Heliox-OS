@@ -106,3 +106,12 @@ class CircuitBreaker:
         if not tid:
             return 0
         return self._counts.get(tid, 0)
+
+    def reconfigure(self, threshold: int) -> None:
+        """Apply a validated threshold without reopening tripped tasks."""
+        if threshold < 1:
+            raise ValueError("Circuit breaker threshold must be positive")
+        self._threshold = threshold
+        for task_id, count in self._counts.items():
+            if count >= threshold:
+                self._state[task_id] = CircuitBreakerState.OPEN

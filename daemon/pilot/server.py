@@ -4840,6 +4840,27 @@ class PilotServer:
                             "status": "error",
                             "message": "model.subscription_max_prompt_chars must be from 16000 to 200000",
                         }
+                if section == "model" and k in {"rate_limit_enabled", "budget_enabled"}:
+                    if not isinstance(v, bool):
+                        return {"status": "error", "message": f"model.{k} must be a boolean"}
+                if section == "model" and k == "rate_limit_rpm":
+                    if not isinstance(v, int) or isinstance(v, bool) or not 1 <= v <= 10000:
+                        return {"status": "error", "message": "model.rate_limit_rpm must be from 1 to 10000"}
+                if section == "model" and k == "rate_limit_burst":
+                    if not isinstance(v, int) or isinstance(v, bool) or not 1 <= v <= 1000:
+                        return {"status": "error", "message": "model.rate_limit_burst must be from 1 to 1000"}
+                if section == "model" and k in {"budget_monthly_limit_usd", "max_usd_per_task"}:
+                    if not isinstance(v, (int, float)) or isinstance(v, bool) or v < 0:
+                        return {"status": "error", "message": f"model.{k} must be zero or greater"}
+                if section == "model" and k in {"max_tokens_per_action", "max_tokens_per_task"}:
+                    if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                        return {"status": "error", "message": f"model.{k} must be zero or greater"}
+                if section == "model" and k == "max_consecutive_failures":
+                    if not isinstance(v, int) or isinstance(v, bool) or not 1 <= v <= 20:
+                        return {
+                            "status": "error",
+                            "message": "model.max_consecutive_failures must be from 1 to 20",
+                        }
                 if section == "security" and k == "root_enabled" and not isinstance(v, bool):
                     return {"status": "error", "message": "security.root_enabled must be a boolean"}
                 if section == "security" and k == "snapshot_on_destructive" and not isinstance(v, bool):
@@ -5008,6 +5029,8 @@ class PilotServer:
             model_router = self._model_router or (self._planner._model if self._planner is not None else None)
             if model_router is not None:
                 await model_router.reconfigure(set(normalized_values))
+            if "max_consecutive_failures" in normalized_values and self._circuit_breaker is not None:
+                self._circuit_breaker.reconfigure(self.config.model.max_consecutive_failures)
 
         return {"status": "ok"}
 

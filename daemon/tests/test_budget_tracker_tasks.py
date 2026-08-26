@@ -86,6 +86,25 @@ async def test_check_task_budget_raises_on_usd_limit(tracker):
 
 
 @pytest.mark.asyncio
+async def test_reconfigure_updates_active_task_caps_and_zero_disables_them(tracker):
+    budget = tracker.start_task("task-abc")
+    budget.tokens_used = 5000
+    budget.usd_spent = 5.0
+    updated = ModelConfig(
+        budget_enabled=True,
+        budget_monthly_limit_usd=25.0,
+        max_tokens_per_task=0,
+        max_usd_per_task=0,
+    )
+
+    tracker.reconfigure(updated)
+
+    assert budget.token_cap == 0
+    assert budget.usd_cap == 0
+    tracker.check_task_budget("task-abc")
+
+
+@pytest.mark.asyncio
 async def test_record_usage_updates_task_totals(tracker):
     tracker.start_task("task-abc")
     token = current_task_id.set("task-abc")

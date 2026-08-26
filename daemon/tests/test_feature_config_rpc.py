@@ -153,6 +153,26 @@ async def test_model_update_reconfigures_live_runtime():
 
 
 @pytest.mark.asyncio
+async def test_failure_threshold_update_reconfigures_live_circuit_breaker():
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+    model_router = SimpleNamespace(reconfigure=AsyncMock())
+    circuit_breaker = SimpleNamespace(reconfigure=MagicMock())
+    server._model_router = model_router
+    server._circuit_breaker = circuit_breaker
+
+    result = await server._handle_update_config(
+        {"section": "model", "values": {"max_consecutive_failures": 7}},
+        MagicMock(),
+    )
+
+    assert result["status"] == "ok"
+    model_router.reconfigure.assert_awaited_once_with({"max_consecutive_failures"})
+    circuit_breaker.reconfigure.assert_called_once_with(7)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("values", "message"),
     [
@@ -160,6 +180,12 @@ async def test_model_update_reconfigures_live_runtime():
         ({"subscription_provider": "unknown"}, "subscription_provider"),
         ({"subscription_timeout_seconds": 5}, "subscription_timeout_seconds"),
         ({"subscription_max_prompt_chars": 15999}, "subscription_max_prompt_chars"),
+        ({"rate_limit_rpm": 0}, "rate_limit_rpm"),
+        ({"rate_limit_burst": 0}, "rate_limit_burst"),
+        ({"budget_monthly_limit_usd": -1}, "budget_monthly_limit_usd"),
+        ({"max_tokens_per_task": -1}, "max_tokens_per_task"),
+        ({"max_usd_per_task": -0.01}, "max_usd_per_task"),
+        ({"max_consecutive_failures": 0}, "max_consecutive_failures"),
     ],
 )
 async def test_subscription_provider_update_rejects_unsafe_values(values, message):

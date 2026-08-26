@@ -113,6 +113,23 @@ def test_concurrent_tasks_isolated():
     assert cb.get_state("t-b") == CircuitBreakerState.CLOSED
 
 
+def test_reconfigure_applies_lower_threshold_without_reopening_tasks():
+    cb = CircuitBreaker(threshold=4)
+    cb.record_failure("active")
+    cb.record_failure("active")
+    cb.reconfigure(2)
+    assert cb.get_state("active") == CircuitBreakerState.OPEN
+
+    cb.reconfigure(5)
+    assert cb.get_state("active") == CircuitBreakerState.OPEN
+
+
+def test_reconfigure_rejects_non_positive_threshold():
+    cb = CircuitBreaker(threshold=2)
+    with pytest.raises(ValueError, match="positive"):
+        cb.reconfigure(0)
+
+
 # ─── Orchestrator integration tests ───
 
 

@@ -181,6 +181,16 @@ class BudgetTracker:
     # Public API
     # ------------------------------------------------------------------
 
+    def reconfigure(self, config: ModelConfig) -> None:
+        """Apply validated budget limits to new and active tasks."""
+        self._enabled = config.budget_enabled
+        self._monthly_limit = config.budget_monthly_limit_usd
+        self._token_cap_per_task = config.max_tokens_per_task
+        self._usd_cap_per_task = config.max_usd_per_task
+        for budget in self._tasks.values():
+            budget.token_cap = self._token_cap_per_task
+            budget.usd_cap = self._usd_cap_per_task
+
     def check_budget(self, provider: str) -> None:
         """Synchronous budget gate — raises BudgetExceededError if limit reached.
 
@@ -259,14 +269,14 @@ class BudgetTracker:
         if task is None:
             return
 
-        if task.tokens_used >= task.token_cap:
+        if task.token_cap > 0 and task.tokens_used >= task.token_cap:
             task.exceeded = True
             raise TaskBudgetExceededError(
                 f"Task {task_id} exceeded token budget "
                 f"({task.tokens_used} >= {task.token_cap}). "
                 f"Increase max_tokens_per_task or split the task."
             )
-        if task.usd_spent >= task.usd_cap:
+        if task.usd_cap > 0 and task.usd_spent >= task.usd_cap:
             task.exceeded = True
             raise TaskBudgetExceededError(
                 f"Task {task_id} exceeded USD budget "

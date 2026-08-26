@@ -610,6 +610,21 @@ class ModelRouter:
 
     async def reconfigure(self, changed_keys: set[str]) -> None:
         """Apply validated model settings to live provider resources."""
+        rate_limit_keys = {"rate_limit_enabled", "rate_limit_rpm", "rate_limit_burst"}
+        if changed_keys & rate_limit_keys:
+            self._rate_limiter.reconfigure(self._config.model)
+
+        budget_keys = {
+            "budget_enabled",
+            "budget_monthly_limit_usd",
+            "max_tokens_per_action",
+            "max_tokens_per_task",
+            "max_usd_per_task",
+        }
+        budget_tracker = getattr(self, "_budget_tracker", None)
+        if budget_tracker is not None and changed_keys & budget_keys:
+            budget_tracker.reconfigure(self._config.model)
+
         if "ollama_model" in changed_keys:
             self._resolved_ollama_model = None
 

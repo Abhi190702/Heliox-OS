@@ -204,3 +204,17 @@ async def test_model_reconfigure_refreshes_cached_and_stateful_backends():
     assert router._llamacpp is None
     assert router._cloud_unavailable_reason == ""
     assert router._cloud_unavailable_until == 0.0
+
+
+@pytest.mark.asyncio
+async def test_model_reconfigure_updates_live_limits_and_budgets():
+    config = PilotConfig()
+    router = object.__new__(ModelRouter)
+    router._config = config
+    router._rate_limiter = MagicMock()
+    router._budget_tracker = MagicMock()
+
+    await router.reconfigure({"rate_limit_rpm", "max_tokens_per_task"})
+
+    router._rate_limiter.reconfigure.assert_called_once_with(config.model)
+    router._budget_tracker.reconfigure.assert_called_once_with(config.model)
