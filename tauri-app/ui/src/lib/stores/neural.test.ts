@@ -9,6 +9,17 @@ vi.mock("../api/daemon", () => ({
   call,
   onNotification: (handler: typeof notificationHandler) => (notificationHandler = handler),
   offNotification: vi.fn(),
+  requireResultStatus: (
+    result: { status?: string; message?: string; error?: string },
+    expectedStatus: string | readonly string[],
+    fallbackMessage: string,
+  ) => {
+    const expected = typeof expectedStatus === "string" ? [expectedStatus] : expectedStatus;
+    if (!expected.includes(result.status ?? "")) {
+      throw new Error(result.message || result.error || fallbackMessage);
+    }
+    return result;
+  },
 }));
 vi.mock("../api/invoke", () => ({ invoke }));
 
@@ -21,7 +32,11 @@ describe("neural control store", () => {
 
   it("auto-commits a safe preview only after its cancellation window", async () => {
     const { neural } = await import("./neural");
-    call.mockResolvedValue({ state: "cooldown", connected: true });
+    call.mockImplementation(async (method: string) =>
+      method === "neural_commit"
+        ? { status: "committed", state: "cooldown", connected: true }
+        : { status: "ok", state: "cooldown", connected: true },
+    );
     notificationHandler!("neural_preview", {
       status: "previewed",
       preview_id: "preview-1",
@@ -66,7 +81,7 @@ describe("neural control store", () => {
 
   it("cancels auto-commit when a higher-priority safety decision appears", async () => {
     const { neural } = await import("./neural");
-    call.mockResolvedValue({ state: "observe_only", connected: true, armed_scope: "observe" });
+    call.mockResolvedValue({ status: "ok", state: "observe_only", connected: true, armed_scope: "observe" });
     notificationHandler!("neural_preview", {
       status: "previewed",
       preview_id: "preview-safety",
@@ -87,7 +102,7 @@ describe("neural control store", () => {
 
   it("emergency disarm clears a pending preview", async () => {
     const { neural } = await import("./neural");
-    call.mockResolvedValue({ state: "observe_only", connected: true, armed_scope: "observe" });
+    call.mockResolvedValue({ status: "ok", state: "observe_only", connected: true, armed_scope: "observe" });
     await neural.disarm();
     expect(call).toHaveBeenCalledWith("neural_disarm", { reason: "user_emergency_disarm" });
     expect(get(neural).preview).toBeNull();
@@ -104,6 +119,7 @@ describe("neural control store", () => {
   it("preserves explicit recorded-versus-live evidence provenance", async () => {
     const { neural } = await import("./neural");
     call.mockResolvedValue({
+      status: "ok",
       state: "observe_only",
       connected: true,
       source_id: "playback-session",
@@ -143,5 +159,83 @@ describe("neural control store", () => {
     });
     expect(get(neural).stagedTasks[0]?.authority).toBe("explicit_non_neural_staging");
     expect(get(neural).focusedCommandId).toBe("staged-task:task-1");
+  });
+
+  it("keeps a rejected neural preview visible with the daemon error", async () => {
+    const { neural } = await import("./neural");
+    notificationHandler!("neural_preview", {
+      status: "previewed",
+      preview_id: "preview-rejected",
+      state_revision: 7,
+      created_at_ns: 1,
+      eligible_at_ns: 2,
+      requires_non_neural_approval: true,
+    });
+    call.mockResolvedValue({ status: "rejected", error: "world-model approval is stale" });
+
+    await neural.approvePreview();
+
+    expect(get(neural).preview?.preview_id).toBe("preview-rejected");
+    expect(get(neural).error).toBe("world-model approval is stale");
+  });
+
+  it("keeps a verified execution failure visible after refreshing neural status", async () => {
+    const { neural } = await import("./neural");
+    notificationHandler!("neural_preview", {
+      status: "previewed",
+      preview_id: "preview-failed",
+      state_revision: 8,
+      created_at_ns: 1,
+      eligible_at_ns: 2,
+      requires_non_neural_approval: true,
+    });
+    call.mockImplementation(async (method: string) =>
+      method === "neural_commit"
+        ? { status: "failed", error: "desktop action did not verify" }
+        : { status: "ok", state: "observe_only", connected: true },
+    );
+    invoke.mockResolvedValue({ running: false, pid: null });
+
+    await neural.approvePreview();
+
+    expect(get(neural).preview).toBeNull();
+    expect(get(neural).lastResult?.status).toBe("failed");
+    expect(get(neural).error).toBe("desktop action did not verify");
+  });
+
+  it("surfaces an unavailable neural controller instead of reporting a healthy refresh", async () => {
+    const { neural } = await import("./neural");
+    call.mockResolvedValue({ status: "unavailable", connected: false });
+    invoke.mockResolvedValue({ running: false, pid: null });
+
+    await neural.refresh();
+
+    expect(get(neural).connected).toBe(false);
+    expect(get(neural).error).toBe("Neural controller is unavailable in the Heliox daemon.");
+  });
+
+  it("does not apply a rejected arm response as neural state", async () => {
+    const { neural } = await import("./neural");
+    notificationHandler!("neural_status", {
+      state: "observe_only",
+      connected: true,
+      session_id: "session-1",
+      armed_scope: "observe",
+    });
+    call.mockResolvedValue({ status: "rejected", error: "calibration is required" });
+
+    await neural.arm("safe_desktop");
+
+    expect(get(neural).state).toBe("observe_only");
+    expect(get(neural).armedScope).toBe("observe");
+    expect(get(neural).error).toBe("calibration is required");
+  });
+
+  it("returns false when the daemon does not acknowledge task staging", async () => {
+    const { neural } = await import("./neural");
+    call.mockResolvedValue({ status: "unavailable" });
+
+    expect(await neural.stageTask("Research", "Investigate the issue")).toBe(false);
+    expect(get(neural).error).toBe("The daemon did not stage the neural task.");
   });
 });

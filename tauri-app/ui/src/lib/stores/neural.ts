@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { call, offNotification, onNotification } from "../api/daemon";
+import { call, offNotification, onNotification, requireResultStatus } from "../api/daemon";
 import { invoke } from "../api/invoke";
 
 export type NeuralSessionState =
@@ -171,9 +171,22 @@ function createNeuralControl() {
         expected_revision: current.preview.state_revision,
         world_model_approved: worldModelApproved,
       })) as Record<string, unknown>;
-      if (result.status === "rejected") throw new Error(String(result.error ?? "Neural commit was rejected"));
-      store.update((value) => ({ ...value, preview: null, lastResult: result, busy: false }));
+      requireResultStatus(
+        result,
+        ["committed", "submitted", "completed", "failed"],
+        "The daemon did not complete the neural intent.",
+      );
+      const terminalError =
+        result.status === "failed" ? String(result.error ?? "The neural intent failed without a verified result.") : "";
+      store.update((value) => ({
+        ...value,
+        preview: null,
+        lastResult: result,
+        busy: false,
+        error: terminalError,
+      }));
       await refresh();
+      if (terminalError) store.update((value) => ({ ...value, error: terminalError }));
     } catch (cause) {
       store.update((value) => ({ ...value, busy: false, error: readableError(cause) }));
     }
@@ -222,7 +235,17 @@ function createNeuralControl() {
   async function refresh() {
     try {
       const payload = (await call("neural_status")) as Record<string, unknown>;
-      applyStatus(payload);
+      if (payload.status === "unavailable") {
+        applyStatus(payload);
+        store.update((current) => ({
+          ...current,
+          connected: false,
+          error: String(payload.error ?? "Neural controller is unavailable in the Heliox daemon."),
+        }));
+      } else {
+        requireResultStatus(payload, "ok", "The daemon returned an invalid neural status response.");
+        applyStatus(payload);
+      }
     } catch (cause) {
       store.update((current) => ({ ...current, error: readableError(cause) }));
     }
@@ -279,6 +302,7 @@ function createNeuralControl() {
         string,
         unknown
       >;
+      requireResultStatus(result, "ok", "The daemon did not begin neural calibration.");
       applyStatus(result);
     } catch (cause) {
       store.update((value) => ({ ...value, error: readableError(cause) }));
@@ -297,6 +321,7 @@ function createNeuralControl() {
         scope,
         user_authorized: true,
       })) as Record<string, unknown>;
+      requireResultStatus(result, "ok", "The daemon did not arm neural control.");
       applyStatus(result);
     } catch (cause) {
       store.update((value) => ({ ...value, error: readableError(cause) }));
@@ -309,6 +334,7 @@ function createNeuralControl() {
     clearAutoCommit();
     try {
       const result = (await call("neural_disarm", { reason })) as Record<string, unknown>;
+      requireResultStatus(result, "ok", "The daemon did not confirm neural disarm.");
       applyStatus(result);
       store.update((current) => ({ ...current, preview: null }));
     } catch (cause) {
@@ -330,6 +356,7 @@ function createNeuralControl() {
         string,
         unknown
       >;
+      requireResultStatus(result, "ok", "The daemon did not confirm neural safety disarm.");
       applyStatus(result);
       store.update((value) => ({
         ...value,
@@ -349,7 +376,7 @@ function createNeuralControl() {
         goal,
         session_id: sessionId,
       })) as Record<string, unknown>;
-      if (result.status === "rejected") throw new Error(String(result.error ?? "Task staging was rejected"));
+      requireResultStatus(result, "ok", "The daemon did not stage the neural task.");
       applyStatus(result);
       return true;
     } catch (cause) {
@@ -364,7 +391,7 @@ function createNeuralControl() {
     store.update((current) => ({ ...current, busy: true, error: "" }));
     try {
       const result = (await call("neural_remove_staged_task", { task_id: taskId })) as Record<string, unknown>;
-      if (result.status === "rejected") throw new Error(String(result.error ?? "Task removal was rejected"));
+      requireResultStatus(result, "ok", "The daemon did not remove the staged neural task.");
       applyStatus(result);
       return true;
     } catch (cause) {
