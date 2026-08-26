@@ -5077,7 +5077,13 @@ class PilotServer:
                 return {"status": "error", "message": f"Invalid config key found: '{section}.{k}'."}
         for key, value in normalized_values.items():
             setattr(target, key, value)
-        self.config.save()
+        try:
+            self.config.save()
+        except Exception as exc:
+            for key, value in previous_values.items():
+                setattr(target, key, value)
+            logger.warning("Config update was not persisted; restored live values", exc_info=True)
+            return {"status": "error", "message": f"Config update was not saved: {exc}"}
 
         if voice_listener_was_running:
             try:
@@ -5105,7 +5111,20 @@ class PilotServer:
         if section == "model":
             model_router = self._model_router or (self._planner._model if self._planner is not None else None)
             if model_router is not None:
-                await model_router.reconfigure(set(normalized_values))
+                try:
+                    await model_router.reconfigure(set(normalized_values))
+                except Exception as exc:
+                    for key, value in previous_values.items():
+                        setattr(target, key, value)
+                    try:
+                        self.config.save()
+                        await model_router.reconfigure(set(normalized_values))
+                    except Exception:
+                        logger.exception("Could not restore model runtime after config rollback")
+                    return {
+                        "status": "error",
+                        "message": f"Model setting was not applied: {exc}",
+                    }
             if "max_consecutive_failures" in normalized_values and self._circuit_breaker is not None:
                 self._circuit_breaker.reconfigure(self.config.model.max_consecutive_failures)
 

@@ -153,6 +153,46 @@ async def test_model_update_reconfigures_live_runtime():
 
 
 @pytest.mark.asyncio
+async def test_config_save_failure_restores_live_values_without_reconfiguring_model():
+    config = PilotConfig()
+    config.save = MagicMock(side_effect=OSError("disk full"))
+    server = PilotServer(config)
+    model_router = SimpleNamespace(reconfigure=AsyncMock())
+    server._model_router = model_router
+
+    result = await server._handle_update_config(
+        {"section": "model", "values": {"subscription_model": "gpt-test"}},
+        MagicMock(),
+    )
+
+    assert result == {"status": "error", "message": "Config update was not saved: disk full"}
+    assert config.model.subscription_model == ""
+    model_router.reconfigure.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_model_reconfigure_failure_rolls_back_persisted_and_live_values():
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+    model_router = SimpleNamespace(
+        reconfigure=AsyncMock(side_effect=[RuntimeError("reload failed"), None]),
+    )
+    server._model_router = model_router
+
+    result = await server._handle_update_config(
+        {"section": "model", "values": {"subscription_model": "gpt-test"}},
+        MagicMock(),
+    )
+
+    assert result == {"status": "error", "message": "Model setting was not applied: reload failed"}
+    assert config.model.subscription_model == ""
+    assert config.save.call_count == 2
+    assert model_router.reconfigure.await_count == 2
+    model_router.reconfigure.assert_awaited_with({"subscription_model"})
+
+
+@pytest.mark.asyncio
 async def test_failure_threshold_update_reconfigures_live_circuit_breaker():
     config = PilotConfig()
     config.save = MagicMock()
