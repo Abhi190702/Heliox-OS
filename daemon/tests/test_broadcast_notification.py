@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from pilot.config import PilotConfig
-from pilot.server import PilotServer
+from pilot.server import MAX_ATTENTION_NOTIFICATION_BUFFER, PilotServer
 
 
 class _FakeClient:
@@ -126,6 +126,60 @@ async def test_attention_ui_buffers_non_critical_and_does_not_send_immediately()
     for client in clients:
         client.send.assert_not_awaited()
     assert len(server._notification_buffer) == 1
+
+
+@pytest.mark.asyncio
+async def test_attention_buffer_coalesces_repeated_screen_vision_updates():
+    server, clients = _server_with_clients()
+
+    @dataclass
+    class _Scored:
+        should_display: bool = False
+        priority: str = "low"
+        attention_score: float = 0.9
+        should_animate: bool = False
+        display_duration_ms: int = 0
+
+    class _AttentionUI:
+        enabled = True
+
+        async def score_event(self, method, content):
+            return _Scored()
+
+    server._attention_ui = _AttentionUI()
+    for frame in range(100):
+        await server._broadcast_notification("screen_vision_update", {"frame": frame})
+
+    assert server._notification_buffer == [("screen_vision_update", {"frame": 99})]
+    for client in clients:
+        client.send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_attention_buffer_is_bounded_across_distinct_background_tasks():
+    server, _ = _server_with_clients()
+
+    @dataclass
+    class _Scored:
+        should_display: bool = False
+        priority: str = "low"
+        attention_score: float = 0.9
+        should_animate: bool = False
+        display_duration_ms: int = 0
+
+    class _AttentionUI:
+        enabled = True
+
+        async def score_event(self, method, content):
+            return _Scored()
+
+    server._attention_ui = _AttentionUI()
+    for task in range(MAX_ATTENTION_NOTIFICATION_BUFFER + 10):
+        await server._broadcast_notification("background_update", {"task_id": f"task-{task}"})
+
+    assert len(server._notification_buffer) == MAX_ATTENTION_NOTIFICATION_BUFFER
+    assert server._notification_buffer[0][1]["task_id"] == "task-10"
+    assert server._notification_buffer[-1][1]["task_id"] == f"task-{MAX_ATTENTION_NOTIFICATION_BUFFER + 9}"
 
 
 @pytest.mark.asyncio

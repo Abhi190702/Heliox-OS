@@ -133,6 +133,7 @@ ATTENTION_DEFERRABLE_NOTIFICATIONS = frozenset(
         "screen_vision_update",
     }
 )
+MAX_ATTENTION_NOTIFICATION_BUFFER = 64
 
 # Speech recognition is intentionally not an approval authority. Exact
 # affirmative phrases are detected only so they can be rejected clearly while
@@ -1434,7 +1435,18 @@ class PilotServer:
                 if not scored.should_display and scored.priority != "critical":
                     if not hasattr(self, "_notification_buffer"):
                         self._notification_buffer = []
-                    self._notification_buffer.append((method, params.copy() if isinstance(params, dict) else params))
+                    buffered_params = params.copy() if isinstance(params, dict) else params
+                    identity = self._attention_notification_identity(method, buffered_params)
+                    for index in range(len(self._notification_buffer) - 1, -1, -1):
+                        buffered_method, existing_params = self._notification_buffer[index]
+                        if self._attention_notification_identity(buffered_method, existing_params) == identity:
+                            self._notification_buffer[index] = (method, buffered_params)
+                            break
+                    else:
+                        self._notification_buffer.append((method, buffered_params))
+                    overflow = len(self._notification_buffer) - MAX_ATTENTION_NOTIFICATION_BUFFER
+                    if overflow > 0:
+                        del self._notification_buffer[:overflow]
                     return
 
                 if scored.attention_score < 0.4 and getattr(self, "_notification_buffer", []):
@@ -1473,6 +1485,16 @@ class PilotServer:
                 await client.send(msg)
             except Exception:
                 pass
+
+    @staticmethod
+    def _attention_notification_identity(method: str, params: Any) -> tuple[str, str]:
+        """Coalesce stale passive telemetry without merging distinct jobs."""
+        if isinstance(params, dict):
+            for key in ("task_id", "attempt_id", "plugin", "name"):
+                value = str(params.get(key, "")).strip()
+                if value:
+                    return method, f"{key}:{value}"
+        return method, "latest"
 
     async def _handle_extract_file_text(self, params: dict[str, Any], ws: ServerConnection) -> dict:
         """Extract text from a file (e.g. PDF) for UI context injection."""
