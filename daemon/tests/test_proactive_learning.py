@@ -22,6 +22,35 @@ def _suggestion(pattern_id: str, suffix: int) -> Suggestion:
     )
 
 
+class _ScreenVisionStub:
+    def __init__(self, *, running: bool, paused: bool = False) -> None:
+        self.is_running = running
+        self._paused = paused
+        self.state = SimpleNamespace(active_app="PowerShell", active_window_title="Build error")
+
+    def is_paused(self) -> bool:
+        return self._paused
+
+    def get_context(self):
+        return SimpleNamespace(current=lambda: self.state)
+
+
+def test_proactive_context_requires_live_unpaused_screen_monitor(tmp_path):
+    stopped = _ScreenVisionStub(running=False)
+    engine = ProactiveSuggestionEngine(
+        screen_vision=stopped,
+        feedback_path=tmp_path / "feedback.json",
+    )
+
+    assert engine._current_live_screen_state() is None
+
+    stopped.is_running = True
+    assert engine._current_live_screen_state() is stopped.state
+
+    stopped._paused = True
+    assert engine._current_live_screen_state() is None
+
+
 @pytest.mark.asyncio
 async def test_feedback_persists_across_engine_instances(tmp_path):
     feedback_path = tmp_path / "proactive-feedback.json"

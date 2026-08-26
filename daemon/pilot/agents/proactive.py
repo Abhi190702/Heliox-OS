@@ -333,10 +333,8 @@ class ProactiveSuggestionEngine:
         """Main loop — periodically checks screen context for patterns."""
         while self._running:
             try:
-                if self._enabled and self._screen_vision:
-                    context = self._screen_vision.get_context()
-                    current = context.current()
-
+                if self._enabled:
+                    current = self._current_live_screen_state()
                     if current and current.active_app:
                         await self._check_patterns(current)
 
@@ -346,6 +344,18 @@ class ProactiveSuggestionEngine:
                 logger.debug("Proactive watch error", exc_info=True)
 
             await asyncio.sleep(self._check_interval)
+
+    def _current_live_screen_state(self) -> Any | None:
+        """Return context only while periodic screen monitoring is live.
+
+        Screen history intentionally survives a stop so an active, explicit
+        task can still explain its last observation. Background suggestions
+        must not treat that retained history as a current user activity.
+        """
+        vision = self._screen_vision
+        if vision is None or not vision.is_running or vision.is_paused():
+            return None
+        return vision.get_context().current()
 
     async def _check_patterns(self, current: Any) -> None:
         """Check all patterns against the current screen state."""

@@ -195,6 +195,11 @@ class ScreenVisionAgent:
                 pass
         logger.info("Screen vision stopped")
 
+    @property
+    def is_running(self) -> bool:
+        """Whether periodic screen monitoring is enabled."""
+        return self._running
+
     def is_paused(self) -> bool:
         """Whether the agent has paused due to repeated capture timeouts."""
         return self._paused
