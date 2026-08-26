@@ -830,6 +830,7 @@ function createSession() {
   async function sendCommand(input: string, attachments: Attachment[] = []) {
     const current = get({ subscribe });
     if (current.loading) {
+      const previousPhase = current.phase;
       const attachmentContext = attachments
         .map((attachment) => `[Attached File: ${attachment.name}]\n${attachment.content}`)
         .join("\n\n");
@@ -851,13 +852,18 @@ function createSession() {
           update((s) => ({ ...s, phase: "stopping current step and revising" }));
         } else if (result.status === "aborted") {
           update((s) => ({ ...s, phase: "stopping" }));
-        } else if (result.status !== "no_active_execution") {
-          addSystemMessage(result.message ?? "The live correction was not accepted.");
-        } else {
+        } else if (result.status === "no_active_execution") {
+          update((s) => ({ ...s, phase: previousPhase }));
           addSystemMessage("That task had just finished. Send the message again to start a new task.");
+        } else {
+          update((s) => ({ ...s, phase: previousPhase }));
+          addErrorMessage(
+            `Live correction failed: ${result.message ?? `unexpected daemon status ${result.status || "missing"}`}`,
+          );
         }
       } catch (err) {
-        addSystemMessage(`Live correction failed: ${String(err instanceof Error ? err.message : err)}`);
+        update((s) => ({ ...s, phase: previousPhase }));
+        addErrorMessage(`Live correction failed: ${String(err instanceof Error ? err.message : err)}`);
       }
       return;
     }
@@ -1114,16 +1120,25 @@ function createSession() {
 
   async function abort() {
     try {
-      const res = (await call("abort")) as { status: string };
+      const res = (await call("abort")) as { status?: string; message?: string };
       if (res.status === "no_active_execution") {
         addSystemMessage("Nothing to stop.");
+      } else if (res.status !== "aborted") {
+        addErrorMessage(`Stop failed: ${res.message ?? `unexpected daemon status ${res.status || "missing"}`}`);
       }
       // On "aborted", the in-flight execute/resume_plan RPC resolves on its
       // own with status "cancelled" (handled above), which clears loading --
       // no state update needed here.
     } catch (err) {
-      addSystemMessage(`Stop failed: ${String(err instanceof Error ? err.message : err)}`);
+      addErrorMessage(`Stop failed: ${String(err instanceof Error ? err.message : err)}`);
     }
+  }
+
+  function addErrorMessage(text: string) {
+    update((s) => ({
+      ...s,
+      messages: [...s.messages, { type: "error" as MessageType, text, timestamp: Date.now() }],
+    }));
   }
 
   function addSystemMessage(text: string) {
