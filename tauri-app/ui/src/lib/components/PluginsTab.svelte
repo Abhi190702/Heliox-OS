@@ -173,6 +173,14 @@
 
   async function createPlugin() {
     if (!createName.trim()) return;
+    if (createTools.length === 0) {
+      error = "Add at least one tool before creating the plugin.";
+      return;
+    }
+    if (!createCode.trim()) {
+      error = "Write a real handle_tool implementation before creating the plugin.";
+      return;
+    }
     creating = true;
     try {
       const res = await call<{ success?: boolean; error?: string; local_only?: boolean }>("plugin_create", {
@@ -372,7 +380,11 @@
         ></textarea>
       </div>
 
-      <button class="btn-submit" onclick={createPlugin} disabled={creating || !createName.trim()}>
+      <button
+        class="btn-submit"
+        onclick={createPlugin}
+        disabled={creating || !createName.trim() || createTools.length === 0 || !createCode.trim()}
+      >
         {creating ? "Creating..." : "Create & Install Plugin"}
       </button>
     </div>

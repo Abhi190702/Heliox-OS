@@ -7153,7 +7153,9 @@ def handle_tool(tool_name, params):
 
     async def _handle_plugin_create(self, params: dict, ws: ServerConnection) -> dict:
         """Create a new custom plugin with manifest and Python code."""
+        import ast
         import json
+        import shutil
 
         from pilot.plugins import sign_plugin_directory
         from pilot.plugins.marketplace import MarketplaceError, validate_plugin_name
@@ -7166,17 +7168,31 @@ def handle_tool(tool_name, params):
         except MarketplaceError as exc:
             return {"error": str(exc)}
 
-        plugin_dir = PLUGINS_DIR / plugin_name
-        if plugin_dir.exists():
-            return {"error": f"Plugin already exists: {plugin_name}"}
-        plugin_dir.mkdir(parents=True)
-
         tools = params.get("tools", [])
         if isinstance(tools, str):
             try:
                 tools = json.loads(tools)
-            except Exception:
-                tools = []
+            except (TypeError, json.JSONDecodeError):
+                return {"error": "Plugin tools must be a valid JSON list"}
+        if not isinstance(tools, list) or not tools:
+            return {"error": "Define at least one plugin tool before creating the plugin"}
+
+        code_content = str(params.get("code") or "").strip()
+        if not code_content:
+            return {"error": "Plugin code is required; Heliox will not create a placeholder implementation"}
+        try:
+            module = ast.parse(code_content, filename="plugin.py")
+        except SyntaxError as exc:
+            return {"error": f"Plugin code is invalid Python: {exc.msg} (line {exc.lineno})"}
+        if not any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "handle_tool"
+            for node in module.body
+        ):
+            return {"error": "Plugin code must define a top-level handle_tool(tool_name, params) function"}
+
+        plugin_dir = PLUGINS_DIR / plugin_name
+        if plugin_dir.exists():
+            return {"error": f"Plugin already exists: {plugin_name}"}
 
         manifest_dict = {
             "name": plugin_name,
@@ -7199,20 +7215,15 @@ def handle_tool(tool_name, params):
                 "destructive_actions": False,
             },
         }
-        code_content = params.get("code", "")
-        if not code_content.strip():
-            code_content = f"""# Custom Plugin: {plugin_name}
-def handle_tool(tool_name, params):
-    return {{"status": "success", "tool": tool_name, "params": params, "message": f"Executed tool '{{tool_name}}'"}}
-"""
-
-        (plugin_dir / "manifest.json").write_text(json.dumps(manifest_dict, indent=2), encoding="utf-8")
-        (plugin_dir / "plugin.py").write_text(code_content, encoding="utf-8")
-
         try:
+            plugin_dir.mkdir(parents=True)
+            (plugin_dir / "manifest.json").write_text(json.dumps(manifest_dict, indent=2), encoding="utf-8")
+            (plugin_dir / "plugin.py").write_text(code_content + "\n", encoding="utf-8")
             sign_plugin_directory(plugin_dir)
-        except Exception as e:
-            logger.warning("Could not sign plugin %s: %s", plugin_dir, e)
+        except Exception as exc:
+            shutil.rmtree(plugin_dir, ignore_errors=True)
+            logger.error("Could not create signed plugin %s: %s", plugin_name, exc)
+            return {"error": f"Plugin creation failed before installation: {exc}"}
 
         if self._plugin_registry:
             self._plugin_registry.discover()
