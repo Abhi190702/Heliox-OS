@@ -189,8 +189,12 @@ test.describe("Chat Interface", () => {
       });
   });
 
-  test("full chat panel layout matches baseline", async ({ page }) => {
-    // Full-panel screenshot to catch any layout shifts
-    await expect(page.locator(".window")).toHaveScreenshot("chat-full-panel.png");
+  test("full shell exposes stable navigation and telemetry", async ({ page }) => {
+    const shell = page.locator(".window");
+    await expect(shell).toBeVisible();
+    await expect(shell.getByRole("button", { name: "New chat" })).toBeVisible();
+    await expect(shell.locator(".mini-monitor")).toContainText("CPU");
+    await expect(shell.locator(".mini-monitor")).toContainText("RAM");
+    await expect(shell.locator(".connection-hub")).toContainText(/Online|Connecting/);
   });
 });

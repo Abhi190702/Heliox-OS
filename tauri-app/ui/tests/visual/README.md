@@ -34,8 +34,9 @@ npm run test:visual:update
 1. Each test navigates to the app with the SetupWizard skipped via `localStorage`
 2. A Tauri IPC stub prevents crashes when the app calls `window.__TAURI_INTERNALS__`
 3. CSS animations are frozen for pixel-stable screenshots
-4. `toHaveScreenshot()` diffs the current render against the committed baseline PNG
-5. If `maxDiffPixelRatio` (0.2%) is exceeded the test fails and a diff image is saved to `test-results/`
+4. Stable sections use `toHaveScreenshot()` against committed per-OS baselines
+5. Dynamic shell telemetry and policy-gated controls use semantic assertions so timers and privilege state cannot create false visual failures
+6. If `maxDiffPixelRatio` (0.2%) is exceeded the test fails and a diff image is saved to `test-results/`
 
 ## Updating baselines
 

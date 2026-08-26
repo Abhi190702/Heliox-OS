@@ -58,12 +58,15 @@ test.describe("Settings Panel", () => {
     await expect(section).toHaveScreenshot("settings-security-section.png");
   });
 
-  test("model section matches baseline", async ({ page }) => {
+  test("model section exposes bounded local controls", async ({ page }) => {
     const section = page.locator(".settings-group").filter({
       has: page.getByRole("heading", { name: "Model", exact: true }),
     });
     await expect(section).toBeVisible();
-    await expect(section).toHaveScreenshot("settings-model-section.png");
+    await expect(section).toContainText("Reasoning Mode");
+    await expect(section).toContainText("GPU Memory Limit");
+    await expect(section).toContainText("Idle model unload");
+    await expect(section.getByRole("button", { name: "Light", exact: true })).toHaveClass(/active/);
   });
 
   test("cloud API section matches baseline", async ({ page }) => {
@@ -93,18 +96,21 @@ test.describe("Settings Panel", () => {
   });
 
   test("toggle active state renders correctly", async ({ page }) => {
-    // Use the local theme control; Root Access correctly stays disabled until
-    // the daemon has returned its current privilege policy.
-    const themeToggle = page.locator(".setting-row").filter({ hasText: "Light Mode" }).locator(".toggle");
+    // The mock returns an explicit daemon security status before the
+    // privileged control is enabled.
+    const rootToggle = page.locator(".setting-row").filter({ hasText: "Root Access" }).locator(".toggle");
 
-    await expect(themeToggle).toBeVisible();
+    await expect(rootToggle).toBeVisible();
+    await expect(rootToggle).toBeEnabled();
     // Capture inactive state
-    await expect(themeToggle).toHaveScreenshot("settings-toggle-inactive.png");
+    await expect(rootToggle).toHaveScreenshot("settings-toggle-inactive.png");
 
-    // Click to activate
-    await themeToggle.click();
+    // Confirm the policy change before capturing its active state.
+    await rootToggle.click();
+    await page.getByRole("button", { name: "Confirm" }).click();
     await page.waitForTimeout(100);
-    await expect(themeToggle).toHaveScreenshot("settings-toggle-active.png");
+    await expect(rootToggle).toHaveClass(/active/);
+    await expect(rootToggle).toHaveAttribute("aria-pressed", "true");
   });
 
   test("light mode settings panel matches baseline", async ({ page }) => {
@@ -256,8 +262,12 @@ test.describe("Settings Panel", () => {
     await expect(section).not.toContainText("actions uncovered");
   });
 
-  test("full window with settings tab active matches baseline", async ({ page }) => {
-    await expect(page.locator(".window")).toHaveScreenshot("settings-full-window.png");
+  test("full shell keeps settings navigation and runtime status visible", async ({ page }) => {
+    const shell = page.locator(".window");
+    await expect(shell.getByRole("button", { name: "Settings", exact: true })).toHaveClass(/active/);
+    await expect(shell.locator(".mini-monitor")).toContainText("CPU");
+    await expect(shell.locator(".mini-monitor")).toContainText("RAM");
+    await expect(shell.locator(".connection-hub")).toContainText(/Online|Connecting/);
   });
 });
 

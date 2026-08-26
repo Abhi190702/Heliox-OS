@@ -123,6 +123,7 @@ export async function mockTauriIpc(page: Page): Promise<void> {
           request.method === "voice_gesture_workflow_submit" ||
           request.method === "gesture_workflow_bindings_get" ||
           request.method === "gesture_workflow_bindings_update" ||
+          request.method === "get_security_status" ||
           request.method === "agent_mesh_status" ||
           request.method === "agent_routing" ||
           request.method === "subscription_status" ||
@@ -133,6 +134,14 @@ export async function mockTauriIpc(page: Page): Promise<void> {
           let result: Record<string, unknown>;
           if (request.method === "auth") {
             result = { status: "ok" };
+          } else if (request.method === "get_security_status") {
+            result = {
+              status: "ok",
+              root_policy_enabled: false,
+              process_elevated: false,
+              platform: "win32",
+              detail: "Visual-test daemon is not elevated.",
+            };
           } else if (request.method === "cognitive_state") {
             result = {
               attention_score: 0.58,
