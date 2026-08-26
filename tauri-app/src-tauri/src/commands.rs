@@ -649,17 +649,20 @@ pub fn open_terminal() -> Result<String, String> {
 }
 #[tauri::command]
 pub fn clear_logs() -> Result<String, String> {
-    let _ = std::fs::write("system.log", "");
-    let _ = std::fs::write("agent.log", "");
-    Ok("All System & Agent Logs Cleared Cleanly".into())
+    clear_log_file(&crate::pilot_log_path())
+}
+
+fn clear_log_file(log_path: &std::path::Path) -> Result<String, String> {
+    if !log_path.exists() {
+        return Ok("No daemon log file exists yet".into());
+    }
+    std::fs::write(&log_path, "")
+        .map_err(|error| format!("Could not clear {}: {error}", log_path.display()))?;
+    Ok("Daemon log cleared".into())
 }
 #[tauri::command]
 pub fn restart_agents() -> Result<String, String> {
-    Command::new("taskkill")
-        .args(["/IM", "agent.exe", "/F"])
-        .output()
-        .ok();
-    Ok("All background neural agents restarted and synchronized (`ws://127.0.0.1:8785`)".into())
+    Err("No managed agent supervisor is configured; no agents were restarted".into())
 }
 #[tauri::command]
 pub fn system_scan() -> serde_json::Value {
@@ -668,7 +671,7 @@ pub fn system_scan() -> serde_json::Value {
     let total_mem = sys.total_memory() / (1024 * 1024);
     let used_mem = sys.used_memory() / (1024 * 1024);
     serde_json::json!({
-        "status": "Healthy (0 threats / anomalies detected)",
+        "scan_scope": "Resource telemetry only; no malware or threat scan was performed",
         "host_os": format!("{} ({})", System::name().unwrap_or_else(|| "Windows".into()), System::os_version().unwrap_or_else(|| "10/11".into())),
         "cpu_processor": sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default(),
         "active_threads": sys.cpus().len(),
@@ -705,8 +708,8 @@ pub fn get_dashboard_status() -> serde_json::Value {
     let mut sys = System::new_all();
     sys.refresh_all();
     serde_json::json!({
-        "connected": true,
-        "agents": 4,
+        "connected": std::net::TcpStream::connect(("127.0.0.1", 8785)).is_ok(),
+        "agents": serde_json::Value::Null,
         "cpu": format!(
             "{:.0}%",
             sys.global_cpu_usage()
@@ -716,14 +719,17 @@ pub fn get_dashboard_status() -> serde_json::Value {
             (sys.used_memory() as f32
             / sys.total_memory() as f32) * 100.0
         ),
-        "network_up": "96 KB/s",
-        "network_down": "32 KB/s"
+        "network_up": "Unavailable",
+        "network_down": "Unavailable"
     })
 }
 
 #[tauri::command]
-pub fn open_logs_folder(app: tauri::AppHandle) -> Result<(), String> {
-    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+pub fn open_logs_folder() -> Result<(), String> {
+    let log_path = crate::pilot_log_path();
+    let log_dir = log_path
+        .parent()
+        .ok_or_else(|| "Could not resolve daemon log directory".to_string())?;
 
     if !log_dir.exists() {
         std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
@@ -1040,5 +1046,33 @@ mod tests {
         assert!(neural_benchmark_args("shell", None, None).is_err());
         assert!(neural_benchmark_args("eegbci", Some(0), None).is_err());
         assert!(neural_benchmark_args("eegbci", Some(1), Some(vec![1, 2])).is_err());
+    }
+
+    #[test]
+    fn scan_discloses_its_limited_scope() {
+        let scan = system_scan();
+        assert_eq!(
+            scan["scan_scope"],
+            "Resource telemetry only; no malware or threat scan was performed"
+        );
+        assert!(scan.get("status").is_none());
+    }
+
+    #[test]
+    fn restart_fails_when_no_supervisor_exists() {
+        assert!(restart_agents().is_err());
+    }
+
+    #[test]
+    fn clear_log_file_clears_the_requested_file() {
+        let path = std::env::temp_dir().join(format!(
+            "heliox-log-test-{}-{}.log",
+            std::process::id(),
+            System::uptime()
+        ));
+        std::fs::write(&path, "recorded evidence\n").unwrap();
+        assert_eq!(clear_log_file(&path).unwrap(), "Daemon log cleared");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        std::fs::remove_file(path).unwrap();
     }
 }

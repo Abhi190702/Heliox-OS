@@ -5,14 +5,12 @@ mod commands;
 mod file_access;
 mod hotkey;
 mod tray;
-use battery::Manager as BatteryManager;
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::time::Duration;
 use sysinfo::Disks;
-use sysinfo::Networks;
 use sysinfo::System;
 use tauri::Manager;
 /// Global handle to the Python daemon process so we can kill it on exit.
@@ -23,6 +21,14 @@ const DAEMON_PORT: u16 = 8785;
 fn get_app_data_dir() -> std::path::PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     home.join(".config").join("heliox-os")
+}
+pub(crate) fn pilot_log_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".local")
+        .join("state")
+        .join("heliox-os")
+        .join("pilot.log")
 }
 pub(crate) fn get_venv_python() -> std::path::PathBuf {
     let venv_dir = get_app_data_dir().join("env");
@@ -210,21 +216,12 @@ fn get_system_stats() -> serde_json::Value {
         used_disk += disk.total_space() - disk.available_space();
     }
     let disk = (used_disk as f64 / total_disk as f64) * 100.0;
-    // NETWORKS
-    let mut networks = Networks::new_with_refreshed_list();
-    networks.refresh(false);
-    let mut upload = 0;
-    let mut download = 0;
-    for (_name, data) in &networks {
-        upload += data.total_transmitted();
-        download += data.total_received();
-    }
     serde_json::json!({
     "cpu": cpu,
     "ram": ram,
     "disk": disk,
-    "network_up": upload / 1024,
-    "network_down": download / 1024,
+    "network_up": serde_json::Value::Null,
+    "network_down": serde_json::Value::Null,
     "cpu_name": cpu_name,
     "cpu_usage": cpu,
     "total_ram": total_ram_gb,
@@ -269,49 +266,27 @@ fn system_info() -> serde_json::Value {
 }
 
 #[tauri::command]
-fn get_terminal_logs() -> Vec<String> {
-    let stats = get_system_stats();
-    let cpu = stats["cpu"].as_f64().unwrap_or(0.0);
-    let ram = stats["ram"].as_f64().unwrap_or(0.0);
-    let disk = stats["disk"].as_f64().unwrap_or(0.0);
-    let upload = stats["network_up"].as_f64().unwrap_or(0.0);
-    let download = stats["network_down"].as_f64().unwrap_or(0.0);
-    let mut logs = vec![
-        format!("[INFO] CPU Usage: {:.1}%", cpu),
-        format!("[INFO] RAM Usage: {:.1}%", ram),
-        format!("[INFO] Disk Usage: {:.1}%", disk),
-        format!("[INFO] Network ↑ {:.2} MB/s ↓ {:.2} MB/s", upload, download),
-        "[INFO] JSON-RPC connected".to_string(),
-        "[SUCCESS] System monitoring active".to_string(),
-        "[INFO] Background agents online".to_string(),
-    ];
-    if cpu > 80.0 {
-        logs.push("[WARN] High CPU usage detected".to_string());
+fn get_terminal_logs() -> Result<Vec<String>, String> {
+    let log_path = pilot_log_path();
+    if !log_path.exists() {
+        return Ok(Vec::new());
     }
-    if ram > 75.0 {
-        logs.push("[WARN] High memory usage detected".to_string());
-    }
-    if disk > 85.0 {
-        logs.push("[WARN] Disk storage running low".to_string());
-    }
-    if upload > 5.0 || download > 5.0 {
-        logs.push("[INFO] High network activity".to_string());
-    }
-    logs.push("[SUCCESS] Agent heartbeat OK".to_string());
-    logs.push("[INFO] Monitoring active agents".to_string());
-    logs.push("[INFO] System telemetry synced".to_string());
-    logs.push("[SUCCESS] Daemon heartbeat stable".to_string());
-    logs
+    let contents = std::fs::read_to_string(&log_path)
+        .map_err(|error| format!("Could not read {}: {error}", log_path.display()))?;
+    Ok(contents
+        .lines()
+        .rev()
+        .take(100)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(str::to_string)
+        .collect())
 }
 
 #[tauri::command]
 fn get_log_count() -> usize {
-    let log_path = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".local")
-        .join("state")
-        .join("heliox-os")
-        .join("pilot.log");
+    let log_path = pilot_log_path();
     std::fs::read_to_string(log_path)
         .map(|contents| contents.lines().count())
         .unwrap_or(0)
@@ -321,7 +296,7 @@ fn get_log_count() -> usize {
 fn get_rss_feed() -> Vec<serde_json::Value> {
     let mut feed = vec![serde_json::json!({
         "title": format!(
-            "Heliox OS v{} Active Release (JARVIS Core Engine)",
+            "Heliox OS local build v{}",
             env!("CARGO_PKG_VERSION")
         ),
         "url": "https://github.com/VyomKulshrestha/Heliox-OS/releases",
@@ -349,163 +324,15 @@ fn get_rss_feed() -> Vec<serde_json::Value> {
             }
         }
     }
-    if feed.len() == 1 {
-        feed.push(serde_json::json!({
-            "title": "Cognitive Engine & Threat Containment Bridge Live",
-            "url": "https://github.com/VyomKulshrestha/Heliox-OS",
-            "source": "System Feature"
-        }));
-    }
     feed
 }
 #[tauri::command]
-fn get_agent_activity() -> Vec<serde_json::Value> {
-    let stats = get_system_stats();
-    let cpu = stats["cpu"].as_f64().unwrap_or(0.0);
-    let ram = stats["ram"].as_f64().unwrap_or(0.0);
-    let upload = stats["network_up"].as_f64().unwrap_or(0.0);
-    let download = stats["network_down"].as_f64().unwrap_or(0.0);
-    vec![
-        serde_json::json!({
-            "name":
-                "Voice Agent",
-            "status":
-                if cpu > 20.0 {
-                    "Active"
-                } else {
-                    "Idle"
-                },
-            "message":
-                "Listening..."
-        }),
-        serde_json::json!({
-            "name":
-                "Gesture Agent",
-            "status":
-                "Active",
-            "message":
-                "Tracking..."
-        }),
-        serde_json::json!({
-            "name":
-                "System Agent",
-            "status":
-                if ram > 70.0 {
-                    "Warning"
-                } else {
-                    "Active"
-                },
-            "message":
-                "Monitoring..."
-        }),
-        serde_json::json!({
-            "name":
-                "Automation Agent",
-            "status":
-                if cpu > 60.0 {
-                    "Active"
-                } else {
-                    "Idle"
-                },
-            "message":
-                "Waiting..."
-        }),
-        serde_json::json!({
-            "name":
-                "Network Agent",
-            "status":
-                if upload > 5.0 || download > 5.0 {
-                    "Active"
-                } else {
-                    "Idle"
-                },
-            "message":
-                "Monitoring network traffic..."
-        }),
-        serde_json::json!({
-            "name":
-                "Security Agent",
-            "status":
-                "Active",
-            "message":
-                "Scanning system threats..."
-        }),
-        serde_json::json!({
-            "name":
-                "Thermal Agent",
-            "status":
-                if cpu > 75.0 {
-                    "Warning"
-                } else {
-                    "Active"
-                },
-            "message":
-                "Monitoring system temperatures..."
-        }),
-        serde_json::json!({
-            "name":
-                "JSON-RPC Agent",
-            "status":
-                "Active",
-            "message":
-                "Syncing real-time events..."
-        }),
-    ]
+fn get_agent_activity() -> Result<Vec<serde_json::Value>, String> {
+    Err("Agent activity is unavailable because no native agent supervisor is configured".into())
 }
 #[tauri::command]
-fn get_temperature_stats() -> serde_json::Value {
-    let stats = get_system_stats();
-    let cpu_usage = stats["cpu"].as_f64().unwrap_or(0.0);
-    let ram_usage = stats["ram"].as_f64().unwrap_or(0.0);
-    let cpu_temp = 35.0 + (cpu_usage * 0.6);
-    let gpu_temp = 32.0 + (cpu_usage * 0.4);
-    let motherboard_temp = 28.0 + (ram_usage * 0.2);
-    let ssd_temp = 30.0 + (cpu_usage * 0.2);
-    let vrm_temp = 30.0 + (cpu_usage * 0.3);
-    let battery_temp = 29.0 + (ram_usage * 0.2);
-    let power_draw = 45.0 + (cpu_usage * 1.5);
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    // REAL CPU NAME
-    let cpu_name = sys
-        .cpus()
-        .first()
-        .map(|c| c.brand().to_string())
-        .unwrap_or_default();
-    // REAL CPU THREADS
-    let cpu_threads = sys.cpus().len();
-    // REAL BATTERY %
-    let manager = BatteryManager::new().ok();
-    let mut battery_percent = 0;
-    if let Some(manager) = manager {
-        if let Ok(mut batteries) = manager.batteries() {
-            if let Some(Ok(battery)) = batteries.next() {
-                battery_percent = (battery.state_of_charge().value * 100.0) as i32;
-            }
-        }
-    }
-    serde_json::json!({
-        "cpu":
-            cpu_temp,
-        "gpu":
-            gpu_temp,
-        "motherboard":
-            motherboard_temp,
-        "ssd":
-            ssd_temp,
-        "vrm":
-            vrm_temp,
-        "battery":
-            battery_temp,
-        "power":
-            power_draw,
-        "cpu_name":
-           cpu_name,
-       "cpu_threads":
-            cpu_threads,
-        "battery_percent":
-            battery_percent,
-    })
+fn get_temperature_stats() -> Result<serde_json::Value, String> {
+    Err("Hardware temperature sensors are unavailable in this build".into())
 }
 fn spawn_daemon() -> Option<Child> {
     if TcpStream::connect((DAEMON_HOST, DAEMON_PORT)).is_ok() {
