@@ -115,6 +115,41 @@ describe("voice command session notifications", () => {
     });
   });
 
+  it("keeps the visible confirmation open when voice approval is refused", async () => {
+    const { session } = await import("./session");
+
+    notificationHandler!("voice_command", {
+      command: "approve",
+      status: "executing",
+    });
+    notificationHandler!("confirm_required", {
+      plan_id: "plan-visible",
+      actions: [{ action_type: "browser_click", target: "Launch" }],
+      reason: "This browser action needs approval.",
+    });
+    notificationHandler!("voice_result", {
+      command: "approve",
+      status: "approval_required",
+      plan_id: "plan-visible",
+      message: "For safety, approve this request in the visible Heliox confirmation dialog.",
+    });
+
+    const state = get(session);
+    expect(state).toMatchObject({
+      loading: true,
+      phase: "awaiting visible approval",
+      confirmRequired: true,
+      confirmPlanId: "plan-visible",
+      confirmReason: "This browser action needs approval.",
+      terminalStatus: "",
+    });
+    expect(state.confirmActions).toEqual([{ action_type: "browser_click", target: "Launch" }]);
+    expect(state.messages.at(-1)).toMatchObject({
+      type: "system",
+      text: "For safety, approve this request in the visible Heliox confirmation dialog.",
+    });
+  });
+
   it("adds optional companion ideas after the terminal result", async () => {
     const { session } = await import("./session");
 

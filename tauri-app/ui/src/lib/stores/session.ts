@@ -367,6 +367,18 @@ function createSession() {
 
       case "voice_result": {
         const status = String(p.status ?? "error");
+        if (status === "approval_required") {
+          const message = String(p.message ?? "Approve this request in the visible Heliox confirmation dialog.").trim();
+          update((s) => ({
+            ...s,
+            phase: s.confirmRequired ? "awaiting visible approval" : s.phase,
+            messages:
+              message && !(s.messages.at(-1)?.type === "system" && s.messages.at(-1)?.text === message)
+                ? [...s.messages, { type: "system" as MessageType, text: message, timestamp: Date.now() }]
+                : s.messages,
+          }));
+          break;
+        }
         applyTaskResult({
           status: status === "partial" ? "partial_failure" : status,
           message: String(p.result ?? p.message ?? "The voice command finished without a visible result."),
