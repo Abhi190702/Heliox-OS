@@ -41,6 +41,16 @@ class ForensicsAgent(BaseAgent):
         self._executor = executor
         # Injected at server startup via set_threat_bridge(); None = bridge disabled.
         self._threat_bridge: ThreatContainmentBridge | None = None
+        self._bg_tasks: set[asyncio.Task[None]] = set()
+
+    async def stop(self) -> None:
+        """Cancel containment work before marking the agent stopped."""
+        tasks = tuple(self._bg_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        await super().stop()
 
     def set_threat_bridge(self, bridge: ThreatContainmentBridge) -> None:
         """Attach the ThreatContainmentBridge so CRITICAL reports trigger auto-containment.
@@ -124,8 +134,6 @@ class ForensicsAgent(BaseAgent):
         # The interception is scheduled as a background task so it never
         # delays the return of forensics results to the caller.
         if self._threat_bridge is not None:
-            if not hasattr(self, "_bg_tasks"):
-                self._bg_tasks = set()
             task = asyncio.create_task(
                 self._intercept_critical_threats(results),
                 name=f"threat_containment_{str(id(results))[:8]}",

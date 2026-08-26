@@ -29,6 +29,7 @@ from pilot.actions import (
     LogAnalyzeParams,
     PermissionTier,
 )
+from pilot.agents.base_agent import AgentStatus
 from pilot.agents.forensics_agent import ForensicsAgent
 from pilot.agents.threat_containment import (
     ForensicsReport,
@@ -461,6 +462,30 @@ class TestForensicsAgentIntegration:
 
         assert len(results) == 1
         assert len(intercepted) == 1
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_pending_containment(self):
+        agent = ForensicsAgent(model_router=MagicMock(), executor=MagicMock())
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def pending() -> None:
+            started.set()
+            try:
+                await asyncio.sleep(60)
+            finally:
+                cancelled.set()
+
+        task = asyncio.create_task(pending())
+        agent._bg_tasks.add(task)
+        task.add_done_callback(agent._bg_tasks.discard)
+        await started.wait()
+
+        await agent.stop()
+
+        assert cancelled.is_set()
+        assert agent._bg_tasks == set()
+        assert agent.status is AgentStatus.STOPPED
 
 
 # ---------------------------------------------------------------------------
