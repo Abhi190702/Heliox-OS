@@ -122,6 +122,18 @@ CONFIRM_TIMEOUT_SECONDS = 300
 # remain sequential per connection.
 OUT_OF_BAND_RPC_METHODS = frozenset({"confirm", "abort", "interject", "speak_text", "stop_speech", "neural_disarm"})
 
+# Attention-aware timing is allowed to defer only passive, replaceable
+# telemetry. User-initiated results, approvals, safety interventions, and
+# newly-added notification types must be delivered immediately by default.
+ATTENTION_DEFERRABLE_NOTIFICATIONS = frozenset(
+    {
+        "background_update",
+        "memory_consolidation",
+        "plugin_event",
+        "screen_vision_update",
+    }
+)
+
 # ── Plan History DB path (sibling of the main DB) ──
 PLAN_HISTORY_DB_FILE = DATA_DIR / "plan_history.db"
 
@@ -1390,9 +1402,9 @@ class PilotServer:
             params: The notification parameters.
         """
         # ── Feature 5: Attention-Optimized Notification Timing ──
-        # task_complete always bypasses the attention gate — it is the user-facing
-        # completion signal and must never be buffered or suppressed.
-        if method in {"task_complete", "companion_follow_up"}:
+        # Only explicitly passive telemetry may be delayed. Unknown and
+        # user-facing events bypass this presentation-only feature.
+        if method not in ATTENTION_DEFERRABLE_NOTIFICATIONS:
             pass
         elif getattr(self, "_attention_ui", None) and self._attention_ui.enabled:
             try:

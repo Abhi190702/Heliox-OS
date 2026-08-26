@@ -45,7 +45,20 @@ async def test_plain_notification_is_sent_to_every_client():
 
 
 @pytest.mark.asyncio
-async def test_task_complete_bypasses_attention_gate_and_still_sends():
+@pytest.mark.parametrize(
+    "method",
+    [
+        "task_complete",
+        "confirm_required",
+        "execution_interrupt",
+        "voice_result",
+        "neural_preview",
+        "mcp_task_update",
+        "air_handoff_state",
+        "future_feature_event",
+    ],
+)
+async def test_delivery_contract_notifications_bypass_attention_gate_and_still_send(method: str):
     server, clients = _server_with_clients()
 
     @dataclass
@@ -54,7 +67,7 @@ async def test_task_complete_bypasses_attention_gate_and_still_sends():
         score_event: AsyncMock = field(default_factory=AsyncMock)
 
     server._attention_ui = _AttentionUI()
-    await server._broadcast_notification("task_complete", {"job_id": "abc"})
+    await server._broadcast_notification(method, {"job_id": "abc"})
 
     server._attention_ui.score_event.assert_not_awaited()
     for client in clients:
@@ -80,7 +93,7 @@ async def test_attention_ui_should_display_still_sends_current_notification():
             return _Scored()
 
     server._attention_ui = _AttentionUI()
-    await server._broadcast_notification("gaze_event", {"region": "left"})
+    await server._broadcast_notification("plugin_event", {"region": "left"})
 
     for client in clients:
         client.send.assert_awaited_once()
@@ -108,7 +121,7 @@ async def test_attention_ui_buffers_non_critical_and_does_not_send_immediately()
             return _Scored()
 
     server._attention_ui = _AttentionUI()
-    await server._broadcast_notification("background_alert", {"task_id": "monitor_cpu"})
+    await server._broadcast_notification("background_update", {"task_id": "monitor_cpu"})
 
     for client in clients:
         client.send.assert_not_awaited()
@@ -118,7 +131,7 @@ async def test_attention_ui_buffers_non_critical_and_does_not_send_immediately()
 @pytest.mark.asyncio
 async def test_attention_ui_flushes_buffer_and_still_sends_current_notification():
     server, clients = _server_with_clients()
-    server._notification_buffer = [("background_alert", {"task_id": "monitor_cpu"})]
+    server._notification_buffer = [("background_update", {"task_id": "monitor_cpu"})]
 
     @dataclass
     class _Scored:
@@ -135,15 +148,15 @@ async def test_attention_ui_flushes_buffer_and_still_sends_current_notification(
             return _Scored()
 
     server._attention_ui = _AttentionUI()
-    await server._broadcast_notification("self_healing_denied", {"attempt_id": "heal_2"})
+    await server._broadcast_notification("plugin_event", {"attempt_id": "heal_2"})
 
     # Each client got 2 sends: the flushed buffered event, then the current one.
     for client in clients:
         assert client.send.await_count == 2
         first_sent = json.loads(client.send.call_args_list[0][0][0])
         second_sent = json.loads(client.send.call_args_list[1][0][0])
-        assert first_sent["method"] == "background_alert"
-        assert second_sent["method"] == "self_healing_denied"
+        assert first_sent["method"] == "background_update"
+        assert second_sent["method"] == "plugin_event"
     assert server._notification_buffer == []
 
 

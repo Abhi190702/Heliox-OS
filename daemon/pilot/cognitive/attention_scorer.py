@@ -76,11 +76,22 @@ EVENT_PRIORITIES: dict[str, str] = {
     "error": PRIORITY_CRITICAL,
     "security_alert": PRIORITY_CRITICAL,
     "confirmation_required": PRIORITY_CRITICAL,
+    "confirm_required": PRIORITY_CRITICAL,
+    "execution_interrupt": PRIORITY_CRITICAL,
+    "self_healing_confirmation_required": PRIORITY_CRITICAL,
+    "threat_confirmation_required": PRIORITY_CRITICAL,
+    "threat_detected": PRIORITY_CRITICAL,
     # High — show unless extreme stress
     "execution_complete": PRIORITY_HIGH,
     "task_complete": PRIORITY_HIGH,
     "plan_ready": PRIORITY_HIGH,
+    "plan_preview": PRIORITY_HIGH,
     "verification_result": PRIORITY_HIGH,
+    "companion_plan_intervention": PRIORITY_HIGH,
+    "mcp_task_update": PRIORITY_HIGH,
+    "neural_preview": PRIORITY_HIGH,
+    "neural_result": PRIORITY_HIGH,
+    "supervision_risk_warning": PRIORITY_HIGH,
     # Medium — may defer
     "status": PRIORITY_MEDIUM,
     "agent_routing": PRIORITY_MEDIUM,
@@ -234,7 +245,7 @@ class AttentionAwareUI:
             {
                 "type": event_type,
                 "label": str(content.get("message", content.get("phase", event_type))),
-                "animated": event_type in ("error", "confirmation_required"),
+                "animated": event_type in ("error", "confirmation_required", "confirm_required"),
                 "created_at": time.time(),
             }
         ]
