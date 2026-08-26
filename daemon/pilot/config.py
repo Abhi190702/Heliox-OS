@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -594,8 +595,14 @@ class PilotConfig:
                 logger.error(f"Failed to load config.toml: {e}. Falling back to safe defaults.")
 
         if RESTRICTIONS_FILE.exists():
-            raw = tomllib.loads(RESTRICTIONS_FILE.read_text(encoding="utf-8"))
-            config.restrictions = _parse_restrictions(raw)
+            try:
+                raw = tomllib.loads(RESTRICTIONS_FILE.read_text(encoding="utf-8"))
+                config.restrictions = _parse_restrictions(raw)
+            except Exception as e:
+                logger.error(
+                    "Failed to load restrictions.toml: %s. Falling back to built-in safety restrictions.",
+                    e,
+                )
 
         return config
 
@@ -606,16 +613,26 @@ class PilotConfig:
         data = _config_to_dict(self)
         restrictions = data.pop("restrictions", {})
 
-        CONFIG_FILE.write_text(
-            tomli_w.dumps(data),
-            encoding="utf-8",
-        )
+        _atomic_write_text(CONFIG_FILE, tomli_w.dumps(data))
 
         if restrictions:
-            RESTRICTIONS_FILE.write_text(
-                tomli_w.dumps(restrictions),
-                encoding="utf-8",
-            )
+            _atomic_write_text(RESTRICTIONS_FILE, tomli_w.dumps(restrictions))
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Replace a UTF-8 config file only after its full contents reach disk."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    except BaseException:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 logger = logging.getLogger("pilot.config")
