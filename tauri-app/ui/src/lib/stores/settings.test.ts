@@ -54,6 +54,12 @@ describe("settings daemon synchronization", () => {
         dry_run: false,
         snapshot_on_destructive: true,
       },
+      network: {
+        enabled: false,
+        port: 8786,
+        skill_sync_enabled: false,
+        collab_exec_enabled: false,
+      },
     });
   });
 

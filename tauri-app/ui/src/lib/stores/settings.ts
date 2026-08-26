@@ -56,6 +56,13 @@ export interface PilotSettings {
   preview: {
     enabled: boolean;
   };
+  network: {
+    enabled: boolean;
+    port: number;
+    peer_timeout_s: number;
+    skill_sync_enabled: boolean;
+    collab_exec_enabled: boolean;
+  };
   calendar: {
     enabled: boolean;
     caldav_url: string;
@@ -151,6 +158,13 @@ const defaultSettings: PilotSettings = {
   preview: {
     enabled: false,
   },
+  network: {
+    enabled: false,
+    port: 8786,
+    peer_timeout_s: 30,
+    skill_sync_enabled: false,
+    collab_exec_enabled: false,
+  },
   calendar: {
     enabled: false,
     caldav_url: "",
@@ -197,6 +211,7 @@ function mergeSettings(current: PilotSettings, incoming: Partial<PilotSettings>)
     gesture_cursor: { ...current.gesture_cursor, ...incoming.gesture_cursor },
     adaptive_calibration: { ...current.adaptive_calibration, ...incoming.adaptive_calibration },
     preview: { ...current.preview, ...incoming.preview },
+    network: { ...current.network, ...incoming.network },
     calendar: { ...current.calendar, ...incoming.calendar },
     email: { ...current.email, ...incoming.email },
     ssh: { ...current.ssh, ...incoming.ssh },

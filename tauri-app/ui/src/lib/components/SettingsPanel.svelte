@@ -15,6 +15,7 @@
   import StrategyEvolutionPanel from "./StrategyEvolutionPanel.svelte";
   import EvolutionHarnessPanel from "./EvolutionHarnessPanel.svelte";
   import AgentMeshPanel from "./AgentMeshPanel.svelte";
+  import PeerMeshPanel from "./PeerMeshPanel.svelte";
   import AirHandoffPanel from "./AirHandoffPanel.svelte";
   import CalendarIntegrationPanel from "./CalendarIntegrationPanel.svelte";
   import EmailIntegrationPanel from "./EmailIntegrationPanel.svelte";
@@ -2081,6 +2082,7 @@
   <CalendarIntegrationPanel />
   <EmailIntegrationPanel />
   <SshIntegrationPanel />
+  <PeerMeshPanel />
   <AirHandoffPanel />
 </div>
 

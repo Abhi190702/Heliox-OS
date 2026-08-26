@@ -1431,6 +1431,9 @@ class PilotServer:
             # ── LAN Mesh Network ──
             "mesh_peers": self._handle_mesh_peers,
             "mesh_status": self._handle_mesh_status,
+            "mesh_configure": self._handle_mesh_configure,
+            "mesh_generate_secret": self._handle_mesh_generate_secret,
+            "mesh_clear_secret": self._handle_mesh_clear_secret,
             # Encrypted one-target desktop-to-phone Air Handoff.
             "air_handoff_status": self._handle_air_handoff_status,
             "air_handoff_set_enabled": self._handle_air_handoff_set_enabled,
@@ -1452,21 +1455,13 @@ class PilotServer:
         # ── LAN Mesh Network (opt-in via config) ──
         if self.config.network.enabled:
             try:
-                from pilot.network.mesh import HelioxMesh
-                from pilot.system.plugins import get_manager as get_plugin_manager
-
                 mesh_secret = await self._vault.get_key("heliox_mesh")
                 if not mesh_secret or len(mesh_secret.encode("utf-8")) < 32:
                     self._mesh_error = (
                         "Save the same LAN mesh secret (at least 32 bytes) in the OS credential vault on each peer"
                     )
                     raise ValueError(self._mesh_error)
-                self._mesh = HelioxMesh(
-                    config=self.config.network,
-                    executor=self._executor,
-                    plugin_manager=get_plugin_manager(),
-                    shared_secret=mesh_secret.encode("utf-8"),
-                )
+                self._mesh = self._new_mesh(mesh_secret)
                 logger.info("HelioxMesh initialised (will start with server)")
             except Exception as exc:
                 if not self._mesh_error:
@@ -4724,6 +4719,11 @@ class PilotServer:
             return {
                 "status": "error",
                 "message": "Use air_handoff_set_enabled so receiver state changes atomically",
+            }
+        if section == "network":
+            return {
+                "status": "error",
+                "message": "Use mesh_configure so peer authentication and runtime state change atomically",
             }
 
         target = getattr(self.config, section, None)
@@ -8085,31 +8085,161 @@ def handle_tool(tool_name, params):
             )
         return {"enabled": True, "peers": peers}
 
+    def _new_mesh(self, shared_secret: str) -> Any:
+        """Construct one authenticated mesh runtime from an OS-vault secret."""
+        from pilot.network.mesh import HelioxMesh
+        from pilot.system.plugins import get_manager as get_plugin_manager
+
+        return HelioxMesh(
+            config=self.config.network,
+            executor=self._executor,
+            plugin_manager=get_plugin_manager(),
+            shared_secret=shared_secret.encode("utf-8"),
+        )
+
     async def _handle_mesh_status(self, params: dict, ws: ServerConnection) -> dict:
-        """Return overall mesh status and configuration.
+        """Return authenticated mesh runtime and configuration state."""
+        from pilot.security.vault import VaultUnavailableError
 
-        Args:
-            params: JSON-RPC parameters (unused).
-            ws: The WebSocket connection.
-
-        Returns:
-            A dict with mesh status, instance ID, and config summary.
-        """
+        try:
+            mesh_secret = await self._vault.get_key("heliox_mesh") if self._vault else None
+        except VaultUnavailableError as exc:
+            mesh_secret = None
+            if not self._mesh_error:
+                self._mesh_error = str(exc)
+        secret_configured = bool(mesh_secret and len(mesh_secret.encode("utf-8")) >= 32)
         if not self._mesh:
             return {
                 "enabled": False,
+                "configured_enabled": self.config.network.enabled,
                 "authenticated": False,
+                "secret_configured": secret_configured,
                 "reason": self._mesh_error or "Enable Peer Mesh and save a shared secret in Settings to activate it",
+                "skill_sync_enabled": self.config.network.skill_sync_enabled,
+                "collab_exec_enabled": self.config.network.collab_exec_enabled,
+                "port": self.config.network.port,
             }
         return {
             "enabled": True,
+            "configured_enabled": self.config.network.enabled,
             "authenticated": True,
+            "secret_configured": secret_configured,
             "instance_id": self._mesh.instance_id,
             "peer_count": len(self._mesh.peer_ids),
             "skill_sync_enabled": self.config.network.skill_sync_enabled,
             "collab_exec_enabled": self.config.network.collab_exec_enabled,
             "port": self.config.network.port,
         }
+
+    async def _handle_mesh_generate_secret(self, params: dict, ws: ServerConnection) -> dict:
+        """Generate a high-entropy secret for explicit copy to trusted peers."""
+        return {"status": "ok", "shared_secret": secrets.token_urlsafe(48)}
+
+    async def _handle_mesh_clear_secret(self, params: dict, ws: ServerConnection) -> dict:
+        """Remove the mesh secret only while the mesh is disabled."""
+        if self.config.network.enabled or self._mesh is not None:
+            return {"status": "error", "message": "Disable Peer Mesh before removing its shared secret"}
+        from pilot.security.vault import VaultUnavailableError
+
+        try:
+            await self._vault.delete_key("heliox_mesh")
+        except VaultUnavailableError as exc:
+            return {"status": "error", "message": str(exc)}
+        self._mesh_error = ""
+        return {"status": "ok"}
+
+    async def _handle_mesh_configure(self, params: dict, ws: ServerConnection) -> dict:
+        """Atomically persist and reconcile authenticated peer-mesh settings."""
+        cfg = self.config.network
+        try:
+            enabled = _validated_bool(params, "enabled", cfg.enabled)
+            skill_sync_enabled = _validated_bool(
+                params,
+                "skill_sync_enabled",
+                cfg.skill_sync_enabled,
+            )
+            collab_exec_enabled = _validated_bool(
+                params,
+                "collab_exec_enabled",
+                cfg.collab_exec_enabled,
+            )
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+        supplied_secret = params.get("shared_secret")
+        if supplied_secret is not None:
+            if not isinstance(supplied_secret, str):
+                return {"status": "error", "message": "shared_secret must be a string"}
+            if supplied_secret != supplied_secret.strip():
+                return {"status": "error", "message": "shared_secret cannot start or end with whitespace"}
+            if not 32 <= len(supplied_secret.encode("utf-8")) <= 512:
+                return {"status": "error", "message": "shared_secret must contain from 32 to 512 bytes"}
+
+        from pilot.security.vault import VaultUnavailableError
+
+        try:
+            previous_secret = await self._vault.get_key("heliox_mesh")
+        except VaultUnavailableError as exc:
+            return {"status": "error", "message": str(exc)}
+        effective_secret = supplied_secret or previous_secret
+        if enabled and (not effective_secret or len(effective_secret.encode("utf-8")) < 32):
+            return {
+                "status": "error",
+                "message": "Save a shared secret of at least 32 bytes before enabling Peer Mesh",
+            }
+
+        if supplied_secret is not None and supplied_secret != previous_secret:
+            try:
+                await self._vault.store_key("heliox_mesh", supplied_secret)
+            except VaultUnavailableError as exc:
+                return {"status": "error", "message": str(exc)}
+
+        previous_config = (cfg.enabled, cfg.skill_sync_enabled, cfg.collab_exec_enabled)
+        previous_mesh = self._mesh
+        if previous_mesh is not None:
+            await previous_mesh.stop()
+        self._mesh = None
+
+        cfg.enabled = enabled
+        cfg.skill_sync_enabled = skill_sync_enabled
+        cfg.collab_exec_enabled = collab_exec_enabled
+        self._mesh_error = ""
+
+        try:
+            self.config.save()
+            if enabled and effective_secret:
+                self._mesh = self._new_mesh(effective_secret)
+                await self._mesh.start()
+        except Exception as exc:
+            logger.exception("Authenticated LAN mesh configuration failed")
+            if self._mesh is not None:
+                await self._mesh.stop()
+            self._mesh = None
+            self._mesh_error = str(exc)
+            cfg.enabled, cfg.skill_sync_enabled, cfg.collab_exec_enabled = previous_config
+            try:
+                self.config.save()
+            except Exception:
+                logger.exception("Could not restore the previous persisted mesh configuration")
+            if supplied_secret is not None and supplied_secret != previous_secret:
+                try:
+                    if previous_secret:
+                        await self._vault.store_key("heliox_mesh", previous_secret)
+                    else:
+                        await self._vault.delete_key("heliox_mesh")
+                except VaultUnavailableError:
+                    logger.exception("Could not restore the previous mesh secret after rollback")
+            if previous_config[0] and previous_secret:
+                try:
+                    self._mesh = self._new_mesh(previous_secret)
+                    await self._mesh.start()
+                except Exception:
+                    self._mesh = None
+                    logger.exception("Could not restore the previous mesh runtime after rollback")
+            return {"status": "error", "message": f"Peer Mesh was not changed: {exc}"}
+
+        status = await self._handle_mesh_status({}, ws)
+        return {"status": "ok", **status}
 
     # ── Cognitive Intelligence Handlers ──
 

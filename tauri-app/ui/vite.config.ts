@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { svelteTesting } from "@testing-library/svelte/vite";
 import type { Plugin, ResolvedConfig } from "vite";
 import {
   mkdirSync,
@@ -474,6 +475,7 @@ function daemonTokenDevPlugin(): Plugin {
 export default defineConfig({
   plugins: [
     svelte(),
+    svelteTesting(),
     mediapipeHandsAssets(),
     mediapipeTasksVisionAssets(),
     daemonTokenDevPlugin(),
