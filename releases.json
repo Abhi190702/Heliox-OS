@@ -1,10 +1,45 @@
 {
   "schema_version": 2,
-  "current_version": "0.12.0",
-  "current_source_version": "0.12.0",
-  "latest_published_version": "0.12.0",
+  "current_version": "0.13.0",
+  "current_source_version": "0.13.0",
+  "latest_published_version": "0.13.0",
   "generated_from": "daemon/pilot/changelog.py",
   "releases": [
+    {
+      "version": "0.13.0",
+      "title": "Verified Autonomy and Runtime Hardening",
+      "date": "2026-08-27",
+      "summary": "Truthful outcomes, transactional settings, authenticated collaboration, coordinated multimodal control, bounded resources, and measured execution quality",
+      "features": [
+        {
+          "name": "Truthful Execution Contracts",
+          "description": "Completed work is revalidated against executor and checkpoint contracts, while failed, rejected, skipped, partial, and unavailable paths remain visible instead of being reported as successful."
+        },
+        {
+          "name": "Transactional Live Settings",
+          "description": "Runtime configuration changes are validated and applied atomically, roll back on failure, and can update supported model limits, devices, calendars, camera, gesture, voice, and mesh controls without leaving split state."
+        },
+        {
+          "name": "Authenticated Peer Collaboration",
+          "description": "Opt-in LAN peers use authenticated setup, bounded timeouts, constrained delegation, and the same permission and startup gates as local collaboration."
+        },
+        {
+          "name": "Coordinated Multimodal Control",
+          "description": "Voice, gesture, gaze, cursor, approval, and staged neural inputs arbitrate shared resources more reliably, including camera ownership, gesture priority, and neural-sidecar diagnostics."
+        },
+        {
+          "name": "Bounded Runtime Resources",
+          "description": "Daemon shutdown now quiesces autonomous jobs, monitors, browser resources, subscription CLIs, input services, and collaboration work; idle local TTS and model workers release heavy memory outside the long-lived daemon."
+        },
+        {
+          "name": "Measured Execution Quality",
+          "description": "The executor records step-budget quality, skips actions only when deterministic postconditions are already satisfied, preserves fast local status paths, and publishes a refreshed reproducible benchmark bundle."
+        }
+      ],
+      "status": "published",
+      "release_url": "https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.13.0",
+      "source_url": "https://github.com/VyomKulshrestha/Heliox-OS/tree/main"
+    },
     {
       "version": "0.12.0",
       "title": "Governed Intelligence and Handoff",

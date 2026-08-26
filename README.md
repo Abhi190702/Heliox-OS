@@ -39,9 +39,9 @@ User intent → Planner → Permission and risk gates → Specialist → Executo
                     ↘ durable task state, memory, audit, cancellation and recovery ↗
 ```
 
-Published release: **v0.12.0** · Python **3.11+** · Windows is the primary hardware-development platform.
+Published release: **v0.13.0** · Python **3.11+** · Windows is the primary hardware-development platform.
 
-v0.12.0 adds subscription-backed Codex and Claude Code model access, local MCP task staging, secure Air Handoff, completed email/calendar/SSH paths, staged neural task launch, and one production cognitive runtime. Provider subscriptions, integrations, hardware inputs, and host actions remain subject to their documented availability and safety boundaries.
+v0.13.0 strengthens truthful terminal outcomes, transactional live settings, authenticated peer collaboration, multimodal and neural arbitration, runtime cleanup, and measured execution quality. Provider subscriptions, integrations, peers, hardware inputs, and host actions remain subject to their documented availability and safety boundaries.
 
 ## Why Heliox
 
@@ -61,11 +61,11 @@ v0.12.0 adds subscription-backed Codex and Claude Code model access, local MCP t
 | Action schema        | 157 declared action types                                                                     | Availability depends on OS, dependencies, permissions, credentials, and policy                 |
 | Specialist mesh      | 21 executable specialists with providers for 157/157 declared actions                         | Provider coverage is not universal environment compatibility                                   |
 | Outcome verification | 18 actions have an independent observed post-condition verifier                               | The other 139 currently rely on the executor result                                            |
-| Guarded fast path    | 26.858 ms median, 28.165 ms p95 across 100 non-LLM CPU-usage iterations; zero model calls     | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
+| Guarded fast path    | 26.476 ms median, 27.999 ms p95 across 100 non-LLM CPU-usage iterations; zero model calls     | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
 | Subscription planning | 3/3 fixed Codex CLI cases; 14.708 s median; zero executed or destructive actions             | One account and planning only; not action-execution, Claude, or universal provider evidence     |
 | Intent dispatch      | 59/59 curated bounded-intent and ambiguous-fall-through regression cases                     | Fixed corpus; not population-level language-understanding accuracy                            |
 | Learned risk model   | 36,000 training and 5,400 temporal-validation samples; 5/5 direction invariants              | Covers 12 coarse disk/process action transitions; deterministic policy remains authoritative  |
-| Async responsiveness | 66 heartbeats during a real one-second CPU monitor; 16.367 ms maximum heartbeat interval      | Windows timer granularity and host load apply; this is not UI or hardware-input latency        |
+| Async responsiveness | 66 heartbeats during a real one-second CPU monitor; 16.575 ms maximum heartbeat interval      | Windows timer granularity and host load apply; this is not UI or hardware-input latency        |
 | Plugins              | 6 manifests in the generated public catalog                                                   | Marketplace and local plugins remain capability-constrained                                    |
 | CI                   | Python, frontend, visual, Rust, marketplace, and installer gates                              | CI does not prove camera, microphone, speaker, EEG, or human accuracy                          |
 | Windows signing      | SignPath test-policy workflow signs and verifies EXE, MSI, and embedded application artifacts | The production certificate is pending; current public installers are not yet production-signed |
@@ -76,8 +76,7 @@ v0.12.0 adds subscription-backed Codex and Claude Code model access, local MCP t
 - [Human-readable evidence and limitations](https://www.helioxos.dev/proof.html)
 - [Detailed Markdown evidence](proof.md)
 - [Machine-readable capability catalog](capabilities.json)
-- [Current-main multi-benchmark evidence bundle](docs/evidence/software-benchmarks-2026-08-27.json)
-- [v0.12.0 release benchmark snapshot](docs/evidence/software-benchmarks-2026-08-16.json)
+- [v0.13.0 release benchmark snapshot](docs/evidence/software-benchmarks-2026-08-27.json)
 - [Raw subscription-planning evidence](docs/evidence/subscription-planning-codex-2026-08-16.json)
 - [Historical guarded fast-path benchmark](docs/evidence/react-latency-2026-08-12.json)
 - [Live CI history](https://github.com/VyomKulshrestha/Heliox-OS/actions)

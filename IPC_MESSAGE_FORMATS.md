@@ -1887,7 +1887,7 @@ broadcast recipients.
 Emitted once on startup when a new daemon version introduces new capabilities.
 
 ```json
-{ "message": "New Heliox capabilities are now available.", "version": "0.12.0" }
+{ "message": "New Heliox capabilities are now available.", "version": "0.13.0" }
 ```
 
 The exact message is assembled from the daemon changelog; clients must treat

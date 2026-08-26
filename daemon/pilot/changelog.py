@@ -10,11 +10,76 @@ from typing import Any
 
 logger = logging.getLogger("pilot.changelog")
 
-VERSION = "0.12.0"
-PUBLIC_RELEASE_VERSION = "0.12.0"
-PUBLISHED_RELEASE_VERSIONS = ("0.12.0", "0.11.1", "0.9.0")
+VERSION = "0.13.0"
+PUBLIC_RELEASE_VERSION = "0.13.0"
+PUBLISHED_RELEASE_VERSIONS = ("0.13.0", "0.12.0", "0.11.1", "0.9.0")
 
 CHANGELOG = {
+    "0.13.0": {
+        "title": "Verified Autonomy and Runtime Hardening",
+        "date": "2026-08-27",
+        "features": [
+            {
+                "name": "Truthful Execution Contracts",
+                "description": (
+                    "Completed work is revalidated against executor and checkpoint contracts, "
+                    "while failed, rejected, skipped, partial, and unavailable paths remain "
+                    "visible instead of being reported as successful."
+                ),
+                "jarvis_announce": (
+                    "I now verify completed work more strictly and keep failed or partial outcomes visible."
+                ),
+            },
+            {
+                "name": "Transactional Live Settings",
+                "description": (
+                    "Runtime configuration changes are validated and applied atomically, roll back "
+                    "on failure, and can update supported model limits, devices, calendars, camera, "
+                    "gesture, voice, and mesh controls without leaving split state."
+                ),
+                "jarvis_announce": "Live settings now apply atomically and roll back cleanly on failure.",
+            },
+            {
+                "name": "Authenticated Peer Collaboration",
+                "description": (
+                    "Opt-in LAN peers use authenticated setup, bounded timeouts, constrained delegation, "
+                    "and the same permission and startup gates as local collaboration."
+                ),
+                "jarvis_announce": "Trusted local peers can now collaborate through bounded delegation.",
+            },
+            {
+                "name": "Coordinated Multimodal Control",
+                "description": (
+                    "Voice, gesture, gaze, cursor, approval, and staged neural inputs arbitrate shared "
+                    "resources more reliably, including camera ownership, gesture priority, and "
+                    "neural-sidecar diagnostics."
+                ),
+                "jarvis_announce": "Voice, gesture, gaze, cursor, and staged neural inputs now coordinate more reliably.",
+            },
+            {
+                "name": "Bounded Runtime Resources",
+                "description": (
+                    "Daemon shutdown now quiesces autonomous jobs, monitors, browser resources, "
+                    "subscription CLIs, input services, and collaboration work; idle local TTS and "
+                    "model workers release heavy memory outside the long-lived daemon."
+                ),
+                "jarvis_announce": "Background services and local model workers now release resources more predictably.",
+            },
+            {
+                "name": "Measured Execution Quality",
+                "description": (
+                    "The executor records step-budget quality, skips actions only when deterministic "
+                    "postconditions are already satisfied, preserves fast local status paths, and "
+                    "publishes a refreshed reproducible benchmark bundle."
+                ),
+                "jarvis_announce": "I now measure execution quality and avoid repeating work that is already verified.",
+            },
+        ],
+        "summary": (
+            "Truthful outcomes, transactional settings, authenticated collaboration, coordinated "
+            "multimodal control, bounded resources, and measured execution quality"
+        ),
+    },
     "0.12.0": {
         "title": "Governed Intelligence and Handoff",
         "date": "2026-08-16",

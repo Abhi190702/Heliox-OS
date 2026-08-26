@@ -1,12 +1,29 @@
 ---
 title: Heliox OS changelog
 canonical_url: https://www.helioxos.dev/changelog.md
-last_updated: 2026-08-16
+last_updated: 2026-08-27
 ---
 
 # Heliox OS changelog
 
 This page is generated from the changelog shipped by the Heliox daemon. It distinguishes published installers from draft and source-only milestones; current limitations remain in the proof center.
+
+## 0.13.0 — Verified Autonomy and Runtime Hardening
+
+Status: **Published**
+
+Released: **2026-08-27**
+
+Truthful outcomes, transactional settings, authenticated collaboration, coordinated multimodal control, bounded resources, and measured execution quality
+
+- **Truthful Execution Contracts** — Completed work is revalidated against executor and checkpoint contracts, while failed, rejected, skipped, partial, and unavailable paths remain visible instead of being reported as successful.
+- **Transactional Live Settings** — Runtime configuration changes are validated and applied atomically, roll back on failure, and can update supported model limits, devices, calendars, camera, gesture, voice, and mesh controls without leaving split state.
+- **Authenticated Peer Collaboration** — Opt-in LAN peers use authenticated setup, bounded timeouts, constrained delegation, and the same permission and startup gates as local collaboration.
+- **Coordinated Multimodal Control** — Voice, gesture, gaze, cursor, approval, and staged neural inputs arbitrate shared resources more reliably, including camera ownership, gesture priority, and neural-sidecar diagnostics.
+- **Bounded Runtime Resources** — Daemon shutdown now quiesces autonomous jobs, monitors, browser resources, subscription CLIs, input services, and collaboration work; idle local TTS and model workers release heavy memory outside the long-lived daemon.
+- **Measured Execution Quality** — The executor records step-budget quality, skips actions only when deterministic postconditions are already satisfied, preserves fast local status paths, and publishes a refreshed reproducible benchmark bundle.
+
+[Release artifacts](https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.13.0)
 
 ## 0.12.0 — Governed Intelligence and Handoff
 

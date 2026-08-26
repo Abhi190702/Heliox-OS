@@ -16,7 +16,7 @@ SPEC.loader.exec_module(check_release)
 
 
 def test_current_repository_release_versions_are_synchronized():
-    assert check_release.validate_release(ROOT, "v0.12.0") == "0.12.0"
+    assert check_release.validate_release(ROOT, "v0.13.0") == "0.13.0"
 
 
 def test_release_gate_rejects_version_mismatch(monkeypatch):

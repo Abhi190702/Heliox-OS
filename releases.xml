@@ -6,6 +6,13 @@
     <description>Verified release milestones generated from the Heliox daemon changelog.</description>
     <language>en</language>
     <item>
+      <title>Heliox OS 0.13.0 — Verified Autonomy and Runtime Hardening</title>
+      <link>https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.13.0</link>
+      <guid isPermaLink="false">heliox-0.13.0</guid>
+      <pubDate>Thu, 27 Aug 2026 00:00:00 +0000</pubDate>
+      <description>Truthful outcomes, transactional settings, authenticated collaboration, coordinated multimodal control, bounded resources, and measured execution quality</description>
+    </item>
+    <item>
       <title>Heliox OS 0.12.0 — Governed Intelligence and Handoff</title>
       <link>https://github.com/VyomKulshrestha/Heliox-OS/releases/tag/v0.12.0</link>
       <guid isPermaLink="false">heliox-0.12.0</guid>
