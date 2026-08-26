@@ -7908,6 +7908,9 @@ def handle_tool(tool_name, params):
             await asyncio.gather(*mcp_tasks, return_exceptions=True)
         self._mcp_tasks.clear()
 
+        if self._autonomous is not None:
+            await self._autonomous.stop()
+
         if self._server:
             self._server.close()
             await self._server.wait_closed()

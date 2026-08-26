@@ -65,6 +65,20 @@ async def test_partial_and_failed_statuses_broadcast_their_own_text():
 
 
 @pytest.mark.asyncio
+async def test_cancelled_status_is_not_announced_as_failure():
+    ex = _executor()
+    broadcast = _Broadcast()
+    ex.set_broadcast(broadcast)
+
+    with patch("pilot.system.voice.speak", new=AsyncMock(return_value="")):
+        await ex._announce_completion(
+            AutonomousJob(goal="x", status=JobStatus.CANCELLED, result_summary="Job was cancelled.")
+        )
+
+    assert broadcast.calls[0][1]["text"] == "Task cancelled."
+
+
+@pytest.mark.asyncio
 async def test_no_broadcast_configured_is_a_safe_noop():
     ex = _executor()  # set_broadcast() never called
     job = AutonomousJob(goal="x", status=JobStatus.SUCCESS, result_summary="done")

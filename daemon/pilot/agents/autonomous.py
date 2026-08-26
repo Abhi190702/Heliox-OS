@@ -196,6 +196,7 @@ class AutonomousExecutor:
         self._approval: Callable[[AutonomousJob, ActionPlan, str], Coroutine[Any, Any, bool]] | None = None
         self._jobs: dict[str, AutonomousJob] = {}
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
+        self._stopping = False
 
     def set_broadcast(self, fn: Callable[[str, Any], Coroutine[Any, Any, None]]) -> None:
         """Set the WebSocket broadcast function."""
@@ -226,6 +227,8 @@ class AutonomousExecutor:
         session_id: str = "default",
     ) -> AutonomousJob:
         """Submit a new autonomous job. Returns immediately with a job handle."""
+        if self._stopping:
+            raise RuntimeError("Autonomous executor is stopping")
         job = AutonomousJob(
             goal=goal,
             source=source,
@@ -255,9 +258,11 @@ class AutonomousExecutor:
         return job
 
     async def cancel(self, job_id: str) -> bool:
-        """Cancel a running job."""
+        """Cancel a job and wait until its owned resources are released."""
         job = self._jobs.get(job_id)
         if not job:
+            return False
+        if job.status in {JobStatus.SUCCESS, JobStatus.PARTIAL, JobStatus.FAILED, JobStatus.CANCELLED}:
             return False
 
         task = self._active_tasks.get(job_id)
@@ -267,7 +272,19 @@ class AutonomousExecutor:
         job.status = JobStatus.CANCELLED
         job.completed_at = time.time()
         await self._notify("autonomous_cancelled", job)
+        if task:
+            await asyncio.gather(task, return_exceptions=True)
         return True
+
+    async def stop(self) -> None:
+        """Cancel all jobs without emitting shutdown-time speech or UI events."""
+        self._stopping = True
+        tasks = tuple(self._active_tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._active_tasks.clear()
 
     def get_job(self, job_id: str) -> AutonomousJob | None:
         """Get a job by ID."""
@@ -329,8 +346,9 @@ class AutonomousExecutor:
             logger.error("Autonomous job [%s] failed: %s", job.job_id, e)
 
         job.completed_at = time.time()
-        await self._notify("autonomous_complete", job)
-        await self._announce_completion(job)
+        if not self._stopping:
+            await self._notify("autonomous_complete", job)
+            await self._announce_completion(job)
 
         # Cleanup
         self._active_tasks.pop(job.job_id, None)
@@ -356,6 +374,8 @@ class AutonomousExecutor:
                 announcement = f"Task complete. {job.result_summary}"
             elif job.status == JobStatus.PARTIAL:
                 announcement = f"Task partially complete. {job.result_summary}"
+            elif job.status == JobStatus.CANCELLED:
+                announcement = "Task cancelled."
             else:
                 announcement = f"Task failed. {job.result_summary}"
             if self._speech:
