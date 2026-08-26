@@ -197,13 +197,15 @@ class HelioxMesh:
         for pid in list(self.peer_ids):
             await self.send_to(pid, msg_type, payload)
 
-    async def send_to(self, peer_id: str, msg_type: str, payload: dict[str, Any]) -> None:
-        """Send a message to a specific peer."""
+    async def send_to(self, peer_id: str, msg_type: str, payload: dict[str, Any]) -> bool:
+        """Send a message to a connected peer and report whether it was sent."""
         conn = self._connections.get(peer_id)
         if conn and conn.connected:
             await conn.send(msg_type, payload)
+            return True
         else:
             logger.warning("HelioxMesh.send_to: peer %s not connected", peer_id)
+            return False
 
     # ── Peer events ───────────────────────────────────────────────────────────
 
@@ -387,14 +389,26 @@ class HelioxMesh:
 
     async def _handle_delegated_task(self, peer_id: str, payload: dict[str, Any]) -> None:
         """Execute a batch of actions delegated by a peer and return results."""
-        import json
+        from pilot.actions import Action, ActionPlan, ActionResult, PermissionTier
+        from pilot.security.gateway import InvocationSource
 
-        from pilot.actions import Action, ActionPlan
-
-        task_id = payload.get("task_id", "")
+        task_id = str(payload.get("task_id", ""))
         raw_actions = payload.get("actions", [])
         raw_input = payload.get("raw_input", "")
 
+        try:
+            uuid.UUID(task_id)
+        except (ValueError, AttributeError):
+            logger.warning("HelioxMesh: rejected delegated task with invalid ID from %s", peer_id)
+            return
+        if not isinstance(raw_actions, list) or not 1 <= len(raw_actions) <= 64:
+            logger.warning("HelioxMesh: rejected delegated task %s with invalid action count", task_id)
+            await self.send_to(peer_id, "task_result", {"task_id": task_id, "results": []})
+            return
+        if not isinstance(raw_input, str) or len(raw_input) > 20_000:
+            logger.warning("HelioxMesh: rejected delegated task %s with invalid input", task_id)
+            await self.send_to(peer_id, "task_result", {"task_id": task_id, "results": []})
+            return
         try:
             actions = [Action.model_validate(a) for a in raw_actions]
         except Exception as exc:
@@ -402,8 +416,29 @@ class HelioxMesh:
             await self.send_to(peer_id, "task_result", {"task_id": task_id, "results": []})
             return
 
+        disallowed = [
+            action
+            for action in actions
+            if action.permission_tier >= PermissionTier.SYSTEM_MODIFY or action.is_irreversible
+        ]
+        if disallowed:
+            error = "Peer Mesh accepts only reversible READ_ONLY and USER_WRITE actions"
+            results = [ActionResult(action=action, success=False, error=error) for action in actions]
+            await self.send_to(
+                peer_id,
+                "task_result",
+                {"task_id": task_id, "results": [result.model_dump(mode="json") for result in results]},
+            )
+            logger.warning("HelioxMesh: blocked over-authority delegated task %s from %s", task_id, peer_id)
+            return
+
         plan = ActionPlan(actions=actions, raw_input=raw_input, explanation="Delegated by peer")
-        results = await self._executor.execute(plan)
+        results = await self._executor.execute(
+            plan,
+            plan_id=f"peer-{task_id}",
+            invocation_source=InvocationSource.NETWORK_AGENT,
+            user_confirmed=False,
+        )
 
         serialised = [r.model_dump(mode="json") for r in results]
         await self.send_to(peer_id, "task_result", {"task_id": task_id, "results": serialised})

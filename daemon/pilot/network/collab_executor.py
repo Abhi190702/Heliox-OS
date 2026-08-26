@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from pilot.actions import Action, ActionPlan, ActionResult
@@ -37,6 +38,13 @@ logger = logging.getLogger("pilot.network.collab_executor")
 
 # Maximum seconds to wait for a peer to return results
 _REMOTE_TIMEOUT = 60
+
+
+@dataclass(frozen=True)
+class _PendingDelegation:
+    peer_id: str
+    actions: tuple[Action, ...]
+    future: asyncio.Future[list[ActionResult]]
 
 
 class CollabExecutor:
@@ -61,8 +69,8 @@ class CollabExecutor:
         self._mesh = mesh
         self._local = local_executor
         self._enabled = enabled
-        # Maps task_id → asyncio.Future[list[ActionResult]]
-        self._pending: dict[str, asyncio.Future[list[ActionResult]]] = {}
+        # Maps task IDs to peer-bound, action-bound pending records.
+        self._pending: dict[str, _PendingDelegation] = {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -136,14 +144,31 @@ class CollabExecutor:
             Dict with ``task_id`` and ``results`` (list of serialised ActionResult).
         """
         task_id = payload.get("task_id", "")
-        future = self._pending.get(task_id)
-        if future is None:
+        pending = self._pending.get(task_id)
+        if pending is None:
             logger.warning("CollabExecutor: received result for unknown task_id %s", task_id)
+            return
+        if pending.peer_id != peer_id:
+            logger.warning(
+                "CollabExecutor: rejected task %s result from unexpected peer %s (expected %s)",
+                task_id,
+                peer_id,
+                pending.peer_id,
+            )
             return
 
         raw_results = payload.get("results", [])
         results = _deserialize_results(raw_results)
-        future.set_result(results)
+        expected_actions = [action.model_dump(mode="json") for action in pending.actions]
+        returned_actions = [result.action.model_dump(mode="json") for result in results]
+        if len(results) != len(pending.actions) or returned_actions != expected_actions:
+            if not pending.future.done():
+                pending.future.set_exception(
+                    ValueError(f"Peer {peer_id} returned results for a different action batch")
+                )
+            return
+        if not pending.future.done():
+            pending.future.set_result(results)
         logger.info(
             "CollabExecutor: received %d result(s) from peer %s for task %s",
             len(results),
@@ -173,17 +198,21 @@ class CollabExecutor:
         plan: ActionPlan,
     ) -> list[ActionResult]:
         """Send a batch to a peer and wait for results."""
-        task_id = str(uuid.uuid4())[:8]
+        task_id = str(uuid.uuid4())
         loop = asyncio.get_event_loop()
         future: asyncio.Future[list[ActionResult]] = loop.create_future()
-        self._pending[task_id] = future
+        self._pending[task_id] = _PendingDelegation(peer_id=peer_id, actions=tuple(batch), future=future)
 
         payload = {
             "task_id": task_id,
             "actions": [_serialize_action(a) for a in batch],
             "raw_input": plan.raw_input,
         }
-        await self._mesh.send_to(peer_id, "task_delegate", payload)
+        sent = await self._mesh.send_to(peer_id, "task_delegate", payload)
+        if not sent:
+            self._pending.pop(task_id, None)
+            sub_plan = ActionPlan(actions=batch, explanation=plan.explanation, raw_input=plan.raw_input)
+            return await self._local.execute(sub_plan)
         logger.info(
             "CollabExecutor: delegated %d action(s) to peer %s (task %s)",
             len(batch),
