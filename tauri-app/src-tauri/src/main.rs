@@ -253,6 +253,7 @@ fn system_info() -> serde_json::Value {
     };
 
     serde_json::json!({
+        "status": "ok",
         "cpu_percent": system.global_cpu_usage(),
         "memory_percent": memory_percent,
         "memory_used": used_memory,
@@ -546,6 +547,7 @@ mod startup_tests {
         let info = system_info();
         let stats = get_system_stats();
 
+        assert_eq!(info["status"], "ok");
         assert!(info["memory_total"].as_u64().unwrap_or(0) > 1024 * 1024);
         assert!(info["disk_total"].as_u64().unwrap_or(0) > 1024 * 1024);
         assert!(!info["hostname"].as_str().unwrap_or_default().is_empty());

@@ -5770,6 +5770,7 @@ class PilotServer:
             else int(time.time() - self._start_time)
         )
         return {
+            "status": "ok",
             "cpu_percent": round(cpu),
             "memory_percent": round(mem.percent),
             "memory_used": mem.used,

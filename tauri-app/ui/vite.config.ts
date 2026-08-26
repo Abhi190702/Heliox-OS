@@ -334,6 +334,7 @@ function daemonTokenDevPlugin(): Plugin {
               const filesystem = filesystemUsage();
 
               sendJson(res, 200, {
+                status: "ok",
                 cpu_percent: cpuPercent(),
                 memory_percent: Math.round((usedMem / totalMem) * 100),
                 memory_used: usedMem,

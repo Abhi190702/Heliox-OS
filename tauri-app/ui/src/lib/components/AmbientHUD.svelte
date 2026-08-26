@@ -4,7 +4,7 @@
    * Shows real-time CPU, RAM, network stats with animated visualizations.
    */
 
-  import { call, isConnected } from "../api/daemon";
+  import { call, isConnected, requireOkResult, type DaemonStatusResult } from "../api/daemon";
   import { invoke } from "../api/invoke";
   import BudgetMeter from "./BudgetMeter.svelte";
   import CognitiveHUD from "./CognitiveHUD.svelte";
@@ -34,6 +34,54 @@
     currentTime = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 
+  function applyTelemetry(raw: unknown) {
+    const info = requireOkResult(raw as DaemonStatusResult, "System telemetry is unavailable.") as Record<
+      string,
+      unknown
+    >;
+    const required = [
+      "cpu_percent",
+      "memory_percent",
+      "memory_used",
+      "memory_total",
+      "disk_percent",
+      "disk_used",
+      "disk_total",
+      "uptime_seconds",
+    ] as const;
+    const values = Object.fromEntries(required.map((key) => [key, Number(info[key])])) as Record<
+      (typeof required)[number],
+      number
+    >;
+    if (
+      required.some((key) => !Number.isFinite(values[key]) || values[key] < 0) ||
+      values.cpu_percent > 100 ||
+      values.memory_percent > 100 ||
+      values.disk_percent > 100 ||
+      values.memory_total <= 0 ||
+      values.disk_total <= 0 ||
+      typeof info.hostname !== "string" ||
+      !info.hostname.trim()
+    ) {
+      throw new Error("System telemetry is incomplete.");
+    }
+
+    cpuPercent = Math.round(values.cpu_percent);
+    ramPercent = Math.round(values.memory_percent);
+    ramUsedGB = (values.memory_used / 1024 ** 3).toFixed(1);
+    ramTotalGB = (values.memory_total / 1024 ** 3).toFixed(1);
+    diskPercent = Math.round(values.disk_percent);
+    diskUsedGB = (values.disk_used / 1024 ** 3).toFixed(0);
+    diskTotalGB = (values.disk_total / 1024 ** 3).toFixed(0);
+    hostname = info.hostname.trim().toUpperCase();
+    const days = Math.floor(values.uptime_seconds / 86400);
+    const hrs = Math.floor((values.uptime_seconds % 86400) / 3600);
+    const mins = Math.floor((values.uptime_seconds % 3600) / 60);
+    uptime = days > 0 ? `${days}d ${hrs}h ${mins}m` : `${hrs}h ${mins}m`;
+    cpuHistory = [...cpuHistory.slice(1), cpuPercent];
+    telemetryAvailable = true;
+  }
+
   // Fetch system stats from daemon or fallback
   async function fetchStats() {
     try {
@@ -48,78 +96,20 @@
 
     if (!isConnected()) {
       try {
-        const info: any = await invoke("system_info");
-        if (info) {
-          telemetryAvailable = true;
-          cpuPercent = Math.round(Number(info.cpu_percent ?? 0));
-          ramPercent = Math.round(Number(info.memory_percent ?? 0));
-          ramUsedGB = (Number(info.memory_used ?? 0) / 1024 ** 3).toFixed(1);
-          ramTotalGB = (Number(info.memory_total ?? 0) / 1024 ** 3).toFixed(1);
-          diskPercent = Math.round(Number(info.disk_percent ?? 0));
-          diskUsedGB = (Number(info.disk_used ?? 0) / 1024 ** 3).toFixed(0);
-          diskTotalGB = (Number(info.disk_total ?? 0) / 1024 ** 3).toFixed(0);
-          hostname = String(info.hostname ?? "HELIOX").toUpperCase();
-          if (info.uptime_seconds) {
-            const upSec = Number(info.uptime_seconds);
-            const days = Math.floor(upSec / 86400);
-            const hrs = Math.floor((upSec % 86400) / 3600);
-            const mins = Math.floor((upSec % 3600) / 60);
-            uptime = days > 0 ? `${days}d ${hrs}h ${mins}m` : `${hrs}h ${mins}m`;
-          }
-          cpuHistory = [...cpuHistory.slice(1), cpuPercent];
-          return;
-        }
-      } catch (e) {}
+        applyTelemetry(await invoke("system_info"));
+        return;
+      } catch (e) {
+        telemetryAvailable = false;
+      }
       return;
     }
 
     try {
-      const info = (await call("system_info")) as Record<string, any>;
-      if (info) {
-        telemetryAvailable = true;
-        cpuPercent = Math.round(Number(info.cpu_percent ?? 0));
-        ramPercent = Math.round(Number(info.memory_percent ?? 0));
-        ramUsedGB = (Number(info.memory_used ?? 0) / 1024 ** 3).toFixed(1);
-        ramTotalGB = (Number(info.memory_total ?? 0) / 1024 ** 3).toFixed(1);
-        diskPercent = Math.round(Number(info.disk_percent ?? 0));
-        diskUsedGB = (Number(info.disk_used ?? 0) / 1024 ** 3).toFixed(0);
-        diskTotalGB = (Number(info.disk_total ?? 0) / 1024 ** 3).toFixed(0);
-        hostname = String(info.hostname ?? "HELIOX").toUpperCase();
-
-        if (info.uptime_seconds) {
-          const upSec = Number(info.uptime_seconds);
-          const days = Math.floor(upSec / 86400);
-          const hrs = Math.floor((upSec % 86400) / 3600);
-          const mins = Math.floor((upSec % 3600) / 60);
-          uptime = days > 0 ? `${days}d ${hrs}h ${mins}m` : `${hrs}h ${mins}m`;
-        }
-
-        // Update CPU history for the graph
-        cpuHistory = [...cpuHistory.slice(1), cpuPercent];
-      }
+      applyTelemetry(await call("system_info"));
     } catch {
       try {
-        const info: any = await invoke("system_info");
-        if (info) {
-          telemetryAvailable = true;
-          cpuPercent = Math.round(Number(info.cpu_percent ?? 0));
-          ramPercent = Math.round(Number(info.memory_percent ?? 0));
-          ramUsedGB = (Number(info.memory_used ?? 0) / 1024 ** 3).toFixed(1);
-          ramTotalGB = (Number(info.memory_total ?? 0) / 1024 ** 3).toFixed(1);
-          diskPercent = Math.round(Number(info.disk_percent ?? 0));
-          diskUsedGB = (Number(info.disk_used ?? 0) / 1024 ** 3).toFixed(0);
-          diskTotalGB = (Number(info.disk_total ?? 0) / 1024 ** 3).toFixed(0);
-          hostname = String(info.hostname ?? "HELIOX").toUpperCase();
-          if (info.uptime_seconds) {
-            const upSec = Number(info.uptime_seconds);
-            const days = Math.floor(upSec / 86400);
-            const hrs = Math.floor((upSec % 86400) / 3600);
-            const mins = Math.floor((upSec % 3600) / 60);
-            uptime = days > 0 ? `${days}d ${hrs}h ${mins}m` : `${hrs}h ${mins}m`;
-          }
-          cpuHistory = [...cpuHistory.slice(1), cpuPercent];
-          return;
-        }
+        applyTelemetry(await invoke("system_info"));
+        return;
       } catch (e) {}
       telemetryAvailable = false;
     }

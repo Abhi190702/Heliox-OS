@@ -54,4 +54,5 @@ async def test_hud_system_info_does_not_block_event_loop(slow_cpu_percent: None)
 
     result = await _assert_event_loop_progresses_while(lambda: server._handle_system_info({}, None))  # type: ignore[arg-type]
 
+    assert result["status"] == "ok"
     assert result["cpu_percent"] == 42
