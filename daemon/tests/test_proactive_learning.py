@@ -193,3 +193,28 @@ async def test_accept_handler_uses_guarded_autonomous_pipeline(tmp_path):
         source="proactive",
     )
     assert result["status"] == "executing"
+
+
+@pytest.mark.asyncio
+async def test_dismiss_handler_reports_exact_outcome(tmp_path):
+    engine = ProactiveSuggestionEngine(feedback_path=tmp_path / "feedback.json")
+    suggestion = _suggestion("terminal_error", 1)
+    engine._pending_suggestions.append(suggestion)
+
+    server = PilotServer(PilotConfig())
+    server._proactive = engine
+
+    missing = await server._handle_proactive_dismiss({"suggestion_id": "missing"}, ws=None)
+    assert missing == {"status": "error", "message": "Suggestion not found: missing"}
+    assert suggestion in engine._pending_suggestions
+
+    dismissed = await server._handle_proactive_dismiss(
+        {"suggestion_id": suggestion.suggestion_id},
+        ws=None,
+    )
+    assert dismissed == {
+        "status": "ok",
+        "dismissed": True,
+        "suggestion_id": suggestion.suggestion_id,
+    }
+    assert suggestion not in engine._pending_suggestions

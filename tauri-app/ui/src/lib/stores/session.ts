@@ -1,5 +1,5 @@
 import { writable, get } from "svelte/store";
-import { call, connect, isConnected, onConnectionState, onNotification } from "../api/daemon";
+import { call, connect, isConnected, onConnectionState, onNotification, requireOkResult } from "../api/daemon";
 import { classifyExecuteResponse, normalizeActionResult, repairLegacyPlanFallback } from "../utils/executeResponse";
 import {
   LEGACY_CHAT_HISTORY_KEY,
@@ -1226,7 +1226,14 @@ function createSession() {
 
     update((s) => ({ ...s, proactiveSuggestionPending: true }));
     try {
-      await call("proactive_dismiss", { suggestion_id: suggestionId });
+      requireOkResult(
+        (await call("proactive_dismiss", { suggestion_id: suggestionId })) as {
+          status?: string;
+          message?: string;
+          error?: string;
+        },
+        "The daemon did not dismiss the suggestion.",
+      );
       update((s) => ({
         ...s,
         proactiveSuggestion: null,

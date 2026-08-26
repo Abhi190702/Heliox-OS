@@ -9897,11 +9897,13 @@ def handle_tool(tool_name, params):
             A dict with dismissed status and suggestion_id.
         """
         if not self._proactive:
-            return {"error": "Proactive engine not initialized"}
+            return {"status": "error", "message": "Proactive engine not initialized"}
 
         suggestion_id = params.get("suggestion_id", "")
         dismissed = await self._proactive.dismiss_suggestion(suggestion_id)
-        return {"dismissed": dismissed, "suggestion_id": suggestion_id}
+        if not dismissed:
+            return {"status": "error", "message": f"Suggestion not found: {suggestion_id}"}
+        return {"status": "ok", "dismissed": True, "suggestion_id": suggestion_id}
 
     async def _handle_resolve_git_conflict(self, params: dict, ws: ServerConnection) -> dict:
         """Resolve git merge conflicts in a file via LLM.
