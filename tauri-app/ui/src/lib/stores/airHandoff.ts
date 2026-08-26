@@ -1,10 +1,8 @@
 import { get, writable } from "svelte/store";
 import { call, onNotification } from "../api/daemon";
 import { airHandoffGestureCommand } from "../gesture/airHandoffGesture";
-import {
-  resolveAirHandoffDelivery,
-  type AirHandoffDeliveryEvent,
-} from "../gesture/airHandoffDelivery";
+import { resolveAirHandoffDelivery, type AirHandoffDeliveryEvent } from "../gesture/airHandoffDelivery";
+import { reconcileAirHandoffTarget } from "../gesture/airHandoffTarget";
 
 export interface AirHandoffDevice {
   device_id: string;
@@ -77,8 +75,8 @@ function createAirHandoffStore() {
     update((current) => {
       const devices = remote.paired_devices ?? current.paired_devices;
       const recent = remote.recent ?? current.recent;
-      const selectedStillExists = devices.some((device) => device.device_id === current.selectedDeviceId);
-      const selectedDeviceId = selectedStillExists ? current.selectedDeviceId : devices[0]?.device_id || "";
+      const target = reconcileAirHandoffTarget(current.selectedDeviceId, devices, current.gestureArmed);
+      const { selectedDeviceId } = target;
       const selectedName = devices.find((device) => device.device_id === selectedDeviceId)?.name || "Phone";
       const delivery = resolveAirHandoffDelivery(
         current.awaitingTransferId,
@@ -97,9 +95,13 @@ function createAirHandoffStore() {
         selectedDeviceId,
         awaitingTransferId: delivery?.awaitingTransferId ?? current.awaitingTransferId,
         awaitingTargetName: delivery ? "" : current.awaitingTargetName,
-        message: delivery?.message ?? remote.message ?? current.message,
+        message:
+          delivery?.message ??
+          (target.targetChanged && current.gestureArmed
+            ? "Selected phone changed; re-arm Air Handoff before sending."
+            : (remote.message ?? current.message)),
         gestureArmed:
-          remote.enabled === false || remote.running === false || !selectedDeviceId ? false : current.gestureArmed,
+          remote.enabled === false || remote.running === false || !selectedDeviceId ? false : target.gestureArmed,
       };
     });
   }
