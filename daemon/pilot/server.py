@@ -7953,6 +7953,12 @@ def handle_tool(tool_name, params):
             await self._trigger_engine.stop()
         if self._voice_gesture_workflows is not None:
             await self._voice_gesture_workflows.stop()
+        if self._voice_listener is not None:
+            await self._voice_listener.stop()
+            self._voice_listener = None
+        supervision_hook = getattr(self, "_supervision_hook", None)
+        if supervision_hook is not None:
+            supervision_hook.stop()
         if self._autonomous is not None:
             await self._autonomous.stop()
 

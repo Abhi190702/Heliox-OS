@@ -38,6 +38,8 @@ async def test_shutdown_quiesces_tasks_before_closing_their_owners() -> None:
     server._voice_gesture_workflows = SimpleNamespace(
         stop=AsyncMock(side_effect=lambda: order.append("voice_workflows_stopped"))
     )
+    server._voice_listener = SimpleNamespace(stop=AsyncMock(side_effect=lambda: order.append("voice_listener_stopped")))
+    server._supervision_hook = SimpleNamespace(stop=Mock(side_effect=lambda: order.append("supervision_hook_stopped")))
     server._autonomous = SimpleNamespace(stop=AsyncMock(side_effect=lambda: order.append("autonomous_stopped")))
     server._background = SimpleNamespace(shutdown=AsyncMock(side_effect=lambda: order.append("background_stopped")))
     server._active_execution_task = asyncio.create_task(wait_until_cancelled("execution"))
@@ -65,6 +67,8 @@ async def test_shutdown_quiesces_tasks_before_closing_their_owners() -> None:
     assert order.index("mcp_cancelled") < order.index("server_closed")
     assert order.index("trigger_stopped") < order.index("autonomous_stopped")
     assert order.index("voice_workflows_stopped") < order.index("autonomous_stopped")
+    assert order.index("voice_listener_stopped") < order.index("server_closed")
+    assert order.index("supervision_hook_stopped") < order.index("server_closed")
     assert order.index("autonomous_stopped") < order.index("server_closed")
     assert order.index("follow_up_cancelled") < order.index("speech_closed")
     assert order.index("speech_cancelled") < order.index("speech_closed")
@@ -75,3 +79,4 @@ async def test_shutdown_quiesces_tasks_before_closing_their_owners() -> None:
     assert server._mcp_tasks == {}
     assert server._memory_record_tasks == set()
     assert server._reflection_tasks == set()
+    assert server._voice_listener is None
