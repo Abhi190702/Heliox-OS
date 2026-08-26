@@ -49,3 +49,27 @@ async def test_peer_discovered_after_stop_does_not_start_connection():
     await asyncio.sleep(0)
 
     mesh._connect_to_peer.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_peer_cancel_stops_the_matching_delegated_task():
+    mesh = _mesh()
+    mesh._config.collab_exec_enabled = True
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def delegated(peer_id, payload):
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        finally:
+            cancelled.set()
+
+    mesh._handle_delegated_task = delegated
+
+    await mesh._on_peer_message("peer-1", "task_delegate", {"task_id": "task-1"})
+    await started.wait()
+    await mesh._on_peer_message("peer-1", "task_cancel", {"task_id": "task-1"})
+    await cancelled.wait()
+
+    assert mesh._delegated_tasks == {}

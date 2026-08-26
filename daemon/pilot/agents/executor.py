@@ -160,6 +160,7 @@ class Executor:
         self._world_model_outcome_recorder: Any = None
         self._durable_task_store: DurableTaskStore | None = None
         self._controller_lease: ControllerLeaseManager | None = None
+        self._collab_executor: Any = None
         self._last_output = ""  # For output chaining between steps
         self._largest_output = ""  # Largest output from any step in the pipeline
         self._detected_click_target: tuple[int, int, str] | None = None
@@ -558,6 +559,10 @@ class Executor:
     def set_controller_lease(self, lease: ControllerLeaseManager) -> None:
         self._controller_lease = lease
 
+    def set_collab_executor(self, collab_executor: Any | None) -> None:
+        """Attach or detach the authenticated LAN batch router."""
+        self._collab_executor = collab_executor
+
     async def execute(
         self,
         plan: ActionPlan,
@@ -573,6 +578,7 @@ class Executor:
         critic_already_reviewed: bool = False,
         user_confirmed: bool = False,
         action_index_offset: int = 0,
+        allow_collaboration: bool = True,
     ) -> list[ActionResult]:
         """Acquire the shared effect lease before entering canonical execution."""
 
@@ -590,6 +596,18 @@ class Executor:
             "user_confirmed": user_confirmed,
             "action_index_offset": action_index_offset,
         }
+        collab = self._collab_executor
+        if (
+            allow_collaboration
+            and collab is not None
+            and not self._config.security.dry_run
+            and invocation_source
+            not in {InvocationSource.GESTURE, InvocationSource.NEURAL, InvocationSource.NETWORK_AGENT}
+            and not (invocation_source == InvocationSource.AUTONOMOUS and self._config.preview.enabled)
+        ):
+            batches = self._analyze_dependencies(plan.actions)
+            if collab.should_distribute(plan, batches):
+                return await collab.distribute(plan, batches, execution_options=kwargs)
         if self._controller_lease is None:
             return await self._execute_without_controller_lease(plan, **kwargs)
         owner = f"{invocation_source.value}:{plan_id or uuid.uuid4()}"

@@ -5124,6 +5124,7 @@ class PilotServer:
 
         if self._mesh:
             await self._mesh.stop()
+            self._set_collab_executor(None)
             self._mesh = None
 
         supervision_hook = getattr(self, "_supervision_hook", None)
@@ -7786,9 +7787,13 @@ def handle_tool(tool_name, params):
         if self._mesh:
             try:
                 await self._mesh.start()
-            except Exception:
+                self._set_collab_executor(self._mesh.collab_executor)
+            except Exception as exc:
                 logger.exception("LAN mesh failed to start; continuing without peer collaboration")
                 await self._mesh.stop()
+                self._set_collab_executor(None)
+                self._mesh = None
+                self._mesh_error = str(exc)
 
         if self.config.air_handoff.enabled and self._air_handoff_server:
             try:
@@ -7813,6 +7818,7 @@ def handle_tool(tool_name, params):
         self._running = False
         # ── Stop LAN mesh ──
         if self._mesh:
+            self._set_collab_executor(None)
             await self._mesh.stop()
         if self._air_handoff_server:
             await self._air_handoff_server.stop()
@@ -8097,6 +8103,11 @@ def handle_tool(tool_name, params):
             shared_secret=shared_secret.encode("utf-8"),
         )
 
+    def _set_collab_executor(self, collab_executor: Any | None) -> None:
+        """Attach peer collaboration when the core executor is ready."""
+        if self._executor is not None:
+            self._executor.set_collab_executor(collab_executor)
+
     async def _handle_mesh_status(self, params: dict, ws: ServerConnection) -> dict:
         """Return authenticated mesh runtime and configuration state."""
         from pilot.security.vault import VaultUnavailableError
@@ -8196,6 +8207,7 @@ def handle_tool(tool_name, params):
 
         previous_config = (cfg.enabled, cfg.skill_sync_enabled, cfg.collab_exec_enabled)
         previous_mesh = self._mesh
+        self._set_collab_executor(None)
         if previous_mesh is not None:
             await previous_mesh.stop()
         self._mesh = None
@@ -8210,11 +8222,13 @@ def handle_tool(tool_name, params):
             if enabled and effective_secret:
                 self._mesh = self._new_mesh(effective_secret)
                 await self._mesh.start()
+                self._set_collab_executor(self._mesh.collab_executor)
         except Exception as exc:
             logger.exception("Authenticated LAN mesh configuration failed")
             if self._mesh is not None:
                 await self._mesh.stop()
             self._mesh = None
+            self._set_collab_executor(None)
             self._mesh_error = str(exc)
             cfg.enabled, cfg.skill_sync_enabled, cfg.collab_exec_enabled = previous_config
             try:
@@ -8233,8 +8247,10 @@ def handle_tool(tool_name, params):
                 try:
                     self._mesh = self._new_mesh(previous_secret)
                     await self._mesh.start()
+                    self._set_collab_executor(self._mesh.collab_executor)
                 except Exception:
                     self._mesh = None
+                    self._set_collab_executor(None)
                     logger.exception("Could not restore the previous mesh runtime after rollback")
             return {"status": "error", "message": f"Peer Mesh was not changed: {exc}"}
 

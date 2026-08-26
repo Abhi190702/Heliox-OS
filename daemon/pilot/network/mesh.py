@@ -87,6 +87,7 @@ class HelioxMesh:
         self._p2p_server: Any = None  # inbound WebSocket server
         self._running = False
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._delegated_tasks: dict[tuple[str, str], asyncio.Task[Any]] = {}
 
     def _spawn(self, coroutine: Any) -> asyncio.Task[Any]:
         """Run mesh-owned work and retain it until completion or shutdown."""
@@ -119,6 +120,10 @@ class HelioxMesh:
     @property
     def instance_id(self) -> str:
         return self._instance_id
+
+    @property
+    def collab_executor(self) -> Any:
+        return self._collab
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -171,6 +176,7 @@ class HelioxMesh:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks.clear()
+        self._delegated_tasks.clear()
 
         # Close all peer connections
         for conn in list(self._connections.values()):
@@ -290,7 +296,18 @@ class HelioxMesh:
             )
 
         elif msg_type == "task_delegate" and self._config.collab_exec_enabled:
-            self._spawn(self._handle_delegated_task(peer_id, payload))
+            task_id = str(payload.get("task_id", ""))
+            task_key = (peer_id, task_id)
+            if task_key not in self._delegated_tasks:
+                task = self._spawn(self._handle_delegated_task(peer_id, payload))
+                self._delegated_tasks[task_key] = task
+                task.add_done_callback(lambda _task, key=task_key: self._delegated_tasks.pop(key, None))
+
+        elif msg_type == "task_cancel" and self._config.collab_exec_enabled:
+            task_id = str(payload.get("task_id", ""))
+            task = self._delegated_tasks.pop((peer_id, task_id), None)
+            if task is not None:
+                task.cancel()
 
         elif msg_type == "task_result":
             if self._collab:
@@ -389,12 +406,13 @@ class HelioxMesh:
 
     async def _handle_delegated_task(self, peer_id: str, payload: dict[str, Any]) -> None:
         """Execute a batch of actions delegated by a peer and return results."""
-        from pilot.actions import Action, ActionPlan, ActionResult, PermissionTier
+        from pilot.actions import Action, ActionPlan, ActionResult
+        from pilot.network.collab_executor import is_delegable_action
         from pilot.security.gateway import InvocationSource
 
         task_id = str(payload.get("task_id", ""))
         raw_actions = payload.get("actions", [])
-        raw_input = payload.get("raw_input", "")
+        raw_input = "Authenticated peer telemetry request"
 
         try:
             uuid.UUID(task_id)
@@ -405,10 +423,6 @@ class HelioxMesh:
             logger.warning("HelioxMesh: rejected delegated task %s with invalid action count", task_id)
             await self.send_to(peer_id, "task_result", {"task_id": task_id, "results": []})
             return
-        if not isinstance(raw_input, str) or len(raw_input) > 20_000:
-            logger.warning("HelioxMesh: rejected delegated task %s with invalid input", task_id)
-            await self.send_to(peer_id, "task_result", {"task_id": task_id, "results": []})
-            return
         try:
             actions = [Action.model_validate(a) for a in raw_actions]
         except Exception as exc:
@@ -416,13 +430,9 @@ class HelioxMesh:
             await self.send_to(peer_id, "task_result", {"task_id": task_id, "results": []})
             return
 
-        disallowed = [
-            action
-            for action in actions
-            if action.permission_tier >= PermissionTier.SYSTEM_MODIFY or action.is_irreversible
-        ]
+        disallowed = [action for action in actions if not is_delegable_action(action)]
         if disallowed:
-            error = "Peer Mesh accepts only reversible READ_ONLY and USER_WRITE actions"
+            error = "Peer Mesh delegates only portable system telemetry actions"
             results = [ActionResult(action=action, success=False, error=error) for action in actions]
             await self.send_to(
                 peer_id,
@@ -438,6 +448,7 @@ class HelioxMesh:
             plan_id=f"peer-{task_id}",
             invocation_source=InvocationSource.NETWORK_AGENT,
             user_confirmed=False,
+            allow_collaboration=False,
         )
 
         serialised = [r.model_dump(mode="json") for r in results]

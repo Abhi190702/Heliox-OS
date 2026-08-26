@@ -1,4 +1,5 @@
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -34,6 +35,7 @@ class _Mesh:
         self.start_error = start_error
         self.started = False
         self.stopped = False
+        self.collab_executor = object()
 
     async def start(self):
         if self.start_error:
@@ -82,6 +84,7 @@ async def test_mesh_configure_requires_secret_before_enable(monkeypatch):
 @pytest.mark.asyncio
 async def test_mesh_configure_stores_secret_and_starts_runtime(monkeypatch):
     server = _server(monkeypatch)
+    server._executor = SimpleNamespace(set_collab_executor=MagicMock())
     mesh = _Mesh()
     monkeypatch.setattr(server, "_new_mesh", lambda secret: mesh)
 
@@ -102,6 +105,7 @@ async def test_mesh_configure_stores_secret_and_starts_runtime(monkeypatch):
     assert server._vault.stored == ["s" * 32]
     assert server.config.network.skill_sync_enabled is True
     assert server.config.network.collab_exec_enabled is False
+    assert server._executor.set_collab_executor.call_args_list == [call(None), call(mesh.collab_executor)]
     server.config.save.assert_called_once()
 
 

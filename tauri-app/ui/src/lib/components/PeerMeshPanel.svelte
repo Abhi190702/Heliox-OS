@@ -168,7 +168,8 @@
     <label>
       <input type="checkbox" bind:checked={collabExecEnabled} />
       <span
-        ><strong>Collaborative execution</strong><small>Allow authenticated peers to delegate action batches.</small
+        ><strong>Collaborative execution</strong><small
+          >Delegate portable system telemetry; web access, UI, files, and commands stay local.</small
         ></span
       >
     </label>

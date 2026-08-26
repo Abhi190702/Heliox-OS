@@ -4,15 +4,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import pilot.network.collab_executor as collab_module
 from pilot.actions import (
     Action,
     ActionPlan,
     ActionResult,
     ActionType,
+    ApiRequestParams,
+    FileParams,
     ShellCommandParams,
     SystemInfoParams,
 )
-from pilot.network.collab_executor import CollabExecutor, _PendingDelegation
+from pilot.network.collab_executor import CollabExecutor, _PendingDelegation, is_delegable_action
 from pilot.network.mesh import HelioxMesh
 from pilot.security.gateway import InvocationSource
 
@@ -26,6 +29,28 @@ def _shell_action() -> Action:
         action_type=ActionType.SHELL_COMMAND,
         target="whoami",
         parameters=ShellCommandParams(command="whoami"),
+    )
+
+
+def test_only_portable_read_work_can_be_delegated():
+    assert is_delegable_action(_system_action()) is True
+    assert (
+        is_delegable_action(
+            Action(
+                action_type=ActionType.API_REQUEST,
+                parameters=ApiRequestParams(method="GET", url="https://example.com?token=secret"),
+            )
+        )
+        is False
+    )
+    assert (
+        is_delegable_action(
+            Action(
+                action_type=ActionType.FILE_WRITE,
+                parameters=FileParams(path="notes.txt", content="remote write"),
+            )
+        )
+        is False
     )
 
 
@@ -67,6 +92,74 @@ async def test_disconnected_peer_falls_back_without_waiting():
 
 
 @pytest.mark.asyncio
+async def test_remote_callbacks_are_emitted_exactly_once():
+    action = _system_action()
+    result = ActionResult(action=action, success=True, output="remote")
+    local = SimpleNamespace(execute=AsyncMock())
+    on_start = AsyncMock()
+    on_complete = AsyncMock()
+    collab = None
+    delegated_payload = None
+
+    async def send_to(peer_id, message_type, payload):
+        nonlocal delegated_payload
+        assert peer_id == "peer"
+        if message_type == "task_delegate":
+            delegated_payload = payload
+            asyncio.create_task(
+                collab.handle_task_result(
+                    "peer",
+                    {"task_id": payload["task_id"], "results": [result.model_dump(mode="json")]},
+                )
+            )
+        return True
+
+    collab = CollabExecutor(mesh=SimpleNamespace(send_to=send_to), local_executor=local)
+    results = await collab._delegate_to_peer(
+        "peer",
+        [action],
+        ActionPlan(actions=[action], raw_input="private user prompt"),
+        {"on_action_start": on_start, "on_action_complete": on_complete},
+    )
+
+    assert results == [result]
+    on_start.assert_awaited_once_with(action)
+    on_complete.assert_awaited_once_with(result)
+    local.execute.assert_not_awaited()
+    assert "raw_input" not in delegated_payload
+
+
+@pytest.mark.asyncio
+async def test_timeout_retry_does_not_duplicate_start_callback(monkeypatch):
+    monkeypatch.setattr(collab_module, "_REMOTE_TIMEOUT", 0.01)
+    action = _system_action()
+    result = ActionResult(action=action, success=True, output="local")
+    on_start = AsyncMock()
+    on_complete = AsyncMock()
+
+    async def execute(_plan, **options):
+        assert "on_action_start" not in options
+        await options["on_action_complete"](result)
+        return [result]
+
+    mesh = SimpleNamespace(send_to=AsyncMock(return_value=True))
+    local = SimpleNamespace(execute=AsyncMock(side_effect=execute))
+    collab = CollabExecutor(mesh=mesh, local_executor=local)
+
+    results = await collab._delegate_to_peer(
+        "peer",
+        [action],
+        ActionPlan(actions=[action]),
+        {"on_action_start": on_start, "on_action_complete": on_complete},
+    )
+
+    assert results == [result]
+    on_start.assert_awaited_once_with(action)
+    on_complete.assert_awaited_once_with(result)
+    assert mesh.send_to.await_args_list[-1].args[1] == "task_cancel"
+
+
+@pytest.mark.asyncio
 async def test_receiver_blocks_over_authority_delegated_action():
     executor = SimpleNamespace(execute=AsyncMock())
     config = SimpleNamespace(port=8786, collab_exec_enabled=True, skill_sync_enabled=False)
@@ -84,7 +177,7 @@ async def test_receiver_blocks_over_authority_delegated_action():
     response = mesh.send_to.await_args.args[2]
     result = ActionResult.model_validate(response["results"][0])
     assert result.success is False
-    assert "only reversible" in (result.error or "")
+    assert "portable system telemetry" in (result.error or "")
 
 
 @pytest.mark.asyncio
