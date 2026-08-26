@@ -323,6 +323,10 @@
     cursorRuntimeMessage = "";
     cursorRetryAfter = 0;
     pinchClickFired = false;
+    candidateGesture = "";
+    candidateCount = 0;
+    currentGesture = "";
+    confidence = 0;
   }
 
   $effect(() => {
@@ -336,6 +340,10 @@
     if (cursorModeActive) {
       exitCursorMode();
     } else {
+      candidateGesture = "";
+      candidateCount = 0;
+      currentGesture = "";
+      confidence = 0;
       cursorModeActive = true;
       cursorRuntimePhase = handDetected ? "tracking" : "waiting";
       cursorRuntimeMessage = handDetected
