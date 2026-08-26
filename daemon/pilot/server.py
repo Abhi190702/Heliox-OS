@@ -4646,7 +4646,16 @@ class PilotServer:
         section = params.get("section", "")
         values = params.get("values", {})
 
+        if not isinstance(section, str):
+            return {"status": "error", "message": "Config section must be a string"}
+        if not isinstance(values, dict):
+            return {"status": "error", "message": "Config values must be an object"}
+
         if section == "" and "first_run_complete" in values:
+            if set(values) != {"first_run_complete"}:
+                return {"status": "error", "message": "Unknown top-level config value"}
+            if not isinstance(values["first_run_complete"], bool):
+                return {"status": "error", "message": "first_run_complete must be a boolean"}
             self.config.first_run_complete = values["first_run_complete"]
             self.config.save()
             return {"status": "ok"}
@@ -4798,6 +4807,23 @@ class PilotServer:
                         }
                     v = v.strip()
                 if section == "screen_vision" and k == "capture_interval_seconds":
+                    from pilot.agents.screen_vision import (
+                        MAX_CAPTURE_INTERVAL_SECONDS,
+                        MIN_CAPTURE_INTERVAL_SECONDS,
+                    )
+
+                    if (
+                        not isinstance(v, (int, float))
+                        or isinstance(v, bool)
+                        or not MIN_CAPTURE_INTERVAL_SECONDS <= v <= MAX_CAPTURE_INTERVAL_SECONDS
+                    ):
+                        return {
+                            "status": "error",
+                            "message": (
+                                "screen_vision.capture_interval_seconds must be "
+                                f"from {MIN_CAPTURE_INTERVAL_SECONDS} to {MAX_CAPTURE_INTERVAL_SECONDS}"
+                            ),
+                        }
                     v = float(v)
                 if section == "email" and k == "smtp_port":
                     if not isinstance(v, int) or isinstance(v, bool) or not 1 <= v <= 65535:

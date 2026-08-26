@@ -8,6 +8,57 @@ from pilot.server import PilotServer
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["yes", 1, None])
+async def test_first_run_update_requires_boolean(value):
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+
+    result = await server._handle_update_config(
+        {"section": "", "values": {"first_run_complete": value}},
+        MagicMock(),
+    )
+
+    assert result == {"status": "error", "message": "first_run_complete must be a boolean"}
+    assert config.first_run_complete is False
+    config.save.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("values", [None, "not-an-object", []])
+async def test_config_update_requires_values_object(values):
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+
+    result = await server._handle_update_config(
+        {"section": "screen_vision", "values": values},
+        MagicMock(),
+    )
+
+    assert result == {"status": "error", "message": "Config values must be an object"}
+    config.save.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [0.49, 60.1, "3", True, float("nan")])
+async def test_screen_vision_interval_rejects_invalid_or_unbounded_values(value):
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+
+    result = await server._handle_update_config(
+        {"section": "screen_vision", "values": {"capture_interval_seconds": value}},
+        MagicMock(),
+    )
+
+    assert result["status"] == "error"
+    assert "capture_interval_seconds must be from 0.5 to 60.0" in result["message"]
+    assert config.screen_vision.capture_interval_seconds == 3.0
+    config.save.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_preview_enabled_update_requires_boolean():
     config = PilotConfig()
     config.save = MagicMock()
