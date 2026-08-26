@@ -236,5 +236,25 @@ async def test_receiver_serves_hardened_assets_and_authenticated_poll(tmp_path: 
                 b"pending-v1",
             )
             assert json.loads(pending) == []
+
+            draft = await manager.grab_text("private metadata", filename="secret-name.txt")
+            transfer = await manager.drop(credential["device_id"])
+            path = f"/api/transfers/{transfer['transfer_id']}"
+            headers = signed_headers(
+                credential,
+                secret,
+                method="GET",
+                path=path,
+                nonce="receiver-transfer-nonce",
+            )
+            async with session.get(base_url + path, headers=headers) as response:
+                assert response.status == 200
+                assert response.headers["Content-Type"] == "application/vnd.heliox.encrypted"
+                assert "X-Heliox-Filename" not in response.headers
+                assert "X-Heliox-Mime" not in response.headers
+                assert "X-Heliox-Transfer" not in response.headers
+                encrypted_transfer = await response.read()
+            assert draft["filename"] == "secret-name.txt"
+            assert b"secret-name.txt" not in encrypted_transfer
     finally:
         await server.stop()

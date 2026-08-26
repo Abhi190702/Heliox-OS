@@ -790,11 +790,6 @@ class AirHandoffServer:
             response = web.Response(
                 body=encrypted,
                 content_type="application/vnd.heliox.encrypted",
-                headers={
-                    "X-Heliox-Filename": _b64u(transfer.filename.encode("utf-8")),
-                    "X-Heliox-Mime": _b64u(transfer.mime_type.encode("utf-8")),
-                    "X-Heliox-Transfer": transfer.transfer_id,
-                },
             )
         except AirHandoffError as exc:
             response = web.json_response({"error": str(exc)}, status=403)

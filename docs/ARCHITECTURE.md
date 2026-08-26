@@ -114,7 +114,11 @@ Air Handoff is disabled by default. Enabling it starts a dedicated receiver on
 the configured high port. A five-minute QR offer carries a high-entropy pairing
 secret in the URL fragment, so the secret is not sent as an HTTP request. The
 phone and daemon authenticate an ephemeral X25519 exchange and derive keys with
-HKDF; long-lived device secrets are retained only through the OS keyring.
+HKDF. The daemon retains its copy of each device secret through the OS keyring;
+the browser receiver keeps its credential in that browser's local storage until
+the user selects **Forget**. The HTTP receiver is therefore limited to a trusted
+LAN; application-layer encryption protects transfer metadata and content but
+does not turn the browser bootstrap into a publicly trusted HTTPS origin.
 
 The user then explicitly holds a screenshot, bounded text value, or immutable
 snapshot of a selected file. A drop names exactly one paired device, encrypts

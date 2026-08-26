@@ -90,8 +90,9 @@
   <div class="security-note">
     <strong>Private by design</strong>
     <span
-      >Off by default. Phone credentials stay in the OS keyring; each transfer is encrypted and can only be opened by
-      its selected device. The receiver cannot control Heliox.</span
+      >Off by default. The desktop credential stays in the OS keyring; the paired phone credential stays in that
+      browser's local storage. Transfer metadata and content are encrypted for one selected device. The receiver
+      cannot control Heliox. Use only a trusted LAN.</span
     >
   </div>
 
