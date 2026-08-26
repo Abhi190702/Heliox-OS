@@ -4660,6 +4660,20 @@ class PilotServer:
         target = getattr(self.config, section, None)
         if target is None:
             return {"status": "error", "message": f"Unknown config section: {section}"}
+        voice_recorder_fields = {
+            "input_device",
+            "vad_energy_threshold",
+            "vad_silence_ms",
+            "vad_max_utterance_seconds",
+        }
+        voice_listener_was_running = bool(
+            section == "voice"
+            and self._voice_listener is not None
+            and self._voice_listener.is_running
+            and voice_recorder_fields.intersection(values)
+        )
+        voice_wake_words = list(self._voice_listener.wake_words) if voice_listener_was_running else []
+        previous_values = {key: getattr(target, key) for key in values if hasattr(target, key)}
         normalized_values: dict[str, object] = {}
         for k, v in values.items():
             if hasattr(target, k):
@@ -4800,6 +4814,23 @@ class PilotServer:
         for key, value in normalized_values.items():
             setattr(target, key, value)
         self.config.save()
+
+        if voice_listener_was_running:
+            try:
+                await self._replace_voice_listener(voice_wake_words)
+            except Exception as exc:
+                logger.warning("Voice listener rejected updated recorder settings: %s", exc)
+                for key, value in previous_values.items():
+                    setattr(target, key, value)
+                self.config.save()
+                try:
+                    await self._replace_voice_listener(voice_wake_words)
+                except Exception:
+                    logger.exception("Could not restore the previous voice listener after rollback")
+                return {
+                    "status": "error",
+                    "message": f"Voice setting was not applied: {exc}",
+                }
 
         if section == "voice" and ({"tts_engine", "tts_voice"} & values.keys()):
             self._start_tts_warmup()
@@ -8567,6 +8598,28 @@ def handle_tool(tool_name, params):
                 phase,
                 message=str(data.get("message") or status.replace("_", " ")),
             )
+
+    async def _replace_voice_listener(self, wake_words: list[str]) -> str:
+        """Replace an active listener after recorder-bound settings change."""
+        from pilot.system.voice import ContinuousVoiceListener
+
+        previous = self._voice_listener
+        if previous is not None and previous.is_running:
+            await previous.stop()
+
+        replacement = ContinuousVoiceListener(
+            wake_words=wake_words,
+            on_command=self._voice_command_dispatch,
+            on_status=self._voice_status_broadcast,
+            workflow_control=self._voice_workflow_control_dispatch,
+            config=self.config,
+        )
+        self._voice_listener = replacement
+        result = await replacement.start()
+        if not replacement.is_running:
+            self._voice_listener = None
+            raise RuntimeError(result)
+        return result
 
     async def _handle_voice_listener_start(self, params: dict, ws: ServerConnection) -> dict:
         """Start the continuous JARVIS-mode voice listener.
