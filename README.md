@@ -118,7 +118,7 @@ No comparison declares a universal winner. See the [transparent cost page](https
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Guarded task execution | Typed plans, source-scoped policy, approvals, cancellation, execution claims, and visible terminal results                                                 |
 | Adaptive app tasks     | Bounded observe → act → verify loops with fresh screen evidence, target-window reacquisition, replanning, and no-progress termination                      |
-| Continuous voice       | Wake-word and follow-up listening, VAD endpoints, coordinated TTS, barge-in, self-speech suppression, and first-speech lazy loading of heavy local voices   |
+| Continuous voice       | Wake-word and follow-up listening, VAD endpoints, coordinated TTS, barge-in, self-speech suppression, and process-isolated local voice models             |
 | Interactive companion  | Can warn, revise, stop, accept spoken or typed corrections, and offer grounded next steps after verified results                                           |
 | Local chat sessions    | Separate transcripts and task context with bounded cross-session preference and evidence memory                                                            |
 | Gesture and gaze       | 30+ gesture mappings, MediaPipe Tasks 3D landmarks, coarse gaze fusion, calibration, temporal rejection, and opt-in cursor control                         |
@@ -331,7 +331,7 @@ plan quality, and reported usage without executing any proposed action:
 python benchmarks/subscription_planning_suite.py --provider codex
 ```
 
-Kokoro, Pocket TTS, gaze, gesture tracking, and the learned-risk model are CPU-capable; CUDA is not required. Optional models still consume storage, memory, CPU time, and download bandwidth.
+Kokoro, Pocket TTS, gaze, gesture tracking, and the learned-risk model are CPU-capable; CUDA is not required. Kokoro and Pocket synthesis runs in a short-lived worker that remains available for a 10-second speech burst, then exits so PyTorch/CUDA libraries do not stay mapped in the control daemon. Optional models still consume storage, memory, CPU time, and download bandwidth while active.
 
 ## Platform and research boundaries
 

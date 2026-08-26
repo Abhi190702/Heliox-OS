@@ -686,21 +686,19 @@ class PilotServer:
         self._mcp_auth_token = secrets.token_urlsafe(32)
 
     def _start_tts_warmup(self) -> None:
-        """Keep local TTS lazy so idle Heliox does not load PyTorch.
+        """Keep heavyweight local TTS outside the long-lived daemon.
 
-        Kokoro and Pocket TTS both pull a sizeable inference runtime into the
-        daemon.  Loading it at startup consumed several gigabytes on CUDA
-        Python installations even when the user never asked Heliox to speak.
-        The voice dispatcher already loads the selected engine on its first
-        utterance and retains its model cache for subsequent speech, so an
-        eager warmup is unnecessary.
+        Kokoro and Pocket TTS pull a sizeable inference runtime into Python.
+        Loading either engine in this process consumed several gigabytes on
+        CUDA installations. The voice dispatcher now uses a short-lived worker
+        that retains its cache only for a bounded burst of speech.
         """
         if self._tts_warmup_task and not self._tts_warmup_task.done():
             self._tts_warmup_task.cancel()
         self._tts_warmup_task = None
         if self.config.voice.tts_engine in {"kokoro_tts", "pocket_tts"}:
             logger.info(
-                "%s model deferred until first speech request",
+                "%s model isolated in an on-demand speech worker",
                 "Kokoro TTS" if self.config.voice.tts_engine == "kokoro_tts" else "Pocket TTS",
             )
 
