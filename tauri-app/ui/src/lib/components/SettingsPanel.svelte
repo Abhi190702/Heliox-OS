@@ -689,24 +689,36 @@
   }
 
   function resetGestureCalibration() {
-    gestureCalibration.reset();
-    gestureCalibrationToast = "Learned gesture calibration cleared. Shipped thresholds are active.";
-    setTimeout(() => (gestureCalibrationToast = ""), 5000);
+    askConfirm(
+      "RESET LEARNED GESTURE CALIBRATION?\n\nThis permanently removes the personalized pinch and thumb thresholds learned in this browser.",
+      () => {
+        gestureCalibration.reset();
+        gestureCalibrationToast = "Learned gesture calibration cleared. Shipped thresholds are active.";
+        setTimeout(() => (gestureCalibrationToast = ""), 5000);
+      },
+      true,
+    );
   }
 
   let voiceVariants = $state<{ text: string; confirmed_count: number }[]>([]);
   let voicePromotionThreshold = $state(5);
-  let voiceVariantsAvailable = $state(true);
+  let voiceVariantsAvailable = $state(false);
 
   async function loadVoiceVariants() {
     try {
-      const res: any = await call("list_wake_variants");
-      if (res && res.variants) {
-        voiceVariants = res.variants;
-        voicePromotionThreshold = res.promotion_threshold ?? 5;
-        voiceVariantsAvailable = true;
-      }
+      const res = requireOkResult(
+        (await call("list_wake_variants")) as DaemonStatusResult & {
+          variants?: { text: string; confirmed_count: number }[];
+          promotion_threshold?: number;
+        },
+        "Wake-word calibration status is unavailable.",
+      );
+      if (!Array.isArray(res.variants)) throw new Error("Wake-word calibration status is incomplete.");
+      voiceVariants = res.variants;
+      voicePromotionThreshold = res.promotion_threshold ?? 5;
+      voiceVariantsAvailable = true;
     } catch {
+      voiceVariants = [];
       voiceVariantsAvailable = false;
     }
   }
@@ -732,16 +744,26 @@
     setTimeout(() => (voiceCalibrationToast = ""), 5000);
   }
 
-  async function resetVoiceCalibration() {
+  async function applyVoiceCalibrationReset() {
     try {
-      const result = await call<{ status: string }>("reset_wake_calibration");
-      if (result.status !== "ok") throw new Error("Daemon rejected reset");
+      requireOkResult(
+        await call<DaemonStatusResult>("reset_wake_calibration"),
+        "The daemon did not reset learned wake-word variants.",
+      );
       voiceVariants = [];
       voiceCalibrationToast = "Learned wake-word variants cleared from the live listener and disk.";
     } catch {
       voiceCalibrationToast = "Wake-word variants were not cleared because the daemon could not confirm it.";
     }
     setTimeout(() => (voiceCalibrationToast = ""), 5000);
+  }
+
+  function resetVoiceCalibration() {
+    askConfirm(
+      "RESET LEARNED WAKE WORDS?\n\nThis permanently removes every personalized wake-word variant from the live listener and disk.",
+      () => void applyVoiceCalibrationReset(),
+      true,
+    );
   }
 
   function updateOllamaModel(e: Event) {
@@ -1468,7 +1490,9 @@
           {/if}
         </span>
       </div>
-      <button class="btn-save" onclick={resetVoiceCalibration}>{$_("settings.voice_calibration_reset")}</button>
+      <button class="btn-save" onclick={resetVoiceCalibration} disabled={!voiceVariantsAvailable}
+        >{$_("settings.voice_calibration_reset")}</button
+      >
     </div>
   </section>
 

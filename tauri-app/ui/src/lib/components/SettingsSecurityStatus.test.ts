@@ -11,4 +11,12 @@ describe("Settings security status wiring", () => {
     expect(source).toContain("disabled={rootSaving || !rootRuntime}");
     expect(source).toContain("disabled={snapshotSaving || !snapshotRuntime}");
   });
+
+  it("confirms destructive learning resets and validates wake-word status", () => {
+    expect(source).toContain("RESET LEARNED GESTURE CALIBRATION?");
+    expect(source).toContain("RESET LEARNED WAKE WORDS?");
+    expect(source).toContain('(await call("list_wake_variants")) as DaemonStatusResult');
+    expect(source).toContain('await call<DaemonStatusResult>("reset_wake_calibration")');
+    expect(source).toContain("disabled={!voiceVariantsAvailable}");
+  });
 });
