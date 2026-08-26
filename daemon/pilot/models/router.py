@@ -155,13 +155,11 @@ class ModelRouter:
             else:
                 model_name = self._config.model.cloud_model or self._config.model.ollama_model
 
-            asyncio.create_task(
-                self._budget_tracker.record_usage(
-                    provider_key,
-                    model_name,
-                    usage_input_tokens,
-                    out_tokens,
-                )
+            await self._budget_tracker.record_usage(
+                provider_key,
+                model_name,
+                usage_input_tokens,
+                out_tokens,
             )
 
         return result

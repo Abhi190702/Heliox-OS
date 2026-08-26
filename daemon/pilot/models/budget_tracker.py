@@ -87,8 +87,8 @@ class ActionBudgetExceededError(BudgetExceededError):
 
 # Threads the active task id through to record_usage / check_task_budget
 # without requiring every call site (router, agents) to pass it explicitly.
-# asyncio.create_task() inherits contextvars by default, so fire-and-forget
-# record_usage tasks still see the right task_id.
+# ModelRouter awaits record_usage before returning so the active task remains
+# present until its final usage record and in-memory cap update are complete.
 current_task_id: ContextVar[str | None] = ContextVar("current_task_id", default=None)
 current_agent_id: ContextVar[str | None] = ContextVar("current_agent_id", default=None)
 
