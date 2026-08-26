@@ -46,6 +46,39 @@ describe("companion settings result handling", () => {
     expect(screen.queryByText("✓ Saved")).toBeNull();
   });
 
+  it("confirms and validates narration learning resets", async () => {
+    daemonMocks.call.mockImplementation((method: string) => {
+      if (method === "narration_status") {
+        return Promise.resolve({
+          enabled: false,
+          narrate_steps: true,
+          interrupt_on_risk: true,
+          proactive_review_enabled: true,
+          live_corrections_enabled: true,
+          follow_up_enabled: true,
+          confirm_timeout_seconds: 120,
+          advisory_timeout_seconds: 5,
+        });
+      }
+      if (method === "proactive_learning_status") {
+        return Promise.resolve({ patterns: { terminal_error: { shown: 2, accepted: 1, dismissed: 1 } } });
+      }
+      if (method === "online_learning_reset") {
+        return Promise.resolve({ status: "error", message: "Learning reset was rejected" });
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    render(NarrationPanel);
+    await fireEvent.click(await screen.findByRole("button", { name: /reset learning/i }));
+    expect(screen.getByRole("button", { name: "Confirm reset learning" })).toBeTruthy();
+    expect(daemonMocks.call).toHaveBeenCalledTimes(2);
+
+    await fireEvent.click(screen.getByRole("button", { name: "Confirm reset learning" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Learning reset was rejected");
+    expect(daemonMocks.call).toHaveBeenCalledTimes(3);
+  });
+
   it("does not claim supervision settings were saved after daemon rejection", async () => {
     daemonMocks.call.mockImplementation((method: string) => {
       if (method === "supervision_status") {

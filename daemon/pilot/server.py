@@ -9813,6 +9813,7 @@ def handle_tool(tool_name, params):
 
         if self._online_learning is None:
             return {
+                "status": "error",
                 "enabled": False,
                 "message": "Verified online learning is not initialized",
             }
@@ -9827,12 +9828,13 @@ def handle_tool(tool_name, params):
 
         if self._online_learning is None:
             return {
+                "status": "error",
                 "enabled": False,
                 "message": "Verified online learning is not initialized",
             }
         if self._proactive is not None:
             self._proactive.reset_learning()
-        return await self._online_learning.reset()
+        return {"status": "ok", **(await self._online_learning.reset())}
 
     async def _handle_proactive_accept(self, params: dict, ws: ServerConnection) -> dict:
         """Accept a proactive suggestion — execute the suggested action.

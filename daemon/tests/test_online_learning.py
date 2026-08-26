@@ -6,13 +6,35 @@ from datetime import datetime, timezone
 
 import pytest
 
+from pilot.config import PilotConfig
 from pilot.intelligence.experience import ExperienceEventType, ExperienceLedger
 from pilot.intelligence.online_learning import MINIMUM_PROMOTION_LABELS, VerifiedOnlineLearner
+from pilot.server import PilotServer
 
 
 @pytest.fixture
 def occurred_at() -> str:
     return datetime(2026, 7, 30, 9, 0, tzinfo=timezone.utc).isoformat()
+
+
+@pytest.mark.asyncio
+async def test_online_learning_reset_rpc_has_explicit_result_contract(tmp_path):
+    server = PilotServer(PilotConfig())
+    unavailable = await server._handle_online_learning_reset({}, ws=None)
+    assert unavailable["status"] == "error"
+
+    learner = VerifiedOnlineLearner(tmp_path / "learning-state.json")
+    ledger = ExperienceLedger(tmp_path / "experience.db")
+    await ledger.initialize()
+    await learner.initialize(ledger)
+    server._online_learning = learner
+
+    reset = await server._handle_online_learning_reset({}, ws=None)
+
+    assert reset["status"] == "ok"
+    assert reset["enabled"] is True
+    assert reset["suggestions"]["labels"] == 0
+    await ledger.close()
 
 
 @pytest.mark.asyncio

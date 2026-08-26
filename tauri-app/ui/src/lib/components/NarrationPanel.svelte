@@ -20,6 +20,7 @@
   let suggestionAcceptedCount = $state(0);
   let suggestionDismissedCount = $state(0);
   let resettingLearning = $state(false);
+  let confirmingLearningReset = $state(false);
 
   onMount(() => {
     void loadStatus();
@@ -97,12 +98,23 @@
   }
 
   async function resetLearning() {
+    if (!confirmingLearningReset) {
+      confirmingLearningReset = true;
+      return;
+    }
     resettingLearning = true;
+    error = "";
     try {
-      await call("online_learning_reset");
+      requireOkResult(
+        (await call("online_learning_reset")) as DaemonStatusResult,
+        "The daemon did not reset learned adaptation.",
+      );
       await loadLearningStatus();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : "Could not reset learned adaptation.";
     } finally {
       resettingLearning = false;
+      confirmingLearningReset = false;
     }
   }
 </script>
@@ -251,7 +263,11 @@
         </span>
       </div>
       <button class="btn-reset" onclick={resetLearning} disabled={resettingLearning || learnedPatternCount === 0}>
-        {resettingLearning ? $_("settings.resetting") : $_("settings.reset_learning")}
+        {resettingLearning
+          ? $_("settings.resetting")
+          : confirmingLearningReset
+            ? "Confirm reset learning"
+            : $_("settings.reset_learning")}
       </button>
     </div>
 

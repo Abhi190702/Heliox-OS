@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { call } from "../api/daemon";
+  import { call, requireOkResult, type DaemonStatusResult } from "../api/daemon";
 
   interface LearnerStatus {
     enabled: boolean;
@@ -39,6 +39,7 @@
   let status = $state<LearnerStatus | null>(null);
   let loading = $state(true);
   let resetting = $state(false);
+  let confirmingReset = $state(false);
   let error = $state("");
 
   onMount(loadStatus);
@@ -63,14 +64,22 @@
   }
 
   async function resetLearning() {
+    if (!confirmingReset) {
+      confirmingReset = true;
+      return;
+    }
     resetting = true;
     error = "";
     try {
-      status = (await call("online_learning_reset")) as LearnerStatus;
+      status = requireOkResult(
+        (await call("online_learning_reset")) as LearnerStatus & DaemonStatusResult,
+        "The daemon did not reset learned adaptation.",
+      );
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "Could not reset learned adaptation.";
     } finally {
       resetting = false;
+      confirmingReset = false;
     }
   }
 
@@ -177,7 +186,7 @@
         onclick={resetLearning}
         disabled={resetting || (status.suggestions.labels === 0 && status.transitions.labels === 0)}
       >
-        {resetting ? "Resetting..." : "Reset learned adaptation"}
+        {resetting ? "Resetting..." : confirmingReset ? "Confirm reset learned adaptation" : "Reset learned adaptation"}
       </button>
     </div>
   {/if}
