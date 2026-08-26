@@ -135,12 +135,11 @@ async def test_subscription_provider_update_is_validated_and_saved():
 
 
 @pytest.mark.asyncio
-async def test_subscription_update_closes_previous_runtime_client():
+async def test_model_update_reconfigures_live_runtime():
     config = PilotConfig()
     config.save = MagicMock()
     server = PilotServer(config)
-    previous_client = SimpleNamespace(close=AsyncMock())
-    model_router = SimpleNamespace(_subscription=previous_client)
+    model_router = SimpleNamespace(reconfigure=AsyncMock())
     server._model_router = model_router
     server._planner = SimpleNamespace(_model=model_router)
 
@@ -150,8 +149,7 @@ async def test_subscription_update_closes_previous_runtime_client():
     )
 
     assert result["status"] == "ok"
-    previous_client.close.assert_awaited_once_with()
-    assert model_router._subscription is not previous_client
+    model_router.reconfigure.assert_awaited_once_with({"subscription_model"})
 
 
 @pytest.mark.asyncio

@@ -31,9 +31,12 @@ class OllamaClient:
 
     def __init__(self, base_url: str = "http://127.0.0.1:11434", config: PilotConfig | None = None) -> None:
         resolved_config = config or PilotConfig.load()
+        self._config = resolved_config
         self._base_url = base_url.rstrip("/")
-        self._keep_alive_seconds = max(0, int(resolved_config.model.idle_unload_seconds))
         self._client = create_httpx_client(resolved_config, timeout=DEFAULT_TIMEOUT)
+
+    def _keep_alive_seconds(self) -> int:
+        return max(0, int(self._config.model.idle_unload_seconds))
 
     async def is_available(self) -> bool:
         try:
@@ -80,7 +83,7 @@ class OllamaClient:
             "model": model,
             "prompt": prompt,
             "stream": stream_callback is not None,
-            "keep_alive": self._keep_alive_seconds,
+            "keep_alive": self._keep_alive_seconds(),
             "options": {"temperature": temperature},
         }
         if system:
@@ -118,7 +121,7 @@ class OllamaClient:
             "model": model,
             "prompt": prompt,
             "stream": True,
-            "keep_alive": self._keep_alive_seconds,
+            "keep_alive": self._keep_alive_seconds(),
             "options": {"temperature": temperature},
         }
         if system:
@@ -161,7 +164,7 @@ class OllamaClient:
             "model": model,
             "messages": messages,
             "stream": stream_callback is not None,
-            "keep_alive": self._keep_alive_seconds,
+            "keep_alive": self._keep_alive_seconds(),
             "options": {"temperature": temperature},
         }
         if json_mode:

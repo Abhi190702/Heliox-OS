@@ -43,6 +43,7 @@ class ModelRouter:
         self._llamacpp: object | None = None
         self._llamacpp_active_calls = 0
         self._llamacpp_idle_task: asyncio.Task[None] | None = None
+        self._llamacpp_reload_pending = False
         self._resolved_ollama_model: str | None = None
         self._cloud_unavailable_until = 0.0
         self._cloud_unavailable_reason = ""
@@ -576,10 +577,19 @@ class ModelRouter:
         finally:
             self._llamacpp_active_calls -= 1
             if self._llamacpp_active_calls == 0:
-                self._llamacpp_idle_task = asyncio.create_task(
-                    self._unload_llamacpp_after_idle(client),
-                    name="llamacpp-idle-unload",
-                )
+                if self._llamacpp_reload_pending:
+                    client.unload()
+                    if self._llamacpp is client:
+                        self._llamacpp = None
+                    self._llamacpp_reload_pending = False
+                else:
+                    self._schedule_llamacpp_idle_unload(client)
+
+    def _schedule_llamacpp_idle_unload(self, client: Any) -> None:
+        self._llamacpp_idle_task = asyncio.create_task(
+            self._unload_llamacpp_after_idle(client),
+            name="llamacpp-idle-unload",
+        )
 
     async def _cancel_llamacpp_idle_unload(self) -> None:
         task = self._llamacpp_idle_task
@@ -597,6 +607,51 @@ class ModelRouter:
             return
         if self._llamacpp_active_calls == 0 and self._llamacpp is client:
             client.unload()
+
+    async def reconfigure(self, changed_keys: set[str]) -> None:
+        """Apply validated model settings to live provider resources."""
+        if "ollama_model" in changed_keys:
+            self._resolved_ollama_model = None
+
+        if "ollama_base_url" in changed_keys:
+            replacement = OllamaClient(self._config.model.ollama_base_url, self._config)
+            previous = self._ollama
+            self._ollama = replacement
+            await previous.close()
+
+        if "cloud_provider" in changed_keys:
+            replacement_cloud = CloudClient(self._config, self._vault) if self._config.model.cloud_provider else None
+            previous_cloud = self._cloud
+            self._cloud = replacement_cloud
+            self._clear_cloud_circuit()
+            if previous_cloud is not None:
+                await previous_cloud.close()
+
+        subscription_keys = {
+            "provider",
+            "subscription_provider",
+            "subscription_model",
+            "subscription_timeout_seconds",
+            "subscription_max_prompt_chars",
+        }
+        if changed_keys & subscription_keys:
+            replacement_subscription = SubscriptionCLIClient(self._config)
+            previous_subscription = self._subscription
+            self._subscription = replacement_subscription
+            await previous_subscription.close()
+
+        if "idle_unload_seconds" in changed_keys:
+            await self._cancel_llamacpp_idle_unload()
+            if self._llamacpp is not None and self._llamacpp_active_calls == 0:
+                self._schedule_llamacpp_idle_unload(self._llamacpp)
+
+        if "gpu_memory_limit_mb" in changed_keys and self._llamacpp is not None:
+            await self._cancel_llamacpp_idle_unload()
+            if self._llamacpp_active_calls:
+                self._llamacpp_reload_pending = True
+            else:
+                self._llamacpp.unload()
+                self._llamacpp = None
 
     def rate_limit_stats(self) -> dict[str, Any]:
         """Return current rate limiter state and lifetime counters."""
@@ -645,6 +700,7 @@ class ModelRouter:
         if self._llamacpp is not None:
             self._llamacpp.unload()
             self._llamacpp = None
+        self._llamacpp_reload_pending = False
 
         closers = [
             self._subscription.close(),

@@ -4999,30 +4999,10 @@ class PilotServer:
         if section == "screen_vision" and "capture_interval_seconds" in values and self._screen_vision:
             self._screen_vision.set_interval(self.config.screen_vision.capture_interval_seconds)
 
-        if section == "model" and ("cloud_provider" in values or "provider" in values):
-            if self.config.model.cloud_provider:
-                from pilot.models.cloud import CloudClient
-
-                self._planner._model._cloud = CloudClient(self.config, self._vault)
-                logger.info("Cloud client re-initialized for provider: %s", self.config.model.cloud_provider)
-
-        if section == "model" and (
-            {
-                "provider",
-                "subscription_provider",
-                "subscription_model",
-                "subscription_timeout_seconds",
-                "subscription_max_prompt_chars",
-            }
-            & values.keys()
-        ):
-            from pilot.models.subscription_cli import SubscriptionCLIClient
-
+        if section == "model":
             model_router = self._model_router or (self._planner._model if self._planner is not None else None)
             if model_router is not None:
-                previous_client = model_router._subscription
-                await previous_client.close()
-                model_router._subscription = SubscriptionCLIClient(self.config)
+                await model_router.reconfigure(set(normalized_values))
 
         return {"status": "ok"}
 

@@ -50,6 +50,11 @@ async def test_ollama_applies_configured_idle_timeout_to_every_request_path():
     assert transport.stream.call_args.kwargs["json"]["keep_alive"] == 37
     assert transport.post.await_args_list[1].kwargs["json"]["keep_alive"] == 37
 
+    config.model.idle_unload_seconds = 9
+    response.json.side_effect = [{"response": "updated"}]
+    assert await client.generate("model", "new prompt") == "updated"
+    assert transport.post.await_args.kwargs["json"]["keep_alive"] == 9
+
 
 @pytest.mark.asyncio
 async def test_llamacpp_unloads_after_configured_idle_period():
@@ -62,6 +67,7 @@ async def test_llamacpp_unloads_after_configured_idle_period():
     router._llamacpp = client
     router._llamacpp_active_calls = 0
     router._llamacpp_idle_task = None
+    router._llamacpp_reload_pending = False
 
     assert await router._llamacpp_generate("prompt") == "complete"
     await asyncio.sleep(0)
@@ -91,6 +97,7 @@ async def test_llamacpp_stays_loaded_until_all_concurrent_calls_finish():
     router._llamacpp = client
     router._llamacpp_active_calls = 0
     router._llamacpp_idle_task = None
+    router._llamacpp_reload_pending = False
 
     first = asyncio.create_task(router._llamacpp_generate("first"))
     await first_started.wait()
@@ -107,9 +114,42 @@ async def test_llamacpp_stays_loaded_until_all_concurrent_calls_finish():
 
 
 @pytest.mark.asyncio
+async def test_llamacpp_vram_change_defers_reload_until_active_call_finishes():
+    config = PilotConfig()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def generate(*_args, **_kwargs):
+        started.set()
+        await release.wait()
+        return "done"
+
+    client = MagicMock()
+    client.generate = AsyncMock(side_effect=generate)
+    router = object.__new__(ModelRouter)
+    router._config = config
+    router._llamacpp = client
+    router._llamacpp_active_calls = 0
+    router._llamacpp_idle_task = None
+    router._llamacpp_reload_pending = False
+
+    inference = asyncio.create_task(router._llamacpp_generate("prompt"))
+    await started.wait()
+    await router.reconfigure({"gpu_memory_limit_mb"})
+
+    assert router._llamacpp_reload_pending is True
+    client.unload.assert_not_called()
+    release.set()
+    assert await inference == "done"
+    client.unload.assert_called_once_with()
+    assert router._llamacpp is None
+
+
+@pytest.mark.asyncio
 async def test_model_router_closes_every_provider_and_unloads_embedded_model():
     router = object.__new__(ModelRouter)
     router._llamacpp_idle_task = None
+    router._llamacpp_reload_pending = False
     router._llamacpp = MagicMock()
     router._subscription = MagicMock(close=AsyncMock())
     router._cache = MagicMock(close=AsyncMock())
@@ -122,3 +162,45 @@ async def test_model_router_closes_every_provider_and_unloads_embedded_model():
     router._cache.close.assert_awaited_once_with()
     router._ollama.close.assert_awaited_once_with()
     router._cloud.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_model_reconfigure_refreshes_cached_and_stateful_backends():
+    config = PilotConfig()
+    router = object.__new__(ModelRouter)
+    router._config = config
+    router._vault = MagicMock()
+    router._resolved_ollama_model = "old-model"
+    router._ollama = MagicMock(close=AsyncMock())
+    router._cloud = MagicMock(close=AsyncMock())
+    router._subscription = MagicMock(close=AsyncMock())
+    router._cloud_unavailable_reason = "old failure"
+    router._cloud_unavailable_until = 100.0
+    router._llamacpp = MagicMock()
+    router._llamacpp_active_calls = 0
+    router._llamacpp_idle_task = None
+    router._llamacpp_reload_pending = False
+    config.model.ollama_base_url = "http://127.0.0.1:22434"
+    config.model.cloud_provider = ""
+
+    with (
+        patch("pilot.models.router.OllamaClient") as ollama_type,
+        patch("pilot.models.router.SubscriptionCLIClient") as subscription_type,
+    ):
+        await router.reconfigure(
+            {
+                "ollama_model",
+                "ollama_base_url",
+                "cloud_provider",
+                "subscription_model",
+                "gpu_memory_limit_mb",
+            }
+        )
+
+    assert router._resolved_ollama_model is None
+    ollama_type.assert_called_once_with("http://127.0.0.1:22434", config)
+    subscription_type.assert_called_once_with(config)
+    assert router._cloud is None
+    assert router._llamacpp is None
+    assert router._cloud_unavailable_reason == ""
+    assert router._cloud_unavailable_until == 0.0
