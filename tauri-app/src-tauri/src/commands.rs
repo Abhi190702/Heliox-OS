@@ -656,7 +656,7 @@ fn clear_log_file(log_path: &std::path::Path) -> Result<String, String> {
     if !log_path.exists() {
         return Ok("No daemon log file exists yet".into());
     }
-    std::fs::write(&log_path, "")
+    std::fs::write(log_path, "")
         .map_err(|error| format!("Could not clear {}: {error}", log_path.display()))?;
     Ok("Daemon log cleared".into())
 }
@@ -732,10 +732,10 @@ pub fn open_logs_folder() -> Result<(), String> {
         .ok_or_else(|| "Could not resolve daemon log directory".to_string())?;
 
     if !log_dir.exists() {
-        std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(log_dir).map_err(|e| e.to_string())?;
     }
 
-    opener::open(&log_dir).map_err(|e| e.to_string())?;
+    opener::open(log_dir).map_err(|e| e.to_string())?;
     Ok(())
 }
 
