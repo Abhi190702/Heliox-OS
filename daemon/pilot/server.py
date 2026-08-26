@@ -9670,6 +9670,7 @@ def handle_tool(tool_name, params):
         from pilot.config import SUPPORTED_GESTURE_WORKFLOW_GESTURES
 
         return {
+            "status": "ok",
             "enabled": self.config.gesture_workflows.enabled,
             "bindings": [asdict(b) for b in self.config.gesture_workflows.bindings],
             "supported_gestures": list(SUPPORTED_GESTURE_WORKFLOW_GESTURES),

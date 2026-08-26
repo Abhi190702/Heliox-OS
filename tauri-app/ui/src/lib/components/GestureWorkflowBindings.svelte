@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import { call } from "../api/daemon";
+  import { call, requireResultStatus } from "../api/daemon";
 
   interface Binding {
     gesture_name: string;
@@ -48,6 +48,7 @@
   let enabled = $state(false);
   let bindings = $state<Binding[]>([]);
   let loading = $state(true);
+  let statusAvailable = $state(false);
   let saving = $state(false);
   let saved = $state(false);
   let error = $state("");
@@ -60,15 +61,21 @@
     loading = true;
     try {
       const result = (await call("gesture_workflow_bindings_get")) as {
+        status?: string;
+        message?: string;
+        error?: string;
         enabled: boolean;
         bindings: Binding[];
         supported_gestures?: string[];
       };
+      requireResultStatus(result, "ok", "Gesture workflow bindings are unavailable.");
       enabled = result.enabled ?? false;
       bindings = result.bindings ?? [];
       supportedGestures = result.supported_gestures?.length ? result.supported_gestures : [...FALLBACK_GESTURES];
+      statusAvailable = true;
       error = "";
     } catch (cause) {
+      statusAvailable = false;
       enabled = false;
       bindings = [];
       error = cause instanceof Error ? cause.message : String(cause);
@@ -128,7 +135,7 @@
         bindings?: Binding[];
         supported_gestures?: string[];
       };
-      if (result.status !== "ok") throw new Error(result.message || "Gesture workflow bindings were not saved");
+      requireResultStatus(result, "ok", "Gesture workflow bindings were not saved.");
       enabled = result.enabled ?? enabled;
       bindings = result.bindings ?? bindings;
       supportedGestures = result.supported_gestures?.length ? result.supported_gestures : supportedGestures;
@@ -151,6 +158,7 @@
       onclick={() => (enabled = !enabled)}
       aria-label="Toggle gesture workflow bindings"
       aria-pressed={enabled}
+      disabled={loading || !statusAvailable}
     >
       <span class="toggle-knob"></span>
     </button>
@@ -165,7 +173,7 @@
 
   {#if loading}
     <div class="empty">Loading...</div>
-  {:else}
+  {:else if statusAvailable}
     <div class="binding-list">
       {#each bindings as binding, i}
         <div class="binding-row">

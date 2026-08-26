@@ -237,6 +237,7 @@ class TestGestureWorkflowBindings:
     async def test_get_returns_defaults(self):
         server = PilotServer(PilotConfig())
         result = await server._handle_gesture_workflow_bindings_get({}, ws=None)
+        assert result["status"] == "ok"
         assert result["enabled"] is False
         assert result["bindings"] == []
         assert "swipe_up" in result["supported_gestures"]
