@@ -1024,8 +1024,9 @@ class PilotServer:
                 max_consecutive_timeouts=sv_config.max_consecutive_timeouts,
                 auto_resume_after_seconds=sv_config.auto_resume_after_seconds,
             )
-            asyncio.create_task(
-                self._screen_vision.start(interval_seconds=sv_config.capture_interval_seconds, enable_describe=False)
+            await self._screen_vision.start(
+                interval_seconds=sv_config.capture_interval_seconds,
+                enable_describe=False,
             )
             logger.info("ScreenVisionAgent auto-started (every %.1fs, JARVIS mode)", sv_config.capture_interval_seconds)
         except Exception:
@@ -1054,7 +1055,7 @@ class PilotServer:
                 if getattr(self, "_screen_vision", None):
                     self._screen_vision._cognitive_engine = self._cognitive_engine
 
-                asyncio.create_task(self._cognitive_engine.load_model())
+                await self._cognitive_engine.load_model()
                 logger.info("Cognitive intelligence initialized")
         except Exception:
             logger.warning("Cognitive intelligence init failed (non-critical)", exc_info=True)
@@ -1203,7 +1204,7 @@ class PilotServer:
             self._proactive.set_broadcast(self._broadcast_notification)
             self._proactive.set_experience_ledger(self._experience_ledger)
             self._proactive.set_online_learner(self._online_learning)
-            asyncio.create_task(self._proactive.start())
+            await self._proactive.start()
             logger.info("ProactiveSuggestionEngine auto-started")
         except Exception:
             logger.warning("ProactiveSuggestionEngine init failed (non-critical)", exc_info=True)
