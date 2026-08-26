@@ -58,7 +58,7 @@ describe("specialist mesh result handling", () => {
           specialists: [],
         });
       }
-      if (method === "agent_routing") return Promise.resolve({ matches: [] });
+      if (method === "agent_routing") return Promise.resolve({ status: "ok", matches: [] });
       return Promise.resolve({});
     });
 

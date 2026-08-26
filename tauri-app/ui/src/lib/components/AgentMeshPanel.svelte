@@ -113,8 +113,12 @@
     error = "";
     try {
       const result = (await call("agent_routing", { input: routeInput })) as {
+        status?: string;
+        message?: string;
+        error?: string;
         orchestrator?: { assigned_specialists?: RouteMatch[] };
       };
+      requireOkResult(result, "The daemon did not return a specialist routing preview.");
       if (!result.orchestrator) {
         throw new Error("Specialist routing is unavailable in the connected daemon.");
       }

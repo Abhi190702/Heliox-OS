@@ -6539,7 +6539,7 @@ class PilotServer:
         result = self._multi_agent.get_routing_summary(query)
         if self._orchestrator:
             result["orchestrator"] = self._orchestrator.get_input_routing_summary(query)
-        return result
+        return {"status": "ok", **result}
 
     async def _handle_agent_stats(self, params: dict, ws: ServerConnection) -> dict:
         """Return performance stats for all registered agents.

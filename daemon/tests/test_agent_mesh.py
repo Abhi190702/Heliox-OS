@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -350,4 +351,21 @@ async def test_server_reports_unavailable_mesh_explicitly():
         "status": "error",
         "enabled": False,
         "message": "Agent mesh is not initialized",
+    }
+
+
+@pytest.mark.asyncio
+async def test_server_acknowledges_agent_routing_preview():
+    server = object.__new__(PilotServer)
+    server._multi_agent = MagicMock()
+    server._multi_agent.get_routing_summary.return_value = {"matches": []}
+    server._orchestrator = MagicMock()
+    server._orchestrator.get_input_routing_summary.return_value = {"assigned_specialists": []}
+
+    result = await server._handle_agent_routing({"input": "inspect logs"}, None)
+
+    assert result == {
+        "status": "ok",
+        "matches": [],
+        "orchestrator": {"assigned_specialists": []},
     }
