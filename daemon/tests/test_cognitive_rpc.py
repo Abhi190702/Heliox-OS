@@ -40,6 +40,7 @@ async def test_cognitive_state_records_bounded_browser_dynamics():
         pointer_move_rate_per_min=140.0,
         idle_seconds=1.5,
     )
+    assert result["status"] == "ok"
     assert result["attention_score"] == 0.62
     assert result["estimate_kind"] == "behavioral"
     assert result["signal_sources"] == 1
@@ -56,7 +57,7 @@ async def test_cognitive_state_rejects_non_finite_metrics():
         MagicMock(),
     )
 
-    assert result == {"error": "keystroke_rate_per_min must be finite"}
+    assert result == {"status": "error", "message": "keystroke_rate_per_min must be finite"}
     engine.record_input_dynamics.assert_not_called()
 
 

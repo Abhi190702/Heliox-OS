@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { call, isConnected } from "../api/daemon";
+  import { call, isConnected, requireResultStatus } from "../api/daemon";
 
   let attention = $state(0);
   let stress = $state(0);
@@ -53,10 +53,25 @@
       return;
     }
     try {
-      const state: any = await call("cognitive_state", {
+      const state = (await call("cognitive_state", {
         input_dynamics: collectInputDynamics(),
-      });
-      if (state && !state.error) {
+      })) as {
+        status?: string;
+        message?: string;
+        error?: string;
+        attention_score?: number;
+        stress_level?: number;
+        cognitive_load?: number;
+        confidence?: number;
+        signal_sources?: number;
+        dominant_modality?: string;
+      };
+      requireResultStatus(state, "ok", "Cognitive state is unavailable.");
+      if (
+        Number.isFinite(state.attention_score) &&
+        Number.isFinite(state.stress_level) &&
+        Number.isFinite(state.cognitive_load)
+      ) {
         const blend = hasSample ? 0.35 : 1;
         attention = attention * (1 - blend) + Number(state.attention_score ?? 0.5) * blend;
         stress = stress * (1 - blend) + Number(state.stress_level ?? 0.3) * blend;

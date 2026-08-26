@@ -8479,12 +8479,12 @@ def handle_tool(tool_name, params):
             A dict with current cognitive state or error.
         """
         if not self._cognitive_engine:
-            return {"error": "Cognitive engine not initialized"}
+            return {"status": "error", "message": "Cognitive engine not initialized"}
 
         input_dynamics = params.get("input_dynamics")
         if input_dynamics is not None:
             if not isinstance(input_dynamics, dict):
-                return {"error": "input_dynamics must be an object"}
+                return {"status": "error", "message": "input_dynamics must be an object"}
 
             def bounded_metric(name: str, maximum: float) -> float:
                 try:
@@ -8503,12 +8503,12 @@ def handle_tool(tool_name, params):
                     idle_seconds=bounded_metric("idle_seconds", 3600.0),
                 )
             except ValueError as exc:
-                return {"error": str(exc)}
+                return {"status": "error", "message": str(exc)}
 
         state = await self._cognitive_engine.predict_cognitive_state(
             stimulus_description=params.get("stimulus", ""),
         )
-        return state.to_dict()
+        return {"status": "ok", **state.to_dict()}
 
     async def _handle_attention_toggle(self, params: dict, ws: ServerConnection) -> dict:
         """Toggle attention-aware UI scoring.
