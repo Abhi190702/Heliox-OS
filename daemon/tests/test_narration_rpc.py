@@ -11,6 +11,7 @@ from pilot.server import PilotServer
 async def test_status_reports_config_defaults():
     server = PilotServer(PilotConfig())
     result = await server._handle_narration_status({}, ws=None)
+    assert result["status"] == "ok"
     assert result["enabled"] is False
     assert result["narrate_steps"] is True
     assert result["interrupt_on_risk"] is True

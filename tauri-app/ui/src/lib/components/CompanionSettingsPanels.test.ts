@@ -22,6 +22,7 @@ describe("companion settings result handling", () => {
     daemonMocks.call.mockImplementation((method: string) => {
       if (method === "narration_status") {
         return Promise.resolve({
+          status: "ok",
           enabled: false,
           narrate_steps: true,
           interrupt_on_risk: true,
@@ -32,7 +33,7 @@ describe("companion settings result handling", () => {
           advisory_timeout_seconds: 5,
         });
       }
-      if (method === "proactive_learning_status") return Promise.resolve({ patterns: {} });
+      if (method === "proactive_learning_status") return Promise.resolve({ status: "ok", patterns: {} });
       if (method === "narration_config_update") {
         return Promise.resolve({ status: "error", message: "Narration runtime rejected the setting" });
       }
@@ -50,6 +51,7 @@ describe("companion settings result handling", () => {
     daemonMocks.call.mockImplementation((method: string) => {
       if (method === "narration_status") {
         return Promise.resolve({
+          status: "ok",
           enabled: false,
           narrate_steps: true,
           interrupt_on_risk: true,
@@ -61,7 +63,7 @@ describe("companion settings result handling", () => {
         });
       }
       if (method === "proactive_learning_status") {
-        return Promise.resolve({ patterns: { terminal_error: { shown: 2, accepted: 1, dismissed: 1 } } });
+        return Promise.resolve({ status: "ok", patterns: { terminal_error: { shown: 2, accepted: 1, dismissed: 1 } } });
       }
       if (method === "online_learning_reset") {
         return Promise.resolve({ status: "error", message: "Learning reset was rejected" });
@@ -83,6 +85,7 @@ describe("companion settings result handling", () => {
     daemonMocks.call.mockImplementation((method: string) => {
       if (method === "supervision_status") {
         return Promise.resolve({
+          status: "ok",
           enabled: false,
           keyboard_mouse_hook_enabled: false,
           cognitive_coaching_enabled: true,
@@ -101,5 +104,18 @@ describe("companion settings result handling", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("Input hook could not start");
     expect(screen.queryByText("✓ Saved")).toBeNull();
+  });
+
+  it("disables narration controls when status was not acknowledged", async () => {
+    daemonMocks.call.mockImplementation((method: string) => {
+      if (method === "narration_status") return Promise.resolve({ enabled: true });
+      if (method === "proactive_learning_status") return Promise.resolve({ status: "ok", patterns: {} });
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    render(NarrationPanel);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Narration status is unavailable");
+    expect((screen.getByRole("button", { name: /save/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

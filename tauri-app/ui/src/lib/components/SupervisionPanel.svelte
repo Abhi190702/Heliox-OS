@@ -19,6 +19,7 @@
   let riskPatternDetectionEnabled = $state(true);
   let hookHealthy = $state(false);
   let loading = $state(true);
+  let statusAvailable = $state(false);
   let saving = $state(false);
   let saved = $state(false);
   let error = $state("");
@@ -29,19 +30,25 @@
   async function loadStatus() {
     try {
       const result = (await call("supervision_status")) as {
+        status?: string;
+        message?: string;
+        error?: string;
         enabled: boolean;
         keyboard_mouse_hook_enabled: boolean;
         cognitive_coaching_enabled: boolean;
         risk_pattern_detection_enabled: boolean;
         hook_healthy: boolean;
       };
+      requireOkResult(result, "Supervision status is unavailable.");
       enabled = result.enabled ?? false;
       keyboardMouseHookEnabled = result.keyboard_mouse_hook_enabled ?? false;
       cognitiveCoachingEnabled = result.cognitive_coaching_enabled ?? true;
       riskPatternDetectionEnabled = result.risk_pattern_detection_enabled ?? true;
       hookHealthy = result.hook_healthy ?? false;
+      statusAvailable = true;
       error = "";
     } catch (cause) {
+      statusAvailable = false;
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       loading = false;
@@ -87,6 +94,7 @@
       onclick={() => (enabled = !enabled)}
       aria-label="Toggle User Manual Supervision"
       title="Toggle User Manual Supervision"
+      disabled={loading || !statusAvailable}
     >
       <span class="toggle-knob"></span>
     </button>
@@ -166,7 +174,7 @@
     {/if}
 
     <div class="supervision-actions">
-      <button class="btn-save" onclick={save} disabled={saving}>
+      <button class="btn-save" onclick={save} disabled={saving || !statusAvailable}>
         {saving ? "Saving..." : saved ? "✓ Saved" : $_("settings.save")}
       </button>
     </div>

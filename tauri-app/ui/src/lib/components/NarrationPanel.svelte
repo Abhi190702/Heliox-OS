@@ -12,6 +12,7 @@
   let confirmTimeoutSeconds = $state(120);
   let advisoryTimeoutSeconds = $state(5);
   let loading = $state(true);
+  let statusAvailable = $state(false);
   let saving = $state(false);
   let saved = $state(false);
   let error = $state("");
@@ -30,6 +31,9 @@
   async function loadStatus() {
     try {
       const result = (await call("narration_status")) as {
+        status?: string;
+        message?: string;
+        error?: string;
         enabled: boolean;
         narrate_steps: boolean;
         interrupt_on_risk: boolean;
@@ -39,6 +43,7 @@
         confirm_timeout_seconds: number;
         advisory_timeout_seconds: number;
       };
+      requireOkResult(result, "Narration status is unavailable.");
       enabled = result.enabled ?? false;
       narrateSteps = result.narrate_steps ?? true;
       interruptOnRisk = result.interrupt_on_risk ?? true;
@@ -47,8 +52,10 @@
       followUpEnabled = result.follow_up_enabled ?? true;
       confirmTimeoutSeconds = result.confirm_timeout_seconds ?? 120;
       advisoryTimeoutSeconds = result.advisory_timeout_seconds ?? 5;
+      statusAvailable = true;
       error = "";
     } catch (cause) {
+      statusAvailable = false;
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       loading = false;
@@ -85,8 +92,12 @@
   async function loadLearningStatus() {
     try {
       const result = (await call("proactive_learning_status")) as {
+        status?: string;
+        message?: string;
+        error?: string;
         patterns?: Record<string, { shown?: number; accepted?: number; dismissed?: number }>;
       };
+      requireOkResult(result, "Proactive learning status is unavailable.");
       const patterns = Object.values(result.patterns ?? {});
       learnedPatternCount = patterns.length;
       suggestionShownCount = patterns.reduce((sum, pattern) => sum + Number(pattern.shown ?? 0), 0);
@@ -128,6 +139,7 @@
       onclick={() => (enabled = !enabled)}
       aria-label="Toggle Live Execution Narrator"
       title="Toggle Live Execution Narrator"
+      disabled={loading || !statusAvailable}
     >
       <span class="toggle-knob"></span>
     </button>
@@ -151,6 +163,7 @@
         class:active={narrateSteps}
         onclick={() => (narrateSteps = !narrateSteps)}
         aria-label="Toggle step narration"
+        disabled={!statusAvailable}
       >
         <span class="toggle-knob"></span>
       </button>
@@ -166,6 +179,7 @@
         class:active={interruptOnRisk}
         onclick={() => (interruptOnRisk = !interruptOnRisk)}
         aria-label="Toggle risk interrupts"
+        disabled={!statusAvailable}
       >
         <span class="toggle-knob"></span>
       </button>
@@ -181,6 +195,7 @@
         class:active={proactiveReviewEnabled}
         onclick={() => (proactiveReviewEnabled = !proactiveReviewEnabled)}
         aria-label="Toggle proactive companion review"
+        disabled={!statusAvailable}
       >
         <span class="toggle-knob"></span>
       </button>
@@ -196,6 +211,7 @@
         class:active={liveCorrectionsEnabled}
         onclick={() => (liveCorrectionsEnabled = !liveCorrectionsEnabled)}
         aria-label="Toggle live task corrections"
+        disabled={!statusAvailable}
       >
         <span class="toggle-knob"></span>
       </button>
@@ -211,6 +227,7 @@
         class:active={followUpEnabled}
         onclick={() => (followUpEnabled = !followUpEnabled)}
         aria-label="Toggle grounded companion follow-ups"
+        disabled={!statusAvailable}
       >
         <span class="toggle-knob"></span>
       </button>
@@ -229,6 +246,7 @@
         min="10"
         max="600"
         step="10"
+        disabled={!statusAvailable}
       />
     </div>
 
@@ -245,6 +263,7 @@
         min="1"
         max="30"
         step="1"
+        disabled={!statusAvailable}
       />
     </div>
 
@@ -272,7 +291,7 @@
     </div>
 
     <div class="narration-actions">
-      <button class="btn-save" onclick={save} disabled={saving}>
+      <button class="btn-save" onclick={save} disabled={saving || !statusAvailable}>
         {saving ? "Saving..." : saved ? "✓ Saved" : $_("settings.save")}
       </button>
     </div>

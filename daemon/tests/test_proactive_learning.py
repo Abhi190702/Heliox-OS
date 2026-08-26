@@ -164,6 +164,7 @@ async def test_learning_rpc_reports_and_resets_persisted_feedback(tmp_path):
     server._proactive = engine
 
     status = await server._handle_proactive_learning_status({}, ws=None)
+    assert status["status"] == "ok"
     assert status["patterns"]["terminal_error"]["dismissed"] == 1
 
     reset = await server._handle_proactive_learning_reset({}, ws=None)

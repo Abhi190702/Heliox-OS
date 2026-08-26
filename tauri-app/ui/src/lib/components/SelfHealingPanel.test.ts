@@ -27,6 +27,7 @@ describe("self-healing approval results", () => {
     daemonMocks.call.mockImplementation((method: string) => {
       if (method === "self_healing_status") {
         return Promise.resolve({
+          status: "ok",
           enabled: true,
           auto_execute_max_tier: 1,
           watched_metrics: ["memory"],

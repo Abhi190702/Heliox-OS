@@ -35,6 +35,7 @@
   let attempts = $state<HealingAttempt[]>([]);
   let monitors = $state<Record<string, MonitorStatus>>({});
   let loading = $state(true);
+  let statusAvailable = $state(false);
   let saving = $state(false);
   let saved = $state(false);
   let error = $state("");
@@ -54,19 +55,25 @@
   async function loadStatus() {
     try {
       const result = (await call("self_healing_status")) as {
+        status?: string;
+        message?: string;
+        error?: string;
         enabled: boolean;
         auto_execute_max_tier: number;
         watched_metrics: string[];
         monitors: Record<string, MonitorStatus>;
         attempts: HealingAttempt[];
       };
+      requireOkResult(result, "Autonomous healing status is unavailable.");
       enabled = result.enabled ?? false;
       autoExecuteMaxTier = result.auto_execute_max_tier ?? 1;
       watchedMetrics = result.watched_metrics ?? [...ALL_METRICS];
       monitors = result.monitors ?? {};
       attempts = result.attempts ?? [];
+      statusAvailable = true;
       error = "";
     } catch (cause) {
+      statusAvailable = false;
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       loading = false;
@@ -141,6 +148,7 @@
       onclick={() => (enabled = !enabled)}
       aria-label="Toggle Autonomous Healing"
       title="Toggle Autonomous Healing"
+      disabled={loading || !statusAvailable}
     >
       <span class="toggle-knob"></span>
     </button>
@@ -160,7 +168,7 @@
         <span class="setting-label">{$_("settings.self_healing_tier")}</span>
         <span class="setting-desc">{$_("settings.self_healing_tier_desc")}</span>
       </div>
-      <select class="input-sm" bind:value={autoExecuteMaxTier}>
+      <select class="input-sm" bind:value={autoExecuteMaxTier} disabled={!statusAvailable}>
         {#each TIER_LABELS as label, tier}
           <option value={tier}>{label}</option>
         {/each}
@@ -196,6 +204,7 @@
             class:active={watchedMetrics.includes(metric)}
             onclick={() => toggleMetric(metric)}
             aria-label={`Toggle ${metric} monitoring`}
+            disabled={!statusAvailable}
           >
             <span class="toggle-knob"></span>
           </button>
@@ -205,7 +214,7 @@
     </div>
 
     <div class="healing-actions">
-      <button class="btn-save" onclick={save} disabled={saving}>
+      <button class="btn-save" onclick={save} disabled={saving || !statusAvailable}>
         {saving ? "Saving..." : saved ? "✓ Saved" : $_("settings.save")}
       </button>
     </div>

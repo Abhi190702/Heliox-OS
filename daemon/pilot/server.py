@@ -6162,6 +6162,7 @@ class PilotServer:
             if task["task_id"] in {"monitor_cpu", "monitor_memory", "monitor_disk"}
         }
         return {
+            "status": "ok",
             "enabled": self.config.self_healing.enabled,
             "auto_execute_max_tier": self.config.self_healing.auto_execute_max_tier,
             "watched_metrics": self.config.self_healing.watched_metrics,
@@ -6278,6 +6279,7 @@ class PilotServer:
         """
         cfg = self.config.narration
         return {
+            "status": "ok",
             "enabled": cfg.enabled,
             "narrate_steps": cfg.narrate_steps,
             "interrupt_on_risk": cfg.interrupt_on_risk,
@@ -6382,6 +6384,7 @@ class PilotServer:
         cfg = self.config.supervision
         hook_healthy = getattr(self, "_supervision_hook", None)
         return {
+            "status": "ok",
             "enabled": cfg.enabled,
             "keyboard_mouse_hook_enabled": cfg.keyboard_mouse_hook_enabled,
             "cognitive_coaching_enabled": cfg.cognitive_coaching_enabled,
@@ -9807,11 +9810,12 @@ def handle_tool(tool_name, params):
         """Return persisted accept/dismiss learning for proactive patterns."""
         if not self._proactive:
             return {
+                "status": "error",
                 "enabled": False,
                 "patterns": {},
                 "message": "Proactive engine not initialized",
             }
-        return self._proactive.get_learning_status()
+        return {"status": "ok", **self._proactive.get_learning_status()}
 
     async def _handle_proactive_learning_reset(
         self,
@@ -9841,7 +9845,7 @@ def handle_tool(tool_name, params):
                 "enabled": False,
                 "message": "Verified online learning is not initialized",
             }
-        return self._online_learning.status()
+        return {"status": "ok", **self._online_learning.status()}
 
     async def _handle_online_learning_reset(
         self,

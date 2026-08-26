@@ -45,6 +45,7 @@ class _FakeBackground:
 async def test_status_reports_config_defaults():
     server = PilotServer(PilotConfig())
     result = await server._handle_supervision_status({}, ws=None)
+    assert result["status"] == "ok"
     assert result["enabled"] is False
     assert result["keyboard_mouse_hook_enabled"] is False
     assert result["cognitive_coaching_enabled"] is True

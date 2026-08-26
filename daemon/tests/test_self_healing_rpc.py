@@ -49,6 +49,7 @@ class _BackgroundStub:
 async def test_status_reports_config_defaults_with_no_engine():
     server = PilotServer(PilotConfig())
     result = await server._handle_self_healing_status({}, ws=None)
+    assert result["status"] == "ok"
     assert result["enabled"] is False
     assert result["attempts"] == []
 

@@ -10,6 +10,7 @@ vi.mock("../api/daemon", async (importOriginal) => {
 });
 
 const status = {
+  status: "ok",
   enabled: true,
   model_version: "1",
   backend: "river",

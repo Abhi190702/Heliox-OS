@@ -48,7 +48,10 @@
     loading = true;
     error = "";
     try {
-      const result = (await call("online_learning_status")) as LearnerStatus;
+      const result = requireOkResult(
+        (await call("online_learning_status")) as LearnerStatus & DaemonStatusResult,
+        "Verified online learning is unavailable.",
+      );
       if (!result.enabled) {
         throw new Error("Verified online learning is unavailable.");
       }
