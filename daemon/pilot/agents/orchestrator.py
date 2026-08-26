@@ -688,6 +688,14 @@ class AgentOrchestrator:
                 action_type,
                 task_id=task_id or "routing-preview",
             )
+            if selected is None:
+                # A registered specialist may be temporarily saturated or at
+                # its per-task limit. Preserve its identity so
+                # begin_assignment() reports the bounded-capacity failure;
+                # falling back by gateway role can select an unrelated agent
+                # that happens to share that role (for example notifications
+                # instead of email).
+                selected = self._mesh.registered_provider(action_type)
             provider: AgentRole | str
             if selected is not None:
                 provider = selected[0]

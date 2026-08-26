@@ -363,6 +363,32 @@ class AgentMesh:
         _, _, key, agent = max(eligible, key=lambda item: (item[0], item[1], item[2]))
         return key, agent
 
+    def registered_provider(self, action_type: ActionType) -> tuple[str, BaseAgent] | None:
+        """Return the best registered provider without bypassing assignment limits.
+
+        This is only a routing-identity fallback.  The orchestrator must still
+        call :meth:`begin_assignment`, which enforces concurrency and per-task
+        budgets before any specialist work can run.
+        """
+        registered: list[tuple[float, float, str, BaseAgent]] = []
+        for key in self._providers.get(action_type.value, ()):
+            contract = self._contracts.get(key)
+            agent = self._agents.get(key)
+            if contract is None or agent is None:
+                continue
+            performance = self._performance[key]
+            latency_penalty = min(
+                performance.average_latency_ms / max(1, contract.budget.max_latency_ms_per_action),
+                1.0,
+            )
+            score = performance.quality_score - (latency_penalty * 0.15)
+            specificity = 1 / max(1, len(contract.capabilities))
+            registered.append((score, specificity, key, agent))
+        if not registered:
+            return None
+        _, _, key, agent = max(registered, key=lambda item: (item[0], item[1], item[2]))
+        return key, agent
+
     def begin_assignment(
         self,
         *,

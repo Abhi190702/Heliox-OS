@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from pilot.actions import ActionPlan, ActionResult, ActionType
+from pilot.actions import Action, ActionPlan, ActionResult, ActionType, EmailParams
 from pilot.agents.agent_mesh import (
     AgentBudgetExceeded,
     AgentBudgetPolicy,
@@ -105,6 +105,47 @@ async def test_orchestrator_retains_multiple_providers_with_one_gateway_role():
         email_provider = orchestrator._mesh.select_provider(ActionType.EMAIL_FETCH, task_id="route")
         assert notify_provider is not None and notify_provider[1] is notify
         assert email_provider is not None and email_provider[1] is email
+    finally:
+        await orchestrator.stop()
+
+
+@pytest.mark.asyncio
+async def test_saturated_specialist_does_not_fall_back_to_unrelated_same_role_agent():
+    mesh = AgentMesh()
+    orchestrator = AgentOrchestrator(model_router=None, agent_mesh=mesh)
+    try:
+        notification = _agent("NotificationProvider", action_type=ActionType.NOTIFY)
+        email = _agent("EmailProvider", action_type=ActionType.EMAIL_FETCH)
+        email.mesh_budget = AgentBudgetPolicy(max_concurrency=1)
+        orchestrator.register_agent(notification)
+        orchestrator.register_agent(email)
+
+        email_provider = mesh.select_provider(ActionType.EMAIL_FETCH, task_id="occupied")
+        assert email_provider is not None
+        lease = mesh.begin_assignment(
+            task_id="occupied",
+            agent_key=email_provider[0],
+            action_type=ActionType.EMAIL_FETCH.value,
+        )
+        plan = ActionPlan(
+            actions=[Action(action_type=ActionType.EMAIL_FETCH, parameters=EmailParams())],
+            raw_input="check mail",
+        )
+        try:
+            batches = orchestrator._build_execution_order(
+                plan,
+                orchestrator.analyze_plan(plan),
+                task_id="waiting",
+            )
+            assert batches == [(email_provider[0], [0])]
+
+            results = await orchestrator.execute_plan("check mail", plan, plan_id="waiting")
+            assert len(results) == 1
+            assert results[0].success is False
+            assert "Specialist budget exceeded" in (results[0].error or "")
+            assert "NotificationProvider" not in (results[0].output or "")
+        finally:
+            await mesh.complete_assignment(lease, success=True)
     finally:
         await orchestrator.stop()
 
