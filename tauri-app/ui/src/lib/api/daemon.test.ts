@@ -111,6 +111,28 @@ describe("daemon websocket interruption", () => {
 });
 
 describe("daemon application results", () => {
+  it("accepts an operation-specific success status", async () => {
+    const { requireResultStatus } = await import("./daemon");
+    const result = { status: "candidate", value: 3 };
+
+    expect(requireResultStatus(result, "candidate", "failed")).toBe(result);
+  });
+
+  it("accepts one of several operation-specific success statuses", async () => {
+    const { requireResultStatus } = await import("./daemon");
+    const result = { status: "evaluated" };
+
+    expect(requireResultStatus(result, ["collecting", "evaluated"], "failed")).toBe(result);
+  });
+
+  it("rejects an application result outside the expected contract", async () => {
+    const { requireResultStatus } = await import("./daemon");
+
+    expect(() =>
+      requireResultStatus({ status: "error", message: "Harness is unavailable" }, "evaluated", "failed"),
+    ).toThrow("Harness is unavailable");
+  });
+
   it("accepts successful status results", async () => {
     const { requireOkResult } = await import("./daemon");
     const result = { status: "ok", value: 3 };

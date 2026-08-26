@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { call } from "../api/daemon";
+  import { call, requireResultStatus, type DaemonStatusResult } from "../api/daemon";
 
   type Stage = "candidate" | "replay_passed" | "shadow" | "canary" | "promoted" | "rejected" | "rolled_back";
 
@@ -92,12 +92,16 @@
     error = "";
     notice = "";
     try {
-      await call("strategy_propose", {
-        artifact_type: artifactType,
-        component,
-        content,
-        rationale,
-      });
+      requireResultStatus(
+        (await call("strategy_propose", {
+          artifact_type: artifactType,
+          component,
+          content,
+          rationale,
+        })) as DaemonStatusResult,
+        "candidate",
+        "The daemon did not store the strategy candidate.",
+      );
       notice = "Candidate stored in isolation. Production behavior has not changed.";
       content = "";
       rationale = "";

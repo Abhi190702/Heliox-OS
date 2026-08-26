@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { call } from "../api/daemon";
+  import { call, requireResultStatus, type DaemonStatusResult } from "../api/daemon";
 
   type RunState = "collecting" | "evaluating" | "evaluated" | "promotion_requested" | "rejected";
   type CandidateState = "proposed" | "eligible" | "rejected";
@@ -106,10 +106,15 @@
     error = "";
     notice = "";
     try {
-      const result = (await call("evolution_create_run", {
-        problem,
-        profile: "python",
-      })) as { run: EvolutionRun };
+      const result = requireResultStatus(
+        (await call("evolution_create_run", {
+          problem,
+          profile: "python",
+        })) as DaemonStatusResult & { run?: EvolutionRun },
+        "collecting",
+        "The daemon did not create the evolution run.",
+      );
+      if (!result.run?.run_id) throw new Error("The daemon returned an incomplete evolution run.");
       selectedRunId = result.run.run_id;
       problem = "";
       notice = "Run created at the current Git commit. No code was changed.";
@@ -127,10 +132,14 @@
     error = "";
     notice = "";
     try {
-      await call("evolution_generate_candidates", {
-        run_id: selectedRunId,
-        count: candidateCount,
-      });
+      requireResultStatus(
+        (await call("evolution_generate_candidates", {
+          run_id: selectedRunId,
+          count: candidateCount,
+        })) as DaemonStatusResult,
+        "collecting",
+        "The daemon did not generate the candidates.",
+      );
       notice = "Diverse patches were archived as inert candidates. Nothing has executed.";
       await load();
     } catch (cause) {
@@ -146,7 +155,11 @@
     error = "";
     notice = "";
     try {
-      await call("evolution_evaluate", { run_id: selectedRunId });
+      requireResultStatus(
+        (await call("evolution_evaluate", { run_id: selectedRunId })) as DaemonStatusResult,
+        "evaluated",
+        "The daemon did not complete the isolated evaluation.",
+      );
       notice = "Baseline and candidates were evaluated in disposable, no-network containers.";
       await load();
     } catch (cause) {
@@ -162,11 +175,15 @@
     error = "";
     notice = "";
     try {
-      await call("evolution_request_promotion", {
-        candidate_id: candidateId,
-        actor,
-        confirmation,
-      });
+      requireResultStatus(
+        (await call("evolution_request_promotion", {
+          candidate_id: candidateId,
+          actor,
+          confirmation,
+        })) as DaemonStatusResult,
+        "pending_external_review",
+        "The daemon did not archive the promotion request.",
+      );
       confirmation = "";
       notice = "Evidence archived for external review. No merge, push, release, or live change occurred.";
       await load();

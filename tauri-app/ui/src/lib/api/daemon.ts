@@ -25,12 +25,22 @@ export type DaemonStatusResult = {
   error?: string;
 };
 
-/** Reject application-level RPC failures that still arrived successfully. */
-export function requireOkResult<T extends DaemonStatusResult>(result: T, fallbackMessage: string): T {
-  if (result?.status !== "ok") {
+/** Reject application-level RPC results outside the operation's success contract. */
+export function requireResultStatus<T extends DaemonStatusResult>(
+  result: T,
+  expectedStatus: string | readonly string[],
+  fallbackMessage: string,
+): T {
+  const expected = typeof expectedStatus === "string" ? [expectedStatus] : expectedStatus;
+  if (!expected.includes(result?.status ?? "")) {
     throw new Error(result?.message || result?.error || fallbackMessage);
   }
   return result;
+}
+
+/** Reject application-level RPC failures that still arrived successfully. */
+export function requireOkResult<T extends DaemonStatusResult>(result: T, fallbackMessage: string): T {
+  return requireResultStatus(result, "ok", fallbackMessage);
 }
 
 let ws: WebSocket | null = null;
