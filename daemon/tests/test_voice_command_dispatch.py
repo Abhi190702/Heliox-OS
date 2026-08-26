@@ -16,7 +16,7 @@ import pytest
 
 from pilot.config import PilotConfig
 from pilot.security.gateway import DEFAULT_SOURCE_PROFILES, InvocationSource
-from pilot.server import PilotServer
+from pilot.server import PendingConfirmation, PilotServer
 from pilot.system.companion_speech import SpeechChannel
 
 
@@ -167,3 +167,30 @@ async def test_voice_command_becomes_live_correction_during_active_task():
     server._planner.plan.assert_not_called()
     payload = server._broadcast_notification.call_args.args[1]
     assert payload["coordinated_correction"] is True
+
+
+@pytest.mark.asyncio
+async def test_voice_cannot_approve_a_pending_visible_confirmation():
+    server = _bare_server()
+    server._interactive_request_active = True
+    server._active_plan_id = "plan-visible"
+    pending = PendingConfirmation(plan_id="plan-visible", event=asyncio.Event())
+    server._pending_confirms["plan-visible"] = pending
+    server._handle_interject = AsyncMock()
+
+    await server._voice_command_dispatch("Yes, approve!")
+
+    server._handle_interject.assert_not_awaited()
+    server._handle_execute.assert_not_awaited()
+    assert pending.event.is_set() is False
+    assert pending.confirmed is False
+    result = next(
+        call.args[1] for call in server._broadcast_notification.await_args_list if call.args[0] == "voice_result"
+    )
+    assert result["status"] == "approval_required"
+    assert result["plan_id"] == "plan-visible"
+    server._speak_voice_response.assert_awaited_once_with(
+        "For safety, approve this request in the visible Heliox confirmation dialog.",
+        channel=SpeechChannel.APPROVAL_RISK,
+        dedupe_key="voice-approval-boundary:plan-visible",
+    )

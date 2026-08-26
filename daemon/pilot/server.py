@@ -134,6 +134,24 @@ ATTENTION_DEFERRABLE_NOTIFICATIONS = frozenset(
     }
 )
 
+# Speech recognition is intentionally not an approval authority. Exact
+# affirmative phrases are detected only so they can be rejected clearly while
+# a visible confirmation is pending, instead of being misread as a plan
+# correction and cancelling/replanning the request.
+VOICE_APPROVAL_ATTEMPTS = frozenset(
+    {
+        "approve",
+        "approve all",
+        "confirm",
+        "confirm it",
+        "do it",
+        "go ahead",
+        "yes",
+        "yes approve",
+        "yes do it",
+    }
+)
+
 # ── Plan History DB path (sibling of the main DB) ──
 PLAN_HISTORY_DB_FILE = DATA_DIR / "plan_history.db"
 
@@ -8267,6 +8285,31 @@ def handle_tool(tool_name, params):
                 "voice_status",
                 {"status": "interrupted", "reason": "new voice command"},
             )
+
+        normalized_command = " ".join(
+            "".join(
+                character if character.isalnum() or character.isspace() else " "
+                for character in command_text.casefold()
+            ).split()
+        )
+        pending_approval = self._pending_confirms.get(self._active_plan_id)
+        if pending_approval is not None and normalized_command in VOICE_APPROVAL_ATTEMPTS:
+            message = "For safety, approve this request in the visible Heliox confirmation dialog."
+            await self._broadcast_notification(
+                "voice_result",
+                {
+                    "command": command_text,
+                    "status": "approval_required",
+                    "message": message,
+                    "plan_id": self._active_plan_id,
+                },
+            )
+            await self._speak_voice_response(
+                message,
+                channel=SpeechChannel.APPROVAL_RISK,
+                dedupe_key=f"voice-approval-boundary:{self._active_plan_id}",
+            )
+            return
 
         if self._interactive_request_active:
             await self._interaction_runtime.transition(
