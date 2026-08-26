@@ -1,6 +1,6 @@
 <script lang="ts">
   import { invoke } from "../api/invoke";
-  import { call } from "../api/daemon";
+  import { call, requireResultStatus, type DaemonStatusResult } from "../api/daemon";
   import type { GitConflictPayload } from "../stores/session";
   import { session } from "../stores/session";
   import { isTauriRuntime } from "../utils/runtime";
@@ -45,21 +45,23 @@
           resolvedCode = conflict.conflict_hunk;
         }
 
+        let result: DaemonStatusResult;
         if (isTauri) {
           // Apply via Tauri IPC bridge command
-          await invoke("apply_git_conflict_resolution", {
+          result = await invoke<DaemonStatusResult>("apply_git_conflict_resolution", {
             path: conflict.path,
             fullBlock: conflict.full_block,
             resolvedCode: resolvedCode,
           });
         } else {
           // Fallback: Apply via WebSocket JSON-RPC bridge command when running in standard browser
-          await call("apply_git_resolution", {
+          result = (await call("apply_git_resolution", {
             path: conflict.path,
             full_block: conflict.full_block,
             resolved_code: resolvedCode,
-          });
+          })) as DaemonStatusResult;
         }
+        requireResultStatus(result, "success", "The daemon did not apply the conflict resolution.");
       }
 
       saveStatus = "success";
@@ -157,7 +159,7 @@
   </div>
 
   {#if saveStatus === "error"}
-    <div class="error-banner">
+    <div class="error-banner" role="alert">
       <strong>Error:</strong>
       {errorMessage}
     </div>
