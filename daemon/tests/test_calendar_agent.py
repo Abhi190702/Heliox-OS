@@ -18,6 +18,7 @@ def mock_config():
     config.calendar.caldav_username = "user"
     config.calendar.caldav_password_provider = "cal_pass"
     config.calendar.enabled = True
+    config.calendar.ics_files = []
     return config
 
 
@@ -56,6 +57,77 @@ END:VCALENDAR""")
     output = json.loads(results[0].output)
     assert len(output["events"]) == 1
     assert output["events"][0]["summary"] == "Test Event"
+
+
+@pytest.mark.asyncio
+async def test_calendar_parse_uses_all_configured_ics_sources(mock_router, mock_config, mock_vault, tmp_path):
+    first = tmp_path / "first.ics"
+    first.write_text(
+        "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:first\nSUMMARY:First\nDTSTART:20261027T100000Z\nEND:VEVENT\nEND:VCALENDAR"
+    )
+    second = tmp_path / "second.ics"
+    second.write_text(
+        "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:second\nSUMMARY:Second\nDTSTART:20261028T100000Z\nEND:VEVENT\nEND:VCALENDAR"
+    )
+    mock_config.calendar.ics_files = [str(first), str(second)]
+    agent = CalendarAgent(mock_router, mock_config, mock_vault)
+    plan = ActionPlan(actions=[Action(action_type=ActionType.CALENDAR_PARSE, parameters=CalendarParams())])
+
+    results = await agent.handle_task("parse configured calendars", plan)
+
+    import json
+
+    output = json.loads(results[0].output)
+    assert results[0].success is True
+    assert {event["uid"] for event in output["events"]} == {"first", "second"}
+    assert len(output["sources"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_calendar_list_keeps_local_sources_available_without_caldav(
+    mock_router, mock_config, mock_vault, tmp_path
+):
+    local = tmp_path / "offline.ics"
+    local.write_text(
+        "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:offline\nSUMMARY:Offline Event\nDTSTART:20261029T100000Z\nEND:VEVENT\nEND:VCALENDAR"
+    )
+    mock_config.calendar.enabled = False
+    mock_config.calendar.ics_files = [str(local)]
+    agent = CalendarAgent(mock_router, mock_config, mock_vault)
+    plan = ActionPlan(actions=[Action(action_type=ActionType.CALENDAR_LIST_EVENTS, parameters=CalendarParams())])
+
+    results = await agent.handle_task("list events", plan)
+
+    import json
+
+    output = json.loads(results[0].output)
+    assert results[0].success is True
+    assert output["events"][0]["uid"] == "offline"
+    assert output["events"][0]["source"].endswith("offline.ics")
+    mock_vault.get_key.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_calendar_list_preserves_local_results_when_caldav_fails(mock_router, mock_config, mock_vault, tmp_path):
+    local = tmp_path / "local.ics"
+    local.write_text(
+        "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:local\nSUMMARY:Local Event\nDTSTART:20261030T100000Z\nEND:VEVENT\nEND:VCALENDAR"
+    )
+    mock_config.calendar.ics_files = [str(local)]
+    mock_vault.get_key.return_value = ""
+    agent = CalendarAgent(mock_router, mock_config, mock_vault)
+    plan = ActionPlan(actions=[Action(action_type=ActionType.CALENDAR_LIST_EVENTS, parameters=CalendarParams())])
+
+    results = await agent.handle_task("list events", plan)
+
+    import json
+
+    output = json.loads(results[0].output)
+    assert results[0].success is True
+    assert output["events"][0]["uid"] == "local"
+    assert output["warnings"] == [
+        "CalDAV: CalDAV configuration is incomplete (URL, username, and saved password are required)"
+    ]
 
 
 @pytest.mark.asyncio

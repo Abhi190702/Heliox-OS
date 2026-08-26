@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -111,38 +112,58 @@ class CalendarAgent(BaseAgent):
         return results
 
     async def _handle_parse(self, action: Action, payload: dict[str, Any]) -> ActionResult:
-        file_path = payload.get("file_path")
-        if not file_path:
-            return ActionResult(action=action, success=False, error="Missing file_path")
+        import json
 
-        try:
-            import json
+        explicit_path = str(payload.get("file_path") or "").strip()
+        paths = [explicit_path] if explicit_path else list(self._config.calendar.ics_files)
+        if not paths:
+            return ActionResult(action=action, success=False, error="No .ics file or configured calendar source")
 
-            with open(file_path, "rb") as f:
-                cal = icalendar.Calendar.from_ical(f.read())
-                events = []
-                for component in cal.walk():
+        events, sources, warnings = self._read_local_calendars(paths)
+        if not sources:
+            return ActionResult(action=action, success=False, error="; ".join(warnings))
+        return ActionResult(
+            action=action,
+            success=True,
+            output=json.dumps({"events": events, "sources": sources, "warnings": warnings}),
+        )
+
+    @staticmethod
+    def _event_from_component(component: Any, *, source: str, calendar_id: str = "") -> dict[str, Any]:
+        start = component.get("dtstart")
+        end = component.get("dtend")
+        return {
+            "uid": str(component.get("uid", "")),
+            "summary": str(component.get("summary", "")),
+            "start": start.dt.isoformat()
+            if start and hasattr(start.dt, "isoformat")
+            else str(start.dt if start else ""),
+            "end": end.dt.isoformat() if end and hasattr(end.dt, "isoformat") else str(end.dt) if end else None,
+            "description": str(component.get("description", "")),
+            "calendar_id": calendar_id,
+            "source": source,
+        }
+
+    def _read_local_calendars(self, paths: list[str]) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+        events: list[dict[str, Any]] = []
+        sources: list[str] = []
+        warnings: list[str] = []
+        for configured_path in paths:
+            path = Path(configured_path).expanduser()
+            try:
+                if path.suffix.lower() != ".ics":
+                    raise ValueError("calendar source must use the .ics extension")
+                calendar = icalendar.Calendar.from_ical(path.read_bytes())
+                source = str(path.resolve())
+                sources.append(source)
+                for component in calendar.walk():
                     if component.name == "VEVENT":
-                        events.append(
-                            {
-                                "summary": str(component.get("summary")),
-                                "start": component.get("dtstart").dt.isoformat()
-                                if hasattr(component.get("dtstart").dt, "isoformat")
-                                else str(component.get("dtstart").dt),
-                                "end": (
-                                    component.get("dtend").dt.isoformat()
-                                    if hasattr(component.get("dtend").dt, "isoformat")
-                                    else str(component.get("dtend").dt)
-                                )
-                                if component.get("dtend")
-                                else None,
-                                "description": str(component.get("description", "")),
-                            }
-                        )
-                return ActionResult(action=action, success=True, output=json.dumps({"events": events}))
-        except Exception as e:
-            logger.error(f"Failed to parse .ics file: {e}")
-            return ActionResult(action=action, success=False, error=str(e))
+                        events.append(self._event_from_component(component, source=source))
+            except Exception as exc:
+                warning = f"{path}: {exc}"
+                warnings.append(warning)
+                logger.warning("Failed to read local calendar source: %s", warning)
+        return events, sources, warnings
 
     async def _get_caldav_client(self):
         if not self._config.calendar.enabled:
@@ -228,29 +249,39 @@ class CalendarAgent(BaseAgent):
             return ActionResult(action=action, success=False, error=str(e))
 
     async def _handle_list_events(self, action: Action, payload: dict[str, Any]) -> ActionResult:
-        try:
-            import json
+        import json
 
-            client = await self._get_caldav_client()
-            calendar = self._select_calendar(client, payload.get("calendar_id"))
-            events = calendar.events()
-            parsed_events = []
-            for event in events:
-                ical = icalendar.Calendar.from_ical(event.data)
-                for component in ical.walk():
-                    if component.name == "VEVENT":
-                        parsed_events.append(
-                            {
-                                "uid": str(component.get("uid", "")),
-                                "summary": str(component.get("summary")),
-                                "start": str(component.get("dtstart").dt),
-                                "calendar_id": str(getattr(calendar, "name", "")),
-                            }
-                        )
-            return ActionResult(action=action, success=True, output=json.dumps({"events": parsed_events}))
-        except Exception as e:
-            logger.error(f"Failed to list events: {e}")
-            return ActionResult(action=action, success=False, error=str(e))
+        parsed_events, sources, warnings = self._read_local_calendars(list(self._config.calendar.ics_files))
+        if self._config.calendar.enabled:
+            try:
+                client = await self._get_caldav_client()
+                calendar = self._select_calendar(client, payload.get("calendar_id"))
+                calendar_name = str(getattr(calendar, "name", ""))
+                sources.append(f"caldav:{calendar_name}")
+                for event in calendar.events():
+                    remote_calendar = icalendar.Calendar.from_ical(event.data)
+                    for component in remote_calendar.walk():
+                        if component.name == "VEVENT":
+                            parsed_events.append(
+                                self._event_from_component(
+                                    component,
+                                    source="caldav",
+                                    calendar_id=calendar_name,
+                                )
+                            )
+            except Exception as exc:
+                warning = f"CalDAV: {exc}"
+                warnings.append(warning)
+                logger.warning("Failed to list remote calendar events: %s", exc)
+
+        if not sources:
+            error = "; ".join(warnings) or "No local .ics files are configured and CalDAV is disabled"
+            return ActionResult(action=action, success=False, error=error)
+        return ActionResult(
+            action=action,
+            success=True,
+            output=json.dumps({"events": parsed_events, "sources": sources, "warnings": warnings}),
+        )
 
     async def _handle_delete_event(self, action: Action, payload: dict[str, Any]) -> ActionResult:
         event_uid = str(payload.get("event_uid") or "").strip()
