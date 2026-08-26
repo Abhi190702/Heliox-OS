@@ -612,5 +612,8 @@ class ModelRouter:
         return await self._cache.clear(provider, model)
 
     async def close(self) -> None:
-        """Close the cache connection."""
-        await self._cache.close()
+        """Close provider subprocesses and the cache connection."""
+        try:
+            await self._subscription.close()
+        finally:
+            await self._cache.close()

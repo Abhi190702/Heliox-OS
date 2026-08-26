@@ -167,6 +167,7 @@ class SubscriptionCLIClient:
         self._config = config
         self._status_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._login_watchers: set[asyncio.Task[None]] = set()
+        self._processes: set[asyncio.subprocess.Process] = set()
         self.last_usage: dict[str, int] = {}
         self.total_usage: dict[str, int] = {}
         self.generation_count = 0
@@ -219,15 +220,20 @@ class SubscriptionCLIClient:
             cwd=cwd,
             env=self._subscription_environment(provider),
         )
+        self._processes.add(proc)
         try:
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(stdin.encode("utf-8")),
                 timeout=timeout,
             )
         except TimeoutError:
-            proc.kill()
-            await proc.wait()
+            await self._terminate_process(proc)
             raise RuntimeError(_safe_failure(provider, "timed out")) from None
+        except asyncio.CancelledError:
+            await self._terminate_process(proc)
+            raise
+        finally:
+            self._processes.discard(proc)
 
         if len(stdout) > _MAX_STDOUT_BYTES:
             raise RuntimeError(f"{provider.title()} subscription response exceeded the safe output limit.")
@@ -344,6 +350,7 @@ class SubscriptionCLIClient:
             stderr=asyncio.subprocess.DEVNULL,
             env=self._subscription_environment(selected),
         )
+        self._processes.add(proc)
         task = asyncio.create_task(self._watch_login(selected, proc))
         self._login_watchers.add(task)
         task.add_done_callback(self._login_watchers.discard)
@@ -356,10 +363,47 @@ class SubscriptionCLIClient:
         try:
             await asyncio.wait_for(proc.wait(), timeout=300.0)
         except TimeoutError:
-            proc.kill()
-            await proc.wait()
+            await self._terminate_process(proc)
+        except asyncio.CancelledError:
+            await self._terminate_process(proc)
+            raise
         finally:
+            self._processes.discard(proc)
             self._status_cache.pop(provider, None)
+
+    @staticmethod
+    async def _terminate_process(proc: asyncio.subprocess.Process) -> None:
+        if proc.returncode is not None:
+            return
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            return
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=2.0)
+        except TimeoutError:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                return
+            await proc.wait()
+
+    async def close(self) -> None:
+        """Stop login watchers and any child CLI processes owned by this client."""
+        watchers = tuple(self._login_watchers)
+        for watcher in watchers:
+            watcher.cancel()
+        if watchers:
+            await asyncio.gather(*watchers, return_exceptions=True)
+        processes = tuple(self._processes)
+        if processes:
+            await asyncio.gather(
+                *(self._terminate_process(proc) for proc in processes),
+                return_exceptions=True,
+            )
+        self._login_watchers.clear()
+        self._processes.clear()
+        self._status_cache.clear()
 
     async def generate(
         self,

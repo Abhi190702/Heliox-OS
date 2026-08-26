@@ -11,6 +11,32 @@ from pilot.models.subscription_cli import CLIResult, SubscriptionCLIClient, _ser
 from pilot.server import PilotServer
 
 
+class _BlockingProcess:
+    def __init__(self) -> None:
+        self.returncode = None
+        self.started = asyncio.Event()
+        self.finished = asyncio.Event()
+        self.terminated = False
+
+    async def communicate(self, _stdin):
+        self.started.set()
+        await self.finished.wait()
+        return b"", b""
+
+    async def wait(self):
+        self.started.set()
+        await self.finished.wait()
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self.returncode = -15
+        self.finished.set()
+
+    def kill(self) -> None:
+        self.terminate()
+
+
 def test_subscription_config_round_trips_and_is_validated():
     raw = {
         "model": {
@@ -120,6 +146,46 @@ async def test_subscription_status_and_login_rpcs_delegate_to_selected_cli():
     assert login["status"] == "started"
     client.status.assert_awaited_once_with("claude", refresh=True)
     client.start_login.assert_awaited_once_with("claude")
+
+
+@pytest.mark.asyncio
+async def test_cancelled_cli_request_terminates_owned_process(monkeypatch):
+    process = _BlockingProcess()
+
+    async def spawn(*args, **kwargs):
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    client = SubscriptionCLIClient(PilotConfig())
+    request = asyncio.create_task(client._run_process(["codex", "--version"], provider="codex", timeout=30))
+    await process.started.wait()
+
+    request.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await request
+
+    assert process.terminated is True
+    assert client._processes == set()
+
+
+@pytest.mark.asyncio
+async def test_close_terminates_active_login_process(monkeypatch):
+    process = _BlockingProcess()
+
+    async def spawn(*args, **kwargs):
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    client = SubscriptionCLIClient(PilotConfig())
+    monkeypatch.setattr(client, "_resolve_executable", lambda provider: "codex")
+    assert (await client.start_login("codex"))["status"] == "started"
+    await process.started.wait()
+
+    await client.close()
+
+    assert process.terminated is True
+    assert client._login_watchers == set()
+    assert client._processes == set()
 
 
 @pytest.mark.asyncio

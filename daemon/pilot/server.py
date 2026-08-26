@@ -5010,8 +5010,11 @@ class PilotServer:
         ):
             from pilot.models.subscription_cli import SubscriptionCLIClient
 
-            if self._planner is not None:
-                self._planner._model._subscription = SubscriptionCLIClient(self.config)
+            model_router = self._model_router or (self._planner._model if self._planner is not None else None)
+            if model_router is not None:
+                previous_client = model_router._subscription
+                await previous_client.close()
+                model_router._subscription = SubscriptionCLIClient(self.config)
 
         return {"status": "ok"}
 
@@ -8033,6 +8036,9 @@ def handle_tool(tool_name, params):
             await asyncio.gather(*self._plan_history_tasks, return_exceptions=True)
         if self._plan_history:
             await self._plan_history.close()
+        if self._model_router:
+            await self._model_router.close()
+            self._model_router = None
         if self._cognitive_engine and self._cognitive_engine.is_loaded:
             self._cognitive_engine.unload_model()
         from pilot.system.pty_session import PtySessionManager

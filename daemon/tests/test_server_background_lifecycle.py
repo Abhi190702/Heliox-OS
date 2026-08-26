@@ -48,6 +48,7 @@ async def test_shutdown_quiesces_tasks_before_closing_their_owners() -> None:
     server._interaction_speech_tasks.add(speech)
     server._speech_coordinator = SimpleNamespace(close=AsyncMock(side_effect=lambda: order.append("speech_closed")))
     server._memory = SimpleNamespace(close=AsyncMock(side_effect=lambda: order.append("memory_closed")))
+    server._model_router = SimpleNamespace(close=AsyncMock(side_effect=lambda: order.append("model_closed")))
     server._reflector = SimpleNamespace(close=AsyncMock(side_effect=lambda: order.append("reflector_closed")))
 
     server._spawn_post_execution_task(write_memory(), server._memory_record_tasks, "memory")
@@ -70,6 +71,7 @@ async def test_shutdown_quiesces_tasks_before_closing_their_owners() -> None:
     assert order.index("background_stopped") < order.index("memory_closed")
     assert order.index("reflection_cancelled") < order.index("reflector_closed")
     assert order.index("memory_written") < order.index("memory_closed")
+    assert order.index("memory_closed") < order.index("model_closed")
     assert server._mcp_tasks == {}
     assert server._memory_record_tasks == set()
     assert server._reflection_tasks == set()

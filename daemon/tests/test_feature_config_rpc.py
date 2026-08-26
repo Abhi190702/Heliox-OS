@@ -135,6 +135,26 @@ async def test_subscription_provider_update_is_validated_and_saved():
 
 
 @pytest.mark.asyncio
+async def test_subscription_update_closes_previous_runtime_client():
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+    previous_client = SimpleNamespace(close=AsyncMock())
+    model_router = SimpleNamespace(_subscription=previous_client)
+    server._model_router = model_router
+    server._planner = SimpleNamespace(_model=model_router)
+
+    result = await server._handle_update_config(
+        {"section": "model", "values": {"subscription_model": "gpt-test"}},
+        MagicMock(),
+    )
+
+    assert result["status"] == "ok"
+    previous_client.close.assert_awaited_once_with()
+    assert model_router._subscription is not previous_client
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("values", "message"),
     [
