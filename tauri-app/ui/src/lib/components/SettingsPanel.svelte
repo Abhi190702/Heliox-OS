@@ -485,7 +485,7 @@
     const synced = await settings.updateSection("voice", { input_device: val }, { requireDaemon: true });
     speechSaving = false;
     speechToast = synced
-      ? "Microphone input saved. Restart Heliox Active to use it."
+      ? "Microphone input saved. An active listener was refreshed automatically."
       : "Microphone input was not changed because the daemon could not confirm it.";
     setTimeout(() => (speechToast = ""), 5000);
   }
@@ -581,18 +581,22 @@
       ? turningOn
         ? "Gesture Cursor enabled. Start the camera and explicitly enter Cursor Mode to control the pointer."
         : "Gesture Cursor disabled. Any active Cursor Mode was stopped."
-      : turningOn
-        ? "Enabled for this UI session, but daemon persistence could not be confirmed."
-        : "Disabled locally; daemon persistence could not be confirmed.";
+      : "Gesture Cursor was not changed because the daemon could not confirm it.";
     setTimeout(() => (gestureCursorToast = ""), 5000);
   }
 
   async function toggleGazeTracking() {
     const turningOn = !$settings.vision?.gaze_tracking_enabled;
-    await settings.updateSection("vision", {
+    const synced = await settings.updateSection("vision", {
       gaze_tracking_enabled: turningOn,
     });
-    if (!turningOn) resetGazeRuntime();
+    if (synced && !turningOn) resetGazeRuntime();
+    visionToast = synced
+      ? turningOn
+        ? "Gaze tracking enabled. Active camera controls switch to the compatible 3D backend automatically."
+        : "Gaze tracking disabled. Active camera controls reconcile automatically."
+      : "Gaze tracking was not changed because the daemon could not confirm it.";
+    setTimeout(() => (visionToast = ""), 5000);
   }
 
   async function toggleEnhanced3DHandTracking() {
@@ -602,11 +606,11 @@
     });
     visionToast = synced
       ? turningOn
-        ? "Enhanced 3D hand tracking enabled. Restart active camera controls to apply it."
+        ? "Enhanced 3D hand tracking enabled. Active camera controls restart automatically."
         : $settings.vision?.gaze_tracking_enabled
           ? "Compatibility mode saved, but gaze still requires 3D tracking while both features are active."
-          : "2D compatibility mode enabled. Restart active camera controls to apply it."
-      : "Camera tracking changed for this UI session, but daemon persistence could not be confirmed.";
+          : "2D compatibility mode enabled. Active camera controls restart automatically."
+      : "Camera tracking was not changed because the daemon could not confirm it.";
     setTimeout(() => (visionToast = ""), 5000);
   }
 
@@ -635,7 +639,7 @@
     const synced = await settings.updateSection("gesture_cursor", { sensitivity });
     gestureCursorToast = synced
       ? `Cursor sensitivity saved at ${sensitivity}.`
-      : "Sensitivity changed locally, but daemon persistence could not be confirmed.";
+      : "Sensitivity was not changed because the daemon could not confirm it.";
     setTimeout(() => (gestureCursorToast = ""), 5000);
   }
 
@@ -647,7 +651,7 @@
     const synced = await settings.updateSection("gesture_cursor", { blend });
     gestureCursorToast = synced
       ? `Prediction blend saved at ${blend}.`
-      : "Prediction blend changed locally, but daemon persistence could not be confirmed.";
+      : "Prediction blend was not changed because the daemon could not confirm it.";
     setTimeout(() => (gestureCursorToast = ""), 5000);
   }
 
@@ -671,7 +675,7 @@
       ? turningOn
         ? "Adaptive gesture calibration enabled."
         : "Adaptive gesture calibration paused."
-      : "Calibration changed locally, but daemon persistence could not be confirmed.";
+      : "Calibration was not changed because the daemon could not confirm it.";
     setTimeout(() => (gestureCalibrationToast = ""), 5000);
   }
 

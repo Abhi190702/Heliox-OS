@@ -4772,6 +4772,17 @@ class PilotServer:
                             "status": "error",
                             "message": ("adaptive_calibration.voice_wake_word_enabled must be a boolean"),
                         }
+                if section == "vision" and k == "mediapipe_backend":
+                    if v not in {"legacy", "tasks"}:
+                        return {
+                            "status": "error",
+                            "message": "vision.mediapipe_backend must be legacy or tasks",
+                        }
+                if section == "vision" and k == "gaze_tracking_enabled" and not isinstance(v, bool):
+                    return {
+                        "status": "error",
+                        "message": "vision.gaze_tracking_enabled must be a boolean",
+                    }
                 if section == "voice" and k == "tts_engine":
                     if v not in {"kokoro_tts", "pocket_tts", "os_native"}:
                         return {

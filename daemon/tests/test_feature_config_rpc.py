@@ -229,6 +229,31 @@ async def test_gesture_cursor_update_applies_runtime_tuning():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ({"mediapipe_backend": "remote"}, "mediapipe_backend must be legacy or tasks"),
+        ({"gaze_tracking_enabled": 1}, "gaze_tracking_enabled must be a boolean"),
+    ],
+)
+async def test_camera_intelligence_update_rejects_invalid_values(values, message):
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+
+    result = await server._handle_update_config(
+        {"section": "vision", "values": values},
+        MagicMock(),
+    )
+
+    assert result["status"] == "error"
+    assert message in result["message"]
+    assert config.vision.mediapipe_backend == "tasks"
+    assert config.vision.gaze_tracking_enabled is False
+    config.save.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_gesture_calibration_update_requires_boolean():
     config = PilotConfig()
     config.save = MagicMock()
