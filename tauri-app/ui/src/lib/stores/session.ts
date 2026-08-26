@@ -395,7 +395,7 @@ function createSession() {
         }
         applyTaskResult({
           status: status === "partial" ? "partial_failure" : status,
-          message: String(p.result ?? p.message ?? "The voice command finished without a visible result."),
+          message: String(p.result ?? p.message ?? p.error ?? "The voice command finished without a visible result."),
           companion_follow_up: p.companion_follow_up,
         });
         break;
@@ -843,7 +843,11 @@ function createSession() {
         },
       ],
     }));
-    flushPendingCompanionFollowUp();
+    if (terminal.messageType === "result") {
+      flushPendingCompanionFollowUp();
+    } else {
+      pendingCompanionFollowUps.delete(get({ subscribe }).activeSessionId);
+    }
   }
 
   async function sendCommand(input: string, attachments: Attachment[] = []) {

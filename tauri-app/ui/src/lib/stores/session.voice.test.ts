@@ -195,4 +195,23 @@ describe("voice command session notifications", () => {
       text: "The battery check is complete.\n\nPossible next steps:\n- Compare the charge with your planned work time",
     });
   });
+
+  it("discards an early companion follow-up when the task fails", async () => {
+    const { session } = await import("./session");
+
+    notificationHandler!("voice_command", { command: "show battery status" });
+    notificationHandler!("companion_follow_up", {
+      message: "The battery check is complete.",
+      suggestions: ["Compare the charge with your planned work time"],
+    });
+    notificationHandler!("voice_result", {
+      command: "show battery status",
+      status: "error",
+      error: "Battery telemetry is unavailable",
+    });
+
+    const state = get(session);
+    expect(state.messages.at(-1)).toMatchObject({ type: "error", text: "Battery telemetry is unavailable" });
+    expect(state.messages.some((message) => message.type === "assistant")).toBe(false);
+  });
 });
