@@ -468,6 +468,8 @@
   async function refreshAudioInputDevices() {
     try {
       const result = await call<{
+        status?: string;
+        error?: string;
         devices: Array<{
           id: string;
           name: string;
@@ -476,6 +478,8 @@
         }>;
         message?: string;
       }>("list_audio_input_devices");
+      requireOkResult(result, "Microphone inputs are unavailable.");
+      if (!Array.isArray(result.devices)) throw new Error("Microphone input status is incomplete.");
       audioInputDevices = result.devices ?? [];
       audioInputMessage = result.message ?? "";
     } catch (err) {
@@ -1522,7 +1526,7 @@
         class="input-md"
         value={$settings.voice?.input_device ?? "auto"}
         onchange={updateAudioInput}
-        disabled={speechSaving}
+        disabled={speechSaving || audioInputDevices.length === 0}
       >
         <option value="auto">Automatic (system default)</option>
         {#each audioInputDevices as device}

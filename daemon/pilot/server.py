@@ -9287,6 +9287,7 @@ def handle_tool(tool_name, params):
             devices = await asyncio.to_thread(list_audio_input_devices, sd)
         except ImportError:
             return {
+                "status": "error",
                 "devices": [],
                 "selected": self.config.voice.input_device,
                 "message": "Python sounddevice is not installed.",
@@ -9294,11 +9295,13 @@ def handle_tool(tool_name, params):
         except Exception as error:
             logger.warning("Could not enumerate audio input devices: %s", error)
             return {
+                "status": "error",
                 "devices": [],
                 "selected": self.config.voice.input_device,
                 "message": str(error),
             }
         return {
+            "status": "ok",
             "devices": devices,
             "selected": self.config.voice.input_device,
             "message": "" if devices else "No compatible microphone inputs were found.",

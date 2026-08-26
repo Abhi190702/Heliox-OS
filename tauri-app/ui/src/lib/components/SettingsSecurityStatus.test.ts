@@ -19,4 +19,10 @@ describe("Settings security status wiring", () => {
     expect(source).toContain('await call<DaemonStatusResult>("reset_wake_calibration")');
     expect(source).toContain("disabled={!voiceVariantsAvailable}");
   });
+
+  it("requires acknowledged microphone enumeration before enabling selection", () => {
+    expect(source).toContain('>("list_audio_input_devices")');
+    expect(source).toContain('requireOkResult(result, "Microphone inputs are unavailable.")');
+    expect(source).toContain("disabled={speechSaving || audioInputDevices.length === 0}");
+  });
 });

@@ -1,3 +1,4 @@
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -154,6 +155,36 @@ def test_list_audio_input_devices_excludes_incompatible_inputs():
             "is_default": True,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_audio_input_device_rpc_acknowledges_a_valid_empty_list(monkeypatch):
+    monkeypatch.setitem(sys.modules, "sounddevice", object())
+    monkeypatch.setattr("pilot.system.voice.list_audio_input_devices", lambda _module: [])
+    server = object.__new__(PilotServer)
+    server.config = PilotConfig()
+
+    result = await server._handle_list_audio_input_devices({}, None)
+
+    assert result["status"] == "ok"
+    assert result["devices"] == []
+
+
+@pytest.mark.asyncio
+async def test_audio_input_device_rpc_marks_enumeration_failures(monkeypatch):
+    def fail(_module):
+        raise RuntimeError("device backend unavailable")
+
+    monkeypatch.setitem(sys.modules, "sounddevice", object())
+    monkeypatch.setattr("pilot.system.voice.list_audio_input_devices", fail)
+    server = object.__new__(PilotServer)
+    server.config = PilotConfig()
+
+    result = await server._handle_list_audio_input_devices({}, None)
+
+    assert result["status"] == "error"
+    assert result["devices"] == []
+    assert result["message"] == "device backend unavailable"
 
 
 def test_input_device_reports_when_no_format_is_usable():
