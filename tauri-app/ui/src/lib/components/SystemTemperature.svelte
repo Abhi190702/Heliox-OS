@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "../api/invoke";
+  import { pollAfterSuccessfulProbe } from "../polling";
   import { pinnedWidgets } from "../stores/pinnedWidgets";
   type Temps = {
     cpu: number;
@@ -55,7 +56,7 @@
     if (temp >= 70) return "#ff9500";
     return "#22c55e";
   }
-  async function loadTemps() {
+  async function loadTemps(): Promise<boolean> {
     try {
       const data = await invoke("get_temperature_stats");
       if (data && typeof data === "object") {
@@ -72,16 +73,14 @@
           // ignore
         }
       }
+      return sensorsAvailable;
     } catch (err) {
       sensorsAvailable = false;
       console.error("Temperature fetch failed:", err);
+      return false;
     }
   }
-  onMount(() => {
-    loadTemps();
-    const interval = setInterval(loadTemps, 1000);
-    return () => clearInterval(interval);
-  });
+  onMount(() => pollAfterSuccessfulProbe(loadTemps, 1000));
 </script>
 
 <div class="card">

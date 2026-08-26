@@ -2,6 +2,7 @@
   import WidgetCard from "./WidgetCard.svelte";
   import { onMount } from "svelte";
   import { invoke } from "../api/invoke";
+  import { pollAfterSuccessfulProbe } from "../polling";
   import { pinnedWidgets } from "../stores/pinnedWidgets";
   function togglePin() {
     pinnedWidgets.update((items) => {
@@ -26,24 +27,22 @@
   };
   let agents: Agent[] = [];
   let unavailable = false;
-  async function loadAgents() {
+  async function loadAgents(): Promise<boolean> {
     try {
       const res = await invoke("get_agent_activity");
       if (Array.isArray(res)) {
         agents = res;
         unavailable = false;
+        return true;
       }
     } catch (err) {
       agents = [];
       unavailable = true;
       console.error("Agent activity failed", err);
     }
+    return false;
   }
-  onMount(() => {
-    loadAgents();
-    const interval = setInterval(loadAgents, 2000);
-    return () => clearInterval(interval);
-  });
+  onMount(() => pollAfterSuccessfulProbe(loadAgents, 2000));
 </script>
 
 <div class="card">
