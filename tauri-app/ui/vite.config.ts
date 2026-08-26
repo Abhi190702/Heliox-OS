@@ -292,21 +292,32 @@ function daemonTokenDevPlugin(): Plugin {
                 execSync(
                   `start powershell -NoProfile -NoExit -Command "cd '${CONFIG_DIR.replace(/\\/g, "/")}'; echo '=== Heliox OS System Terminal Active ==='"`,
                 );
-              } catch (e) {
+                res.end(JSON.stringify("Terminal opened successfully"));
+              } catch (primaryError) {
                 try {
                   execSync(`start cmd /K echo Heliox OS System Terminal`);
-                } catch (e2) {}
+                  res.end(JSON.stringify("Terminal opened successfully"));
+                } catch (fallbackError) {
+                  sendJson(res, 500, {
+                    error: `Could not open a system terminal: ${String(fallbackError || primaryError)}`,
+                  });
+                }
               }
-              res.end(JSON.stringify("Terminal opened successfully"));
               return;
             }
 
             if (command === "clear_logs") {
               const logFile = join(CONFIG_DIR, "system.log");
               try {
-                if (existsSync(logFile)) writeFileSync(logFile, "", "utf-8");
-              } catch (e) {}
-              res.end(JSON.stringify("All logs cleared successfully"));
+                if (!existsSync(logFile)) {
+                  res.end(JSON.stringify("No daemon log file exists yet"));
+                  return;
+                }
+                writeFileSync(logFile, "", "utf-8");
+                res.end(JSON.stringify("Daemon log cleared"));
+              } catch (error) {
+                sendJson(res, 500, { error: `Could not clear ${logFile}: ${String(error)}` });
+              }
               return;
             }
 
