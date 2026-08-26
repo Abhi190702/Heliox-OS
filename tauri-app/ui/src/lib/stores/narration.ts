@@ -1,5 +1,5 @@
 import { writable, get } from "svelte/store";
-import { onNotification, offNotification, call } from "../api/daemon";
+import { onNotification, offNotification, call, requireOkResult, type DaemonStatusResult } from "../api/daemon";
 import { companion } from "./companion";
 
 /**
@@ -49,6 +49,8 @@ export interface InterruptState {
   kind: string;
   timeoutSeconds: number;
   preview: ActionPreviewPayload | null;
+  responsePending: boolean;
+  responseError: string;
 }
 
 const DEFAULT_STATE: InterruptState = {
@@ -58,6 +60,8 @@ const DEFAULT_STATE: InterruptState = {
   kind: "",
   timeoutSeconds: 120,
   preview: null,
+  responsePending: false,
+  responseError: "",
 };
 
 function createNarration() {
@@ -94,6 +98,8 @@ function createNarration() {
         kind: String(p.kind ?? ""),
         timeoutSeconds: Number(p.timeout_seconds ?? 120),
         preview: (p.preview as ActionPreviewPayload | undefined) ?? null,
+        responsePending: false,
+        responseError: "",
       });
       if (reason) {
         companion.speak({
@@ -168,12 +174,26 @@ function createNarration() {
 
   async function respond(confirmed: boolean) {
     const current = get(store);
-    if (!current.planId) return;
-    store.set({ ...DEFAULT_STATE });
+    if (!current.planId || current.responsePending) return;
+    store.update((state) =>
+      state.planId === current.planId ? { ...state, responsePending: true, responseError: "" } : state,
+    );
     try {
-      await call("confirm", { plan_id: current.planId, confirmed });
-    } catch {
-      /* best-effort -- the backend times out its own wait either way */
+      const result = requireOkResult(
+        (await call("confirm", { plan_id: current.planId, confirmed })) as DaemonStatusResult & {
+          confirmed?: boolean;
+        },
+        "The daemon did not acknowledge the approval decision.",
+      );
+      if (result.confirmed !== confirmed) {
+        throw new Error("The daemon acknowledged a different approval decision.");
+      }
+      store.update((state) => (state.planId === current.planId ? { ...DEFAULT_STATE } : state));
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Could not send the approval decision.";
+      store.update((state) =>
+        state.planId === current.planId ? { ...state, responsePending: false, responseError: message } : state,
+      );
     }
   }
 

@@ -13,7 +13,11 @@ vi.mock("../api/daemon", () => ({
     capturedHandler = handler;
   },
   offNotification: vi.fn(),
-  call: vi.fn().mockResolvedValue(undefined),
+  call: vi.fn().mockResolvedValue({ status: "ok", confirmed: false }),
+  requireOkResult: (result: { status?: string; message?: string }, fallback: string) => {
+    if (result.status !== "ok") throw new Error(result.message || fallback);
+    return result;
+  },
 }));
 
 vi.mock("./companion", () => ({
@@ -34,6 +38,8 @@ describe("narration store", () => {
     narration.subscribe((s) => (state = s))();
     expect(state.active).toBe(false);
     expect(state.preview).toBeNull();
+    expect(state.responsePending).toBe(false);
+    expect(state.responseError).toBe("");
   });
 
   it("speaks ambient execution narration", async () => {
@@ -199,5 +205,25 @@ describe("narration store", () => {
       plan_id: "interrupt_123",
       confirmed: false,
     });
+  });
+
+  it("keeps the interrupt visible when the daemon rejects the decision", async () => {
+    const { narration } = await import("./narration");
+    const { call } = await import("../api/daemon");
+    vi.mocked(call).mockResolvedValueOnce({ status: "error", message: "Approval is no longer pending" });
+    capturedHandler!("execution_interrupt", {
+      plan_id: "interrupt_rejected",
+      reason: "Target is ambiguous",
+      kind: "target_assessment",
+    });
+
+    await narration.respond(true);
+
+    let state: any;
+    narration.subscribe((value) => (state = value))();
+    expect(state.active).toBe(true);
+    expect(state.planId).toBe("interrupt_rejected");
+    expect(state.responsePending).toBe(false);
+    expect(state.responseError).toBe("Approval is no longer pending");
   });
 });

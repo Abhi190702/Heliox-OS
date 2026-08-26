@@ -73,9 +73,17 @@
         {/if}
       {/if}
 
+      {#if $narration.responseError}
+        <p class="interrupt-error" role="alert">{$narration.responseError}</p>
+      {/if}
+
       <div class="interrupt-actions">
-        <button class="btn-deny" onclick={() => narration.respond(false)}>{$_("interrupt.stop")}</button>
-        <button class="btn-confirm" onclick={() => narration.respond(true)}>{$_("interrupt.continue")}</button>
+        <button class="btn-deny" disabled={$narration.responsePending} onclick={() => narration.respond(false)}
+          >{$_("interrupt.stop")}</button
+        >
+        <button class="btn-confirm" disabled={$narration.responsePending} onclick={() => narration.respond(true)}
+          >{$_("interrupt.continue")}</button
+        >
       </div>
     </div>
   </div>
@@ -164,6 +172,12 @@
     gap: 10px;
   }
 
+  .interrupt-error {
+    margin: 0 0 16px;
+    color: var(--danger);
+    font-size: 12px;
+  }
+
   .btn-deny {
     padding: 8px 20px;
     font-size: 13px;
@@ -191,5 +205,11 @@
 
   .btn-confirm:hover {
     background: var(--accent-hover);
+  }
+
+  .btn-deny:disabled,
+  .btn-confirm:disabled {
+    cursor: wait;
+    opacity: 0.6;
   }
 </style>
