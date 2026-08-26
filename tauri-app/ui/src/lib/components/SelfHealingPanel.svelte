@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import { call, onNotification, offNotification } from "../api/daemon";
+  import { call, onNotification, offNotification, requireOkResult, type DaemonStatusResult } from "../api/daemon";
 
   interface HealingAttempt {
     attempt_id: string;
@@ -99,14 +99,25 @@
     }
   }
 
-  async function approve(attempt: HealingAttempt) {
-    await call("confirm", { plan_id: attempt.plan_id, confirmed: true });
-    await loadStatus();
+  async function resolveAttempt(attempt: HealingAttempt, confirmed: boolean) {
+    error = "";
+    try {
+      requireOkResult(
+        (await call("confirm", { plan_id: attempt.plan_id, confirmed })) as DaemonStatusResult,
+        confirmed ? "The healing action was not approved." : "The healing action was not denied.",
+      );
+      await loadStatus();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : "Could not resolve the healing proposal.";
+    }
   }
 
-  async function deny(attempt: HealingAttempt) {
-    await call("confirm", { plan_id: attempt.plan_id, confirmed: false });
-    await loadStatus();
+  function approve(attempt: HealingAttempt) {
+    return resolveAttempt(attempt, true);
+  }
+
+  function deny(attempt: HealingAttempt) {
+    return resolveAttempt(attempt, false);
   }
 
   function outcomeClass(outcome: string): string {
