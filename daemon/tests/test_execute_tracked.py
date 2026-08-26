@@ -960,3 +960,45 @@ async def test_proactive_companion_revises_plan_before_any_action_runs():
     assert "[INDEPENDENT COMPANION REVIEW]" in planned_inputs[1]
     assert "Use one direct file-read action" in planned_inputs[1]
     assert any(method == "companion_plan_intervention" for method, _ in server.test_broadcasts)
+
+
+@pytest.mark.asyncio
+async def test_companion_revision_preserves_mcp_approval_boundary():
+    class _Executor:
+        async def execute(self, plan, **kwargs):
+            return [ActionResult(action=plan.actions[0], success=True, output="Windows 11")]
+
+    class _Verifier:
+        async def verify(self, plan, results):
+            return VerificationResult(passed=True, details=["OS result verified"], failed_actions=[])
+
+    class _Companion:
+        def __init__(self):
+            self.calls = 0
+
+        async def review(self, user_input, plan):
+            self.calls += 1
+            if self.calls == 1:
+                return CompanionReview(
+                    decision="REVISE",
+                    reason="Use the bounded system information action.",
+                    planner_feedback="Keep one direct system-information action.",
+                )
+            return CompanionReview(decision="CONTINUE", reason="The revised plan is bounded.")
+
+    server = _server_ready_for_handle_execute(_Executor())
+    server._verifier = _Verifier()
+    server._execution_companion = _Companion()
+    server._permission_checker = _FakePermissionChecker(requires_confirmation=False)
+    ws = _FakeWs(confirmation=True)
+    ws.server = server
+
+    result = await server._handle_execute(
+        {"input": "show system information", "source": "mcp"},
+        ws,
+    )
+
+    assert result["status"] == "success"
+    requests = [json.loads(message) for message in ws.sent if '"method": "confirm_required"' in message]
+    assert len(requests) == 1
+    assert "local MCP client" in requests[0]["params"]["reason"]

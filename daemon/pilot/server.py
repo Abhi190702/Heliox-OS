@@ -2012,6 +2012,7 @@ class PilotServer:
         user_input = params.get("input", "")
         attachments = params.get("attachments", [])
         chat_session_id = str(params.get("session_id") or "default")
+        interaction_source = str(params.get("source") or "interactive").strip().lower()
         revision_count = int(params.get("_companion_revision_count", 0))
         auto_revision_count = int(params.get("_companion_auto_revision_count", 0))
 
@@ -2225,6 +2226,7 @@ class PilotServer:
                     "_companion_revision_count": revision_count + 1,
                     "_companion_auto_revision_count": auto_revision_count,
                     "session_id": chat_session_id,
+                    "source": interaction_source,
                 },
                 ws,
             )
@@ -2284,6 +2286,7 @@ class PilotServer:
                     "_companion_revision_count": revision_count,
                     "_companion_auto_revision_count": auto_revision_count + 1,
                     "session_id": chat_session_id,
+                    "source": interaction_source,
                 },
                 ws,
             )
@@ -2877,8 +2880,7 @@ class PilotServer:
             action_idx = 0
             _total_actions = len(plan.actions)
             completed_results: list[Any] = []
-            source_name = str(params.get("source") or "interactive").strip().lower()
-            invocation_source, scope_override = self._execution_scope_for_source(source_name)
+            invocation_source, scope_override = self._execution_scope_for_source(interaction_source)
 
             async def _on_action_start(
                 action: Any, _exec_phase: str = exec_phase, _total: int = _total_actions
