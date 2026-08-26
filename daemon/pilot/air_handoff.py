@@ -206,6 +206,7 @@ class AirHandoffManager:
         self._recent: deque[dict[str, Any]] = deque(maxlen=20)
         self._used_nonces: dict[str, dict[str, float]] = {}
         self._lock = asyncio.Lock()
+        self._purge_orphaned_payloads()
         self._load_metadata()
 
     @staticmethod
@@ -463,6 +464,30 @@ class AirHandoffManager:
             path.unlink(missing_ok=True)
         except OSError:
             logger.warning("Could not remove expired Air Handoff payload %s", path)
+
+    def _purge_orphaned_payloads(self) -> None:
+        """Remove transfer bytes that cannot be recovered after a restart."""
+
+        if not self._transfer_dir.is_dir():
+            return
+        try:
+            entries = list(self._transfer_dir.iterdir())
+        except OSError:
+            logger.warning("Could not inspect stale Air Handoff payloads", exc_info=True)
+            return
+        for entry in entries:
+            if entry.is_file() or entry.is_symlink():
+                self._delete_path(entry)
+
+    async def clear_ephemeral(self) -> None:
+        """Discard non-persistent pairing, draft, transfer, and replay state."""
+
+        async with self._lock:
+            self._pairing = None
+            self._draft = None
+            self._transfers.clear()
+            self._used_nonces.clear()
+            self._purge_orphaned_payloads()
 
     async def grab_screenshot(self) -> dict[str, Any]:
         if self._screenshot_capture is None:

@@ -7461,6 +7461,8 @@ def handle_tool(tool_name, params):
             await self._mesh.stop()
         if self._air_handoff_server:
             await self._air_handoff_server.stop()
+        if self._air_handoff_manager:
+            await self._air_handoff_manager.clear_ephemeral()
         if self._orchestrator:
             await self._orchestrator.stop_all()
             await self._orchestrator.stop()

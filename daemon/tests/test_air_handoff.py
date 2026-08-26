@@ -206,6 +206,32 @@ async def test_file_grab_snapshots_content_before_original_changes(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_ephemeral_payloads_are_purged_on_startup_and_shutdown(tmp_path: Path) -> None:
+    transfer_dir = tmp_path / "transfers"
+    transfer_dir.mkdir(parents=True)
+    stale = transfer_dir / "stale-screen.png"
+    stale.write_bytes(b"stale private screenshot")
+
+    manager = AirHandoffManager(FakeVault(), data_dir=tmp_path)
+    assert not stale.exists()
+
+    credential, _ = await pair_device(manager)
+    await manager.grab_text("current private transfer")
+    transfer = await manager.drop(credential["device_id"])
+    metadata, _ = await manager.transfer_bytes(credential["device_id"], transfer["transfer_id"])
+    payload_path = Path(metadata.path)
+    assert payload_path.exists()
+
+    await manager.clear_ephemeral()
+
+    assert not payload_path.exists()
+    status = await manager.status()
+    assert status["draft"] is None
+    assert status["ready_transfers"] == 0
+    assert len(status["paired_devices"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_receiver_serves_hardened_assets_and_authenticated_poll(tmp_path: Path) -> None:
     manager = AirHandoffManager(FakeVault(), data_dir=tmp_path)
     server = AirHandoffServer(manager, host="127.0.0.1", port=0)
