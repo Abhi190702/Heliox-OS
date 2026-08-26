@@ -91,6 +91,8 @@
   } from "../gesture/calibration";
   import { classifyControlGesture } from "../gesture/workflowControl";
   import { defaultGestureAction } from "../gesture/actionPolicy";
+  import { airHandoffGestureCommand } from "../gesture/airHandoffGesture";
+  import { dispatchGestureToOwner, selectGestureDispatchOwner } from "../gesture/gestureDispatchPolicy";
   import {
     activeGestureWorkflowBindings,
     controlGestureWorkflow,
@@ -1147,22 +1149,13 @@
           const now = Date.now();
           if (now - lastGestureTime > GESTURE_COOLDOWN_MS) {
             lastGestureTime = now;
-            multimodal.onGestureInput(gesture.name, gesture.confidence);
-            void call("gesture_event", {
-              gesture: gesture.name,
-              confidence: gesture.confidence,
-              data: { source: "on_device_camera", raw_landmarks_excluded: true },
-            }).catch((cause) => console.warn("Gesture fusion context unavailable.", cause));
             // A gesture-sourced workflow currently paused/waiting claims
             // continue/cancel gestures instead of them firing their normal
             // action — see subscribeToWorkflowState()/workflowControl.ts.
-            const controlIntent = pendingWorkflowId ? classifyControlGesture(gesture.name) : "unknown";
-            const boundGoal = !pendingWorkflowId ? gestureWorkflowBindings[gesture.name] : undefined;
-            if (controlIntent !== "unknown" && pendingWorkflowId) {
-              void dispatchWorkflowControl(controlIntent, pendingWorkflowId);
-            } else {
-              void dispatchRecognizedGesture(gesture, boundGoal);
-            }
+            const workflowId = pendingWorkflowId;
+            const controlIntent = workflowId ? classifyControlGesture(gesture.name) : "unknown";
+            const boundGoal = gestureWorkflowBindings[gesture.name];
+            void dispatchRecognizedGesture(gesture, boundGoal, controlIntent, workflowId);
           }
         }
       } else {
@@ -1587,37 +1580,64 @@
     );
   }
 
-  async function dispatchRecognizedGesture(gesture: Gesture, boundGoal?: string) {
-    if ($airHandoff.gestureArmed) {
-      try {
-        const consumed = await airHandoff.handleGesture(gesture.name);
-        if (consumed) {
+  async function dispatchRecognizedGesture(
+    gesture: Gesture,
+    boundGoal: string | undefined,
+    controlIntent: "continue" | "cancel" | "unknown",
+    workflowId: string | null,
+  ) {
+    const handoffCommand = airHandoffGestureCommand($airHandoff.gestureArmed, Boolean($airHandoff.draft), gesture.name);
+    const owner = selectGestureDispatchOwner({
+      hasPendingWorkflow: Boolean(workflowId),
+      controlIntent,
+      handoffCommand,
+      hasBoundWorkflow: Boolean(boundGoal),
+    });
+
+    await dispatchGestureToOwner(owner, {
+      workflow_control: async () => {
+        if (workflowId && controlIntent !== "unknown") await dispatchWorkflowControl(controlIntent, workflowId);
+      },
+      air_handoff: async () => {
+        try {
+          const consumed = await airHandoff.handleGesture(gesture.name);
+          if (!consumed) {
+            session.addSystemMessage("Air Handoff is busy; the gesture was ignored safely.");
+            return;
+          }
           session.addSystemMessage($airHandoff.message || "Air Handoff gesture accepted.");
           gestureHistory = [...gestureHistory.slice(-4), gesture.name];
           onGesture(gesture.name);
           trackGestureForCalibration(gesture.name, gesture.metricValue ?? 0);
-          return;
+        } catch (cause) {
+          session.addSystemMessage(
+            `Air Handoff stopped safely: ${cause instanceof Error ? cause.message : "unknown error"}`,
+          );
         }
-      } catch (cause) {
-        session.addSystemMessage(
-          `Air Handoff stopped safely: ${cause instanceof Error ? cause.message : "unknown error"}`,
-        );
-        return;
-      }
-    }
+      },
+      bound_workflow: async () => {
+        if (!boundGoal) return;
+        // User-authored workflow bindings retain normal priority, except when
+        // the user has explicitly armed a one-shot Air Handoff gesture.
+        await startBoundWorkflow(boundGoal, gesture.name);
+        gestureHistory = [...gestureHistory.slice(-4), gesture.name];
+      },
+      default: () => {
+        // A claimed handoff/workflow gesture must not remain in the fusion
+        // buffer and modify a later voice command or world-model observation.
+        multimodal.onGestureInput(gesture.name, gesture.confidence);
+        void call("gesture_event", {
+          gesture: gesture.name,
+          confidence: gesture.confidence,
+          data: { source: "on_device_camera", raw_landmarks_excluded: true },
+        }).catch((cause) => console.warn("Gesture fusion context unavailable.", cause));
 
-    if (boundGoal) {
-      // User-authored workflow bindings retain normal priority, except when
-      // the user has explicitly armed a one-shot Air Handoff gesture.
-      await startBoundWorkflow(boundGoal, gesture.name);
-      gestureHistory = [...gestureHistory.slice(-4), gesture.name];
-      return;
-    }
-
-    executeGestureAction(gesture.name);
-    gestureHistory = [...gestureHistory.slice(-4), gesture.name];
-    onGesture(gesture.name);
-    trackGestureForCalibration(gesture.name, gesture.metricValue ?? 0);
+        executeGestureAction(gesture.name);
+        gestureHistory = [...gestureHistory.slice(-4), gesture.name];
+        onGesture(gesture.name);
+        trackGestureForCalibration(gesture.name, gesture.metricValue ?? 0);
+      },
+    });
   }
 
   // ── Canvas Drawing ──
