@@ -53,7 +53,7 @@ describe("submitGestureWorkflow", () => {
 
 describe("controlGestureWorkflow", () => {
   it("cancels the selected gesture workflow", async () => {
-    const call = vi.fn().mockResolvedValue({ cancelled: true });
+    const call = vi.fn().mockResolvedValue({ status: "ok", cancelled: true });
 
     await expect(controlGestureWorkflow(call, "cancel", "wf_1")).resolves.toBe("Gesture workflow cancelled");
     expect(call).toHaveBeenCalledWith("voice_gesture_workflow_cancel", {
@@ -62,8 +62,14 @@ describe("controlGestureWorkflow", () => {
   });
 
   it("requires the daemon to confirm the requested transition", async () => {
-    const call = vi.fn().mockResolvedValue({ resumed: false });
+    const call = vi.fn().mockResolvedValue({ status: "ok", resumed: false });
 
     await expect(controlGestureWorkflow(call, "continue", "wf_1")).rejects.toThrow("Workflow was not resumed");
+  });
+
+  it("rejects a contradictory workflow response even when its flag is truthy", async () => {
+    const call = vi.fn().mockResolvedValue({ status: "error", cancelled: true, message: "engine unavailable" });
+
+    await expect(controlGestureWorkflow(call, "cancel", "wf_1")).rejects.toThrow("engine unavailable");
   });
 });

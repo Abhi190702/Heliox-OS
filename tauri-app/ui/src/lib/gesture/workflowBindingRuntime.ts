@@ -45,12 +45,13 @@ export async function controlGestureWorkflow(
 ): Promise<string> {
   const method = intent === "continue" ? "voice_gesture_workflow_resume" : "voice_gesture_workflow_cancel";
   const result = (await call(method, { workflow_id: workflowId })) as {
+    status?: string;
     resumed?: boolean;
     cancelled?: boolean;
     message?: string;
   };
   const completed = intent === "continue" ? result.resumed : result.cancelled;
-  if (!completed) {
+  if (result.status !== "ok" || !completed) {
     throw new Error(result.message || `Workflow was not ${intent === "continue" ? "resumed" : "cancelled"}`);
   }
   return intent === "continue" ? "Gesture workflow resumed" : "Gesture workflow cancelled";

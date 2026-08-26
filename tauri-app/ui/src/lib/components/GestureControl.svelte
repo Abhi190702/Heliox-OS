@@ -45,7 +45,7 @@
   import { settings } from "../stores/settings";
   import { multimodal } from "../stores/multimodal";
   import { invoke } from "../api/invoke";
-  import { call, offNotification, onNotification } from "../api/daemon";
+  import { call, offNotification, onNotification, requireResultStatus } from "../api/daemon";
   import { tick } from "svelte";
   import { Hands, type Results } from "@mediapipe/hands";
   import { FilesetResolver, HandLandmarker, FaceLandmarker } from "@mediapipe/tasks-vision";
@@ -663,12 +663,17 @@
   async function loadGestureWorkflowBindings() {
     try {
       const policy = (await call("gesture_workflow_bindings_get")) as {
+        status?: string;
+        message?: string;
+        error?: string;
         enabled: boolean;
         bindings: Array<{ gesture_name: string; goal_template: string; enabled: boolean }>;
       };
+      requireResultStatus(policy, "ok", "Gesture workflow bindings are unavailable.");
       gestureWorkflowBindings = activeGestureWorkflowBindings(policy);
-    } catch {
+    } catch (cause) {
       gestureWorkflowBindings = {};
+      showWorkflowFeedback(cause instanceof Error ? cause.message : "Gesture workflow bindings are unavailable.", true);
     }
   }
 
@@ -691,15 +696,23 @@
 
     try {
       const result = (await call("voice_gesture_workflow_list")) as {
+        status?: string;
+        message?: string;
+        error?: string;
         workflows: Array<{ workflow_id: string; invocation_source: string; state: string }>;
       };
+      requireResultStatus(result, "ok", "Voice and gesture workflow state is unavailable.");
       const existing = result.workflows?.find(
         (w) => w.invocation_source === "gesture" && (w.state === "paused" || w.state === "waiting_for_trigger"),
       );
       if (existing) pendingWorkflowId = existing.workflow_id;
-    } catch {
+    } catch (cause) {
       // Daemon not ready yet -- fine, future voice_gesture_workflow_state
       // notifications will still populate pendingWorkflowId.
+      showWorkflowFeedback(
+        cause instanceof Error ? cause.message : "Voice and gesture workflow state is unavailable.",
+        true,
+      );
     }
 
     await loadGestureWorkflowBindings();
