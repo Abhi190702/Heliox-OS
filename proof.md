@@ -2,7 +2,7 @@
 
 > This page separates reproducible software evidence, live CI status, developer-run hardware observations, and claims that have not yet been established. It is an evidence index, not a promise that every feature works on every computer.
 
-Evidence snapshot date: **2026-08-26**
+Evidence snapshot date: **2026-08-27**
 
 Product version: **0.12.0**
 
@@ -42,7 +42,7 @@ cd daemon
 python ../scripts/generate_benchmark_evidence.py
 ```
 
-Bundle environment: Windows 11, Python 3.12.6. Source commit: `cfb6ff0670d8`.
+Bundle environment: Windows 11, Python 3.12.6. Source commit: `af36ab1a77b1`.
 
 ### Guarded local request latency
 
@@ -50,11 +50,11 @@ Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk ass
 
 | Metric | Ready-cold | Warm steady state |
 | --- | ---: | ---: |
-| Median | — | 26.769 ms |
-| p95 | — | 27.705 ms |
-| p99 | — | 28.074 ms |
-| Minimum | — | 24.701 ms |
-| Maximum | 41.521 ms | 28.919 ms |
+| Median | — | 26.664 ms |
+| p95 | — | 30.238 ms |
+| p99 | — | 30.717 ms |
+| Minimum | — | 25.256 ms |
+| Maximum | 89.570 ms | 31.873 ms |
 
 - The harness executes local planning, routing, risk assessment, execution, post-condition verification, and response shaping.
 - All 100 measured steady-state iterations made **0 model calls**.
@@ -64,20 +64,20 @@ Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk ass
 
 | Real guarded action | Iterations | Median | p95 | p99 |
 | --- | ---: | ---: | ---: | ---: |
-| CPU usage | 50 | 26.493 ms | 27.861 ms | 28.507 ms |
-| Memory usage | 50 | 5.854 ms | 6.531 ms | 6.719 ms |
-| Disk usage | 50 | 4.476 ms | 5.133 ms | 5.363 ms |
-| Comprehensive system information | 50 | 57.996 ms | 78.071 ms | 80.298 ms |
+| CPU usage | 50 | 26.569 ms | 27.985 ms | 29.234 ms |
+| Memory usage | 50 | 11.471 ms | 15.027 ms | 16.633 ms |
+| Disk usage | 50 | 10.220 ms | 12.651 ms | 13.060 ms |
+| Comprehensive system information | 50 | 60.282 ms | 79.621 ms | 82.536 ms |
 
 Each case validates the exact selected action, executes the real read-only host probe, and makes zero model calls.
 
 ### Event-loop responsiveness
 
-During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **66 ticks**, with **15.427 ms median**, **16.043 ms p95**, and **16.299 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
+During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **65 ticks**, with **15.585 ms median**, **16.259 ms p95**, and **25.470 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
 
 ### Deterministic intent dispatch
 
-The curated routing regression set passed **59/59 cases** with **0.021 ms median** dispatch latency. It covers bounded positive intents and ambiguous controls that must fall through to model planning. It is not a population-level language-understanding benchmark, and application routing does not prove an application is installed.
+The curated routing regression set passed **59/59 cases** with **0.020 ms median** dispatch latency. It covers bounded positive intents and ambiguous controls that must fall through to model planning. It is not a population-level language-understanding benchmark, and application routing does not prove an application is installed.
 
 ### Learned-risk world model
 
@@ -88,7 +88,7 @@ The shipped `risk-mlp-v3-calibrated` artifact records **36,000 training** and **
 | Disk-delta MAE | 0.0000000330 | 0.0000000718 | 54.0154% |
 | Process-delta MAE | 0.0000130251 | 0.0022166655 | 99.4124% |
 
-The audit passed **5/5 direction invariants** and measured **0.029 ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
+The audit passed **5/5 direction invariants** and measured **0.031 ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
 
 ### Subscription-backed planning
 
@@ -119,7 +119,7 @@ A developer-machine run through the official **Codex CLI** passed **3/3 fixed pl
 - None of these software benchmarks measures model-provider, network, browser page-load, UI-rendering, microphone, TTS, camera, gaze, gesture, EEG, or human latency/accuracy.
 - Local snapshots are reproducibility evidence, not universal performance guarantees.
 
-Raw evidence: [`software-benchmarks-2026-08-26.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/software-benchmarks-2026-08-26.json), [`subscription-planning-codex-2026-08-16.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/subscription-planning-codex-2026-08-16.json), and the [historical CPU artifact](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/react-latency-2026-08-12.json).
+Raw evidence: [`software-benchmarks-2026-08-27.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/software-benchmarks-2026-08-27.json), [`subscription-planning-codex-2026-08-16.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/subscription-planning-codex-2026-08-16.json), and the [historical CPU artifact](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/react-latency-2026-08-12.json).
 
 ## Platform and hardware evidence
 

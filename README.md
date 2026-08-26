@@ -61,11 +61,11 @@ v0.12.0 adds subscription-backed Codex and Claude Code model access, local MCP t
 | Action schema        | 157 declared action types                                                                     | Availability depends on OS, dependencies, permissions, credentials, and policy                 |
 | Specialist mesh      | 21 executable specialists with providers for 157/157 declared actions                         | Provider coverage is not universal environment compatibility                                   |
 | Outcome verification | 18 actions have an independent observed post-condition verifier                               | The other 139 currently rely on the executor result                                            |
-| Guarded fast path    | 26.364 ms median, 29.114 ms p95 across 100 non-LLM CPU-usage iterations; zero model calls     | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
+| Guarded fast path    | 26.664 ms median, 30.238 ms p95 across 100 non-LLM CPU-usage iterations; zero model calls     | This is not provider, browser, voice, camera, TTS, neural, or full-workflow latency            |
 | Subscription planning | 3/3 fixed Codex CLI cases; 14.708 s median; zero executed or destructive actions             | One account and planning only; not action-execution, Claude, or universal provider evidence     |
 | Intent dispatch      | 59/59 curated bounded-intent and ambiguous-fall-through regression cases                     | Fixed corpus; not population-level language-understanding accuracy                            |
 | Learned risk model   | 36,000 training and 5,400 temporal-validation samples; 5/5 direction invariants              | Covers 12 coarse disk/process action transitions; deterministic policy remains authoritative  |
-| Async responsiveness | 66 heartbeats during a real one-second CPU monitor; 17.456 ms maximum heartbeat interval      | Windows timer granularity applies; this is not UI or hardware-input latency                    |
+| Async responsiveness | 65 heartbeats during a real one-second CPU monitor; 25.470 ms maximum heartbeat interval      | Windows timer granularity and host load apply; this is not UI or hardware-input latency        |
 | Plugins              | 6 manifests in the generated public catalog                                                   | Marketplace and local plugins remain capability-constrained                                    |
 | CI                   | Python, frontend, visual, Rust, marketplace, and installer gates                              | CI does not prove camera, microphone, speaker, EEG, or human accuracy                          |
 | Windows signing      | SignPath test-policy workflow signs and verifies EXE, MSI, and embedded application artifacts | The production certificate is pending; current public installers are not yet production-signed |
@@ -76,7 +76,7 @@ v0.12.0 adds subscription-backed Codex and Claude Code model access, local MCP t
 - [Human-readable evidence and limitations](https://www.helioxos.dev/proof.html)
 - [Detailed Markdown evidence](proof.md)
 - [Machine-readable capability catalog](capabilities.json)
-- [Current-main multi-benchmark evidence bundle](docs/evidence/software-benchmarks-2026-08-25.json)
+- [Current-main multi-benchmark evidence bundle](docs/evidence/software-benchmarks-2026-08-27.json)
 - [v0.12.0 release benchmark snapshot](docs/evidence/software-benchmarks-2026-08-16.json)
 - [Raw subscription-planning evidence](docs/evidence/subscription-planning-codex-2026-08-16.json)
 - [Historical guarded fast-path benchmark](docs/evidence/react-latency-2026-08-12.json)
@@ -118,7 +118,7 @@ No comparison declares a universal winner. See the [transparent cost page](https
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Guarded task execution | Typed plans, source-scoped policy, approvals, cancellation, execution claims, and visible terminal results                                                 |
 | Adaptive app tasks     | Bounded observe → act → verify loops with fresh screen evidence, target-window reacquisition, replanning, and no-progress termination                      |
-| Continuous voice       | Wake-word and follow-up listening, VAD endpoints, coordinated TTS, barge-in, and self-speech suppression                                                   |
+| Continuous voice       | Wake-word and follow-up listening, VAD endpoints, coordinated TTS, barge-in, self-speech suppression, and first-speech lazy loading of heavy local voices   |
 | Interactive companion  | Can warn, revise, stop, accept spoken or typed corrections, and offer grounded next steps after verified results                                           |
 | Local chat sessions    | Separate transcripts and task context with bounded cross-session preference and evidence memory                                                            |
 | Gesture and gaze       | 30+ gesture mappings, MediaPipe Tasks 3D landmarks, coarse gaze fusion, calibration, temporal rejection, and opt-in cursor control                         |

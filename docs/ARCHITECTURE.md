@@ -187,6 +187,11 @@ The daemon coordinator covers autonomous completion, cognitive warnings,
 continuous voice, and frontend speech RPCs. Browser speech synthesis is a
 fallback, not a second narrator.
 
+Pocket and Kokoro voice models are loaded on the first speech request instead
+of during daemon startup. This keeps the control daemon responsive and avoids
+loading PyTorch/CUDA libraries into memory when speech is never requested; the
+ordinary speech-engine fallback path still applies if that first load fails.
+
 `pilot.system.interaction.InteractionRuntime` exposes one state machine for
 text and voice: idle, listening, understanding, planning, awaiting approval,
 acting, verifying, correcting, speaking, and terminal states. Voice uses the
