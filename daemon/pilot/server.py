@@ -4604,6 +4604,7 @@ class PilotServer:
         target = getattr(self.config, section, None)
         if target is None:
             return {"status": "error", "message": f"Unknown config section: {section}"}
+        normalized_values: dict[str, object] = {}
         for k, v in values.items():
             if hasattr(target, k):
                 if section == "model" and k == "provider":
@@ -4737,9 +4738,11 @@ class PilotServer:
                     _validate_config_types({section: {k: v}})
                 except ValueError as exc:
                     return {"status": "error", "message": str(exc)}
-                setattr(target, k, v)
+                normalized_values[k] = v
             else:
                 return {"status": "error", "message": f"Invalid config key found: '{section}.{k}'."}
+        for key, value in normalized_values.items():
+            setattr(target, key, value)
         self.config.save()
 
         if section == "voice" and ({"tts_engine", "tts_voice"} & values.keys()):

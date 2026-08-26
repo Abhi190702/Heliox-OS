@@ -108,6 +108,29 @@ async def test_subscription_provider_update_rejects_unsafe_values(values, messag
 
 
 @pytest.mark.asyncio
+async def test_rejected_multi_field_update_does_not_partially_mutate_runtime_config():
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+
+    result = await server._handle_update_config(
+        {
+            "section": "model",
+            "values": {
+                "provider": "subscription",
+                "subscription_timeout_seconds": 5,
+            },
+        },
+        MagicMock(),
+    )
+
+    assert result["status"] == "error"
+    assert config.model.provider == "ollama"
+    assert config.model.subscription_timeout_seconds == 120
+    config.save.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("values", "message"),
     [
