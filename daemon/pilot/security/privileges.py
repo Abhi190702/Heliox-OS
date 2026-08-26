@@ -47,6 +47,7 @@ def security_runtime_status(
         )
 
     return {
+        "status": "ok",
         "root_policy_enabled": root_policy_enabled,
         "process_elevated": elevated,
         "platform": platform_value,

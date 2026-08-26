@@ -110,6 +110,7 @@ async def test_windows_snapshot_status_requires_administrator(monkeypatch):
 
     status = await manager.status()
 
+    assert status["status"] == "ok"
     assert status["available"] is True
     assert status["ready"] is False
     assert "not Administrator" in status["detail"]

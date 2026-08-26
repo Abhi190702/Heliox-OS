@@ -2,7 +2,7 @@
   import { settings } from "../stores/settings";
   import { _, locale } from "svelte-i18n";
   import { session } from "../stores/session";
-  import { call } from "../api/daemon";
+  import { call, requireOkResult, type DaemonStatusResult } from "../api/daemon";
   import { invoke } from "../api/invoke";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
   import ConfirmPrompt from "./ConfirmPrompt.svelte";
@@ -58,6 +58,7 @@
   let elevationRequesting = $state(false);
   let elevationMessage = $state("");
   let rootRuntime = $state<{
+    status: "ok";
     root_policy_enabled: boolean;
     process_elevated: boolean;
     platform: string;
@@ -66,6 +67,7 @@
   let snapshotSaving = $state(false);
   let snapshotToast = $state("");
   let snapshotRuntime = $state<{
+    status: "ok";
     enabled: boolean;
     backend: string;
     available: boolean;
@@ -187,7 +189,10 @@
 
   async function refreshRootRuntime() {
     try {
-      rootRuntime = await call("get_security_status");
+      rootRuntime = requireOkResult(
+        (await call("get_security_status")) as DaemonStatusResult,
+        "Security runtime status is unavailable.",
+      ) as typeof rootRuntime;
     } catch {
       rootRuntime = null;
     }
@@ -203,7 +208,10 @@
 
   async function refreshSnapshotRuntime() {
     try {
-      snapshotRuntime = await call("get_snapshot_status");
+      snapshotRuntime = requireOkResult(
+        (await call("get_snapshot_status")) as DaemonStatusResult,
+        "Snapshot runtime status is unavailable.",
+      ) as typeof snapshotRuntime;
     } catch {
       snapshotRuntime = null;
     }
@@ -986,7 +994,7 @@
         aria-label="Toggle Root Access"
         title="Toggle Root Access"
         aria-pressed={$settings.security.root_enabled}
-        disabled={rootSaving}
+        disabled={rootSaving || !rootRuntime}
       >
         <span class="toggle-knob"></span>
       </button>
@@ -1044,7 +1052,7 @@
         aria-label="Toggle Auto Snapshot"
         title="Toggle Auto Snapshot"
         aria-pressed={$settings.security.snapshot_on_destructive}
-        disabled={snapshotSaving}
+        disabled={snapshotSaving || !snapshotRuntime}
       >
         <span class="toggle-knob"></span>
       </button>

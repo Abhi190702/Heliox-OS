@@ -4,6 +4,7 @@ from pilot.security.privileges import security_runtime_status
 def test_root_policy_disabled_is_not_reported_as_unlocked():
     status = security_runtime_status(False, platform_name="win32", process_elevated=True)
 
+    assert status["status"] == "ok"
     assert status["root_policy_enabled"] is False
     assert "blocked by Heliox policy" in status["detail"]
 

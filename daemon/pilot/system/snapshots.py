@@ -340,6 +340,7 @@ class SnapshotManager:
             )
 
         return {
+            "status": "ok",
             "enabled": enabled,
             "backend": backend.value,
             "available": available,
