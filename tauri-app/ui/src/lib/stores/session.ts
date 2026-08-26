@@ -871,8 +871,16 @@ function createSession() {
         messages: [...s.messages, { type: "user", text: input, timestamp: Date.now() }],
       }));
       try {
-        const res = (await call("resolve_git_conflict", { filepath })) as any;
-        if (res.status === "success" && res.conflicts && res.conflicts.length > 0) {
+        const res = (await call("resolve_git_conflict", { filepath })) as {
+          status?: string;
+          message?: string;
+          conflicts?: GitConflictBlock[];
+        };
+        if (res.status !== "success") {
+          throw new Error(res.message || "Git conflict detection failed.");
+        }
+        const conflicts = res.conflicts ?? [];
+        if (conflicts.length > 0) {
           update((s) => ({
             ...s,
             loading: false,
@@ -881,9 +889,9 @@ function createSession() {
               ...s.messages,
               {
                 type: "git_conflict",
-                text: `Found ${res.conflicts.length} git conflicts in ${filepath}`,
+                text: `Found ${conflicts.length} git conflicts in ${filepath}`,
                 timestamp: Date.now(),
-                gitConflict: res,
+                gitConflict: { status: "success", conflicts },
               },
             ],
           }));
