@@ -3558,7 +3558,19 @@ class PilotServer:
 
         task = asyncio.create_task(_run())
         self._mcp_tasks[task_id] = task
-        task.add_done_callback(lambda _done: self._mcp_tasks.pop(task_id, None))
+
+        def _finish_mcp_task(done: asyncio.Task[dict[str, Any]]) -> None:
+            self._mcp_tasks.pop(task_id, None)
+            if self._mcp_reserved_task_id == task_id:
+                self._mcp_reserved_task_id = ""
+            if done.cancelled() and task_id not in self._mcp_task_results:
+                self._mcp_task_results[task_id] = {
+                    "status": "cancelled",
+                    "task_id": task_id,
+                    "message": "The MCP task was cancelled before it started.",
+                }
+
+        task.add_done_callback(_finish_mcp_task)
         return {
             "status": "submitted",
             "task_id": task_id,
@@ -3629,7 +3641,27 @@ class PilotServer:
             return {"status": "unavailable", "message": "Durable task store is not initialized"}
 
         task = await self._durable_tasks.get(task_id)
-        if task is None or task.user_id != "mcp-local":
+        if task is None:
+            running = self._mcp_tasks.get(task_id)
+            if running is None:
+                return {"status": "not_found", "message": "No local MCP task has that id"}
+            running.cancel()
+            try:
+                await running
+            except asyncio.CancelledError:
+                pass
+            response = self._mcp_task_results.get(task_id)
+            if response is None:
+                response = {
+                    "status": "cancelled",
+                    "task_id": task_id,
+                    "message": "The MCP task was cancelled before it started.",
+                }
+                self._mcp_task_results[task_id] = response
+            if self._mcp_reserved_task_id == task_id:
+                self._mcp_reserved_task_id = ""
+            return response
+        if task.user_id != "mcp-local":
             return {"status": "not_found", "message": "No local MCP task has that id"}
         if task.is_terminal:
             return {

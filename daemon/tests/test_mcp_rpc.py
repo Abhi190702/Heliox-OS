@@ -96,6 +96,37 @@ async def test_mcp_submit_runs_as_mcp_local_and_returns_without_waiting() -> Non
 
 
 @pytest.mark.asyncio
+async def test_mcp_cancel_stops_task_before_durable_registration() -> None:
+    server, socket = _authorized_server()
+    server._durable_tasks = SimpleNamespace(get=AsyncMock(return_value=None))
+    never = asyncio.Event()
+
+    async def _wait_for_cancel(params, ws):
+        await never.wait()
+
+    server._handle_execute = AsyncMock(side_effect=_wait_for_cancel)
+
+    submitted = await server._handle_mcp_submit_task(
+        {"input": "show system info", "session_id": "codex"},
+        socket,
+    )
+    cancelled = await server._handle_mcp_cancel_task(
+        {"task_id": submitted["task_id"]},
+        socket,
+    )
+
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["task_id"] == submitted["task_id"]
+    assert server._mcp_reserved_task_id == ""
+    assert submitted["task_id"] not in server._mcp_tasks
+    status = await server._handle_mcp_task_status(
+        {"task_id": submitted["task_id"]},
+        socket,
+    )
+    assert status["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
 async def test_mcp_status_and_cancel_cannot_target_a_ui_task() -> None:
     server, socket = _authorized_server()
     ui_task = DurableTask(
