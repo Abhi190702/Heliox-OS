@@ -7618,16 +7618,27 @@ def handle_tool(tool_name, params):
                 "status": "error",
                 "message": "Secure OS credential storage is required for Air Handoff",
             }
+        previous_enabled = bool(self.config.air_handoff.enabled)
+        previous_running = bool(self._air_handoff_server.running)
         try:
+            self.config.air_handoff.enabled = enabled
+            self.config.save()
             if enabled:
                 await self._air_handoff_server.start()
             else:
                 await self._air_handoff_manager.cancel_draft()
                 await self._air_handoff_server.stop()
-            self.config.air_handoff.enabled = enabled
-            self.config.save()
         except Exception as exc:
             logger.exception("Could not change Air Handoff receiver state")
+            self.config.air_handoff.enabled = previous_enabled
+            try:
+                self.config.save()
+                if previous_running and not self._air_handoff_server.running:
+                    await self._air_handoff_server.start()
+                elif not previous_running and self._air_handoff_server.running:
+                    await self._air_handoff_server.stop()
+            except Exception:
+                logger.exception("Could not roll back Air Handoff receiver state")
             return {"status": "error", "message": str(exc)}
         state = await self._publish_air_handoff_state()
         return {"status": "ok", **state}
