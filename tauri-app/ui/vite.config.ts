@@ -16,7 +16,7 @@ import {
 import { join, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
-import { execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 
 const MEDIAPIPE_HANDS_ROUTE = "/mediapipe/hands";
 const MEDIAPIPE_HANDS_ASSET_DIR = "mediapipe/hands";
@@ -228,11 +228,15 @@ function daemonTokenDevPlugin(): Plugin {
           req.on("data", (chunk) => {
             body += chunk;
           });
-          req.on("end", () => {
+          req.on("end", async () => {
             let command = "";
+            let args: Record<string, unknown> = {};
             try {
               const parsed = JSON.parse(body);
               command = parsed.command;
+              if (parsed.args && typeof parsed.args === "object" && !Array.isArray(parsed.args)) {
+                args = parsed.args;
+              }
             } catch {
               // ignore
             }
@@ -264,6 +268,55 @@ function daemonTokenDevPlugin(): Plugin {
 
             if (command === "get_temperature_stats") {
               unavailable(res, command, "the web runtime has no trusted hardware-sensor bridge");
+              return;
+            }
+
+            if (command === "run_neural_benchmark") {
+              const benchmark = args.benchmark;
+              const pythonArgs = ["-m", "pilot.neural.benchmark"];
+              if (benchmark === "brainflow-synthetic") {
+                pythonArgs.push(benchmark, "--seconds", "2");
+              } else if (benchmark === "eegbci") {
+                const subject = args.subject ?? 1;
+                const runs = args.runs ?? [6, 10, 14];
+                const allowedRuns = new Set([4, 6, 8, 10, 12, 14]);
+                if (
+                  !Number.isInteger(subject) ||
+                  Number(subject) < 1 ||
+                  Number(subject) > 109 ||
+                  !Array.isArray(runs) ||
+                  runs.length < 2 ||
+                  runs.length > 6 ||
+                  runs.some((run) => !Number.isInteger(run) || !allowedRuns.has(Number(run)))
+                ) {
+                  sendJson(res, 400, { error: "Invalid registered EEGBCI benchmark selection" });
+                  return;
+                }
+                pythonArgs.push(benchmark, "--subject", String(subject), "--runs", ...runs.map((run) => String(run)));
+              } else {
+                sendJson(res, 400, { error: "Unsupported neural benchmark" });
+                return;
+              }
+
+              const python = process.env.HELIOX_PYTHON || (process.platform === "win32" ? "python" : "python3");
+              const daemonDir = join(CONFIG_DIR, "..", "..", "daemon");
+              execFile(
+                python,
+                pythonArgs,
+                { cwd: daemonDir, windowsHide: true, timeout: 120_000, maxBuffer: 1024 * 1024 },
+                (error, stdout, stderr) => {
+                  if (error) {
+                    const detail = stderr.trim().split("\n").filter(Boolean).at(-1) || error.message;
+                    sendJson(res, 500, { error: `Neural benchmark failed: ${detail}` });
+                    return;
+                  }
+                  try {
+                    sendJson(res, 200, JSON.parse(stdout));
+                  } catch (parseError) {
+                    sendJson(res, 500, { error: `Neural benchmark returned invalid JSON: ${String(parseError)}` });
+                  }
+                },
+              );
               return;
             }
 

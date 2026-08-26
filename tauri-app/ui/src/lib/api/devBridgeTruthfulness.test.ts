@@ -19,4 +19,14 @@ describe("browser development bridge truthfulness", () => {
     expect(devBridgeSource).toContain("res.statusCode = status");
     expect(devBridgeSource).toContain("is unavailable in browser development");
   });
+
+  it("runs only the fixed no-hardware neural benchmarks in browser development", () => {
+    expect(devBridgeSource).toContain('command === "run_neural_benchmark"');
+    expect(devBridgeSource).toContain('benchmark === "brainflow-synthetic"');
+    expect(devBridgeSource).toContain('benchmark === "eegbci"');
+    expect(devBridgeSource).toContain("const allowedRuns = new Set([4, 6, 8, 10, 12, 14])");
+    expect(devBridgeSource).toContain('sendJson(res, 400, { error: "Unsupported neural benchmark" })');
+    expect(devBridgeSource).toContain("execFile(");
+    expect(devBridgeSource).not.toContain("exec(`${benchmark}");
+  });
 });
