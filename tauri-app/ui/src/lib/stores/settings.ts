@@ -8,6 +8,7 @@ export interface PilotSettings {
     ollama_model: string;
     mode: string;
     gpu_memory_limit_mb: number;
+    idle_unload_seconds: number;
     cloud_provider: string;
     cloud_model: string;
     subscription_provider: "codex" | "claude";
@@ -112,6 +113,7 @@ const defaultSettings: PilotSettings = {
     ollama_model: "llama3.1:8b",
     mode: "lightweight",
     gpu_memory_limit_mb: 0,
+    idle_unload_seconds: 60,
     cloud_provider: "",
     cloud_model: "",
     subscription_provider: "codex",

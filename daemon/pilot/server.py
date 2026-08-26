@@ -4840,6 +4840,12 @@ class PilotServer:
                             "status": "error",
                             "message": "model.subscription_max_prompt_chars must be from 16000 to 200000",
                         }
+                if section == "model" and k == "idle_unload_seconds":
+                    if not isinstance(v, int) or isinstance(v, bool) or not 0 <= v <= 86400:
+                        return {
+                            "status": "error",
+                            "message": "model.idle_unload_seconds must be from 0 to 86400",
+                        }
                 if section == "model" and k in {"rate_limit_enabled", "budget_enabled"}:
                     if not isinstance(v, bool):
                         return {"status": "error", "message": f"model.{k} must be a boolean"}

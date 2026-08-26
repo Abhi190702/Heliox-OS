@@ -180,6 +180,8 @@ async def test_failure_threshold_update_reconfigures_live_circuit_breaker():
         ({"subscription_provider": "unknown"}, "subscription_provider"),
         ({"subscription_timeout_seconds": 5}, "subscription_timeout_seconds"),
         ({"subscription_max_prompt_chars": 15999}, "subscription_max_prompt_chars"),
+        ({"idle_unload_seconds": -1}, "idle_unload_seconds"),
+        ({"idle_unload_seconds": 86401}, "idle_unload_seconds"),
         ({"rate_limit_rpm": 0}, "rate_limit_rpm"),
         ({"rate_limit_burst": 0}, "rate_limit_burst"),
         ({"budget_monthly_limit_usd": -1}, "budget_monthly_limit_usd"),

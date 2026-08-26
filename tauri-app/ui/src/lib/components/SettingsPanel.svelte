@@ -1617,6 +1617,27 @@
           step="512"
         />
       </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Idle model unload</span>
+          <span class="setting-desc"
+            >Seconds to keep a local model in memory after its last request; 0 unloads immediately.</span
+          >
+        </div>
+        <input
+          type="number"
+          class="input-sm"
+          value={$settings.model.idle_unload_seconds}
+          onchange={(event) =>
+            settings.updateSection("model", {
+              idle_unload_seconds: Number.parseInt((event.target as HTMLInputElement).value, 10) || 0,
+            })}
+          min="0"
+          max="86400"
+          step="30"
+        />
+      </div>
     {/if}
   </section>
 
@@ -1934,6 +1955,63 @@
 
   <section class="settings-group">
     <h3>Budget &amp; Limits</h3>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Request rate limit</span>
+        <span class="setting-desc"
+          >Throttle LLM calls across providers to prevent bursts and accidental quota exhaustion.</span
+        >
+      </div>
+      <div class="btn-group">
+        <button
+          class:active={$settings.model.rate_limit_enabled}
+          onclick={() => settings.updateSection("model", { rate_limit_enabled: true })}>On</button
+        >
+        <button
+          class:active={!$settings.model.rate_limit_enabled}
+          onclick={() => settings.updateSection("model", { rate_limit_enabled: false })}>Off</button
+        >
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Sustained requests per minute</span>
+        <span class="setting-desc">Continuous request rate after the initial burst is consumed.</span>
+      </div>
+      <input
+        type="number"
+        class="input-sm"
+        min="1"
+        max="10000"
+        step="1"
+        value={$settings.model.rate_limit_rpm}
+        onchange={(event) =>
+          settings.updateSection("model", {
+            rate_limit_rpm: Number.parseInt((event.target as HTMLInputElement).value, 10) || 1,
+          })}
+      />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Request burst capacity</span>
+        <span class="setting-desc">Maximum immediate calls before sustained throttling begins.</span>
+      </div>
+      <input
+        type="number"
+        class="input-sm"
+        min="1"
+        max="1000"
+        step="1"
+        value={$settings.model.rate_limit_burst}
+        onchange={(event) =>
+          settings.updateSection("model", {
+            rate_limit_burst: Number.parseInt((event.target as HTMLInputElement).value, 10) || 1,
+          })}
+      />
+    </div>
 
     <div class="setting-row">
       <div class="setting-info">
