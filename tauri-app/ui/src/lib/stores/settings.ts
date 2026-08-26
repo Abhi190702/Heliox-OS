@@ -186,6 +186,25 @@ const defaultSettings: PilotSettings = {
   hotkey: typeof navigator !== "undefined" && navigator.platform.includes("Mac") ? "Cmd+Space" : "Ctrl+Space", // Default configuration set to dark mode
 };
 
+function mergeSettings(current: PilotSettings, incoming: Partial<PilotSettings>): PilotSettings {
+  return {
+    ...current,
+    ...incoming,
+    model: { ...current.model, ...incoming.model },
+    security: { ...current.security, ...incoming.security },
+    screen_vision: { ...current.screen_vision, ...incoming.screen_vision },
+    vision: { ...current.vision, ...incoming.vision },
+    gesture_cursor: { ...current.gesture_cursor, ...incoming.gesture_cursor },
+    adaptive_calibration: { ...current.adaptive_calibration, ...incoming.adaptive_calibration },
+    preview: { ...current.preview, ...incoming.preview },
+    calendar: { ...current.calendar, ...incoming.calendar },
+    email: { ...current.email, ...incoming.email },
+    ssh: { ...current.ssh, ...incoming.ssh },
+    voice: { ...current.voice, ...incoming.voice },
+    restrictions: { ...current.restrictions, ...incoming.restrictions },
+  };
+}
+
 function createSettings() {
   const { subscribe, set, update } = writable<PilotSettings>(defaultSettings);
 
@@ -206,7 +225,7 @@ function createSettings() {
         if (!parsed.theme) {
           parsed.theme = getSystemTheme();
         }
-        update((s) => ({ ...s, ...parsed }));
+        update((s) => mergeSettings(s, parsed));
       } else {
         // Apply detected system preference mode on fresh startup instances
         update((s) => ({ ...s, theme: getSystemTheme() }));
@@ -217,19 +236,17 @@ function createSettings() {
 
     call("get_config")
       .then((config) => {
-        const fullConfig = config as PilotSettings;
-        // Keep localized store UI theme value if backend daemon returns empty config properties
-        if (!fullConfig.theme) {
-          subscribe((s) => {
-            fullConfig.theme = s.theme;
-          })();
-        }
-        set(fullConfig);
-        try {
-          localStorage.setItem("heliox_settings", JSON.stringify(fullConfig));
-        } catch {
-          /* ignore */
-        }
+        update((current) => {
+          const fullConfig = mergeSettings(current, config as Partial<PilotSettings>);
+          fullConfig.theme = current.theme;
+          fullConfig.hotkey = current.hotkey;
+          try {
+            localStorage.setItem("heliox_settings", JSON.stringify(fullConfig));
+          } catch {
+            /* ignore */
+          }
+          return fullConfig;
+        });
       })
       .catch(() => {});
   }
@@ -239,14 +256,18 @@ function createSettings() {
     values: Record<string, unknown>,
     options: { requireDaemon?: boolean } = {},
   ): Promise<boolean> {
-    if (options.requireDaemon) {
+    const keys = Object.keys(values);
+    const localOnly = section === "" && keys.length > 0 && keys.every((key) => key === "theme" || key === "hotkey");
+
+    if (!localOnly) {
       try {
         const result = await call<{ status?: string; message?: string }>("update_config", { section, values });
         if (result?.status !== "ok") {
           throw new Error(result?.message || "Daemon rejected the setting");
         }
       } catch (err) {
-        console.warn("Daemon rejected required settings update:", err);
+        const qualifier = options.requireDaemon ? "required " : "";
+        console.warn(`Daemon rejected ${qualifier}settings update:`, err);
         return false;
       }
     }
@@ -270,18 +291,6 @@ function createSettings() {
       localStorage.setItem("heliox_settings", JSON.stringify(stored));
     } catch {
       /* ignore */
-    }
-
-    if (!options.requireDaemon) {
-      try {
-        const result = await call<{ status?: string; message?: string }>("update_config", { section, values });
-        if (result?.status !== "ok") {
-          throw new Error(result?.message || "Daemon rejected the setting");
-        }
-      } catch (err) {
-        console.warn("Daemon unreachable, settings saved locally:", err);
-        return false;
-      }
     }
 
     return true;
