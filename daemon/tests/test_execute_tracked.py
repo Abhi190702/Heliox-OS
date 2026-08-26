@@ -333,6 +333,41 @@ async def test_handle_execute_forwards_chat_session_to_planner():
 
 
 @pytest.mark.asyncio
+async def test_reflection_context_does_not_disable_first_attempt_fast_paths():
+    class _ExecutorThatMustNotRun:
+        async def execute(self, plan, **kwargs):
+            raise AssertionError("a zero-action response must not reach the executor")
+
+    captured = {}
+
+    class _ReflectorWithHistory:
+        async def get_improvement_context(self, user_input):
+            return "Prefer the dedicated read-only status action."
+
+        async def reflect(self, *args, **kwargs):
+            return None
+
+    class _CapturingPlanner:
+        async def plan(self, user_input, **kwargs):
+            captured.update(kwargs)
+            return ActionPlan(actions=[], explanation="Ready", raw_input=user_input)
+
+    server = _server_ready_for_handle_execute(_ExecutorThatMustNotRun())
+    server._reflector = _ReflectorWithHistory()
+    server._planner = _CapturingPlanner()
+
+    result = await server._handle_execute(
+        {"input": "Show current battery status without changing anything."},
+        _FakeWs(),
+    )
+
+    assert result["status"] == "success"
+    assert captured["error_context"] == ""
+    assert "[PRIOR VERIFIED IMPROVEMENT CONTEXT]" in captured["screen_context"]
+    assert "dedicated read-only status action" in captured["screen_context"]
+
+
+@pytest.mark.asyncio
 async def test_handle_execute_returns_clean_response_when_cancelled_mid_flight():
     """End-to-end (bypassing the real, ML-heavy PilotServer.initialize()):
     drives a real 'execute' RPC through _handle_execute and confirms that

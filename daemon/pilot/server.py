@@ -2464,7 +2464,11 @@ class PilotServer:
             )
             await emit.phase_complete("agent_routing", ROUTING_AGENTS_ASSIGNED, routing, parent_id=route_phase)
 
-        error_context = improvement_ctx
+        # Reflection is advisory planning context, not a failed-attempt error.
+        # Passing it as ``error_context`` disabled deterministic fast paths for
+        # any user with learned history and forced even simple status queries
+        # through the model planner.
+        error_context = ""
         all_results: list = []
         last_verification = None
         last_explanation = ""
@@ -2539,6 +2543,12 @@ class PilotServer:
                 recent_companion_context = self._recent_companion_context_by_session.get(chat_session_id, "")
                 if recent_companion_context:
                     _screen_ctx = (f"{_screen_ctx}\n\n[RECENT COMPANION CONTEXT]\n{recent_companion_context}").strip()
+                if improvement_ctx:
+                    _screen_ctx = (
+                        f"{_screen_ctx}\n\n[PRIOR VERIFIED IMPROVEMENT CONTEXT]\n"
+                        f"{improvement_ctx}\n"
+                        "Use this only to improve the plan; it is not evidence that the current request failed."
+                    ).strip()
                 if self._subconscious:
                     try:
                         persona_context = await self._subconscious.get_persona_context()
