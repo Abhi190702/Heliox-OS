@@ -174,6 +174,22 @@ async def test_subscription_provider_update_rejects_unsafe_values(values, messag
 
     assert result["status"] == "error"
     assert message in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_reasoning_mode_update_rejects_unknown_value():
+    config = PilotConfig()
+    config.save = MagicMock()
+    server = PilotServer(config)
+
+    result = await server._handle_update_config(
+        {"section": "model", "values": {"mode": "turbo"}},
+        MagicMock(),
+    )
+
+    assert result["status"] == "error"
+    assert config.model.mode == "lightweight"
+    config.save.assert_not_called()
     config.save.assert_not_called()
 
 

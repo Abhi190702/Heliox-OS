@@ -4823,6 +4823,11 @@ class PilotServer:
                             "message": "model.subscription_model must be a model name up to 200 characters",
                         }
                     v = v.strip()
+                if section == "model" and k == "mode" and v not in {"lightweight", "full"}:
+                    return {
+                        "status": "error",
+                        "message": "model.mode must be lightweight or full",
+                    }
                 if section == "model" and k == "subscription_timeout_seconds":
                     if not isinstance(v, int) or isinstance(v, bool) or not 15 <= v <= 600:
                         return {

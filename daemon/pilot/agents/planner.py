@@ -869,6 +869,16 @@ class Planner:
 
         return None  # Not a simple command — use LLM
 
+    @staticmethod
+    def _reasoning_limits(config: Any) -> tuple[int, int, int]:
+        memory_config = getattr(config, "memory", None)
+        max_tokens = int(getattr(memory_config, "max_context_tokens", 4000))
+        recent_limit = int(getattr(memory_config, "max_recent_messages", 10))
+        mode = str(getattr(getattr(config, "model", None), "mode", "lightweight"))
+        if mode != "full":
+            return min(max_tokens, 4000), min(recent_limit, 6), 2
+        return max_tokens, recent_limit, 3
+
     async def plan(
         self,
         user_input: str,
@@ -921,16 +931,7 @@ class Planner:
 
             # Load config parameters safely
             config = getattr(self._model, "_config", None)
-            max_tokens = 4000
-            recent_limit = 10
-            if config:
-                memory_config = getattr(config, "memory", None)
-                if memory_config:
-                    max_tokens = getattr(memory_config, "max_context_tokens", 4000)
-                    recent_limit = getattr(memory_config, "max_recent_messages", 10)
-                else:
-                    max_tokens = getattr(config, "max_context_tokens", 4000)
-                    recent_limit = getattr(config, "max_recent_messages", 10)
+            max_tokens, recent_limit, max_retries = self._reasoning_limits(config)
 
             memory_budget = max(500, max_tokens // 3)
             context = await self._memory.get_context(
@@ -998,7 +999,6 @@ class Planner:
                 max_context_tokens=max_tokens,
             )
 
-            max_retries = 3
             last_raw_response = None
             last_parse_error = None
 
