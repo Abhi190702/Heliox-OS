@@ -2,9 +2,11 @@
   import QRCode from "qrcode";
   import { onDestroy, onMount } from "svelte";
   import { airHandoff } from "../stores/airHandoff";
+  import ConfirmPrompt from "./ConfirmPrompt.svelte";
 
   let qrDataUrl = $state("");
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
+  let pendingRevoke = $state<{ deviceId: string; name: string } | null>(null);
 
   $effect(() => {
     const pairingUrl = $airHandoff.pairing?.pairing_url || "";
@@ -54,9 +56,16 @@
     }
   }
 
-  async function revokeDevice(deviceId: string) {
+  function requestRevokeDevice(deviceId: string, name: string) {
+    pendingRevoke = { deviceId, name };
+  }
+
+  async function confirmRevokeDevice() {
+    const device = pendingRevoke;
+    pendingRevoke = null;
+    if (!device) return;
     try {
-      await airHandoff.revokeDevice(deviceId);
+      await airHandoff.revokeDevice(device.deviceId);
     } catch {
       // The store surfaces the daemon error in the panel.
     }
@@ -67,6 +76,16 @@
     return new Date(timestamp * 1000).toLocaleString();
   }
 </script>
+
+{#if pendingRevoke}
+  <ConfirmPrompt
+    message={`REVOKE ${pendingRevoke.name}?\n\nThis phone will immediately lose access to future Air Handoff transfers. Pair it again to restore access.`}
+    confirmLabel="Revoke phone"
+    danger={true}
+    onconfirm={() => void confirmRevokeDevice()}
+    oncancel={() => (pendingRevoke = null)}
+  />
+{/if}
 
 <section class="handoff-card" aria-labelledby="air-handoff-heading">
   <div class="section-title">
@@ -91,8 +110,8 @@
     <strong>Private by design</strong>
     <span
       >Off by default. The desktop credential stays in the OS keyring; the paired phone credential stays in that
-      browser's local storage. Transfer metadata and content are encrypted for one selected device. The receiver
-      cannot control Heliox. Use only a trusted LAN.</span
+      browser's local storage. Transfer metadata and content are encrypted for one selected device. The receiver cannot
+      control Heliox. Use only a trusted LAN.</span
     >
   </div>
 
@@ -167,7 +186,12 @@
                 <small>Last seen {formatSeen(device.last_seen_at)}</small>
               </span>
             </label>
-            <button type="button" class="revoke" onclick={() => revokeDevice(device.device_id)}>Revoke</button>
+            <button
+              type="button"
+              class="revoke"
+              disabled={$airHandoff.busy}
+              onclick={() => requestRevokeDevice(device.device_id, device.name)}>Revoke</button
+            >
           </div>
         {/each}
       {/if}
