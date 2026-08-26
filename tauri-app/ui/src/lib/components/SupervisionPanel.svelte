@@ -11,7 +11,7 @@
    */
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import { call } from "../api/daemon";
+  import { call, requireOkResult } from "../api/daemon";
 
   let enabled = $state(false);
   let keyboardMouseHookEnabled = $state(false);
@@ -21,6 +21,7 @@
   let loading = $state(true);
   let saving = $state(false);
   let saved = $state(false);
+  let error = $state("");
   let hookWarningUnderstood = $state(false);
 
   onMount(loadStatus);
@@ -39,8 +40,9 @@
       cognitiveCoachingEnabled = result.cognitive_coaching_enabled ?? true;
       riskPatternDetectionEnabled = result.risk_pattern_detection_enabled ?? true;
       hookHealthy = result.hook_healthy ?? false;
-    } catch {
-      /* daemon unreachable -- keep last known state */
+      error = "";
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       loading = false;
     }
@@ -49,16 +51,22 @@
   async function save() {
     saving = true;
     saved = false;
+    error = "";
     try {
-      const result = (await call("supervision_config_update", {
-        enabled,
-        keyboard_mouse_hook_enabled: keyboardMouseHookEnabled,
-        cognitive_coaching_enabled: cognitiveCoachingEnabled,
-        risk_pattern_detection_enabled: riskPatternDetectionEnabled,
-      })) as { hook_healthy: boolean };
+      const result = requireOkResult(
+        (await call("supervision_config_update", {
+          enabled,
+          keyboard_mouse_hook_enabled: keyboardMouseHookEnabled,
+          cognitive_coaching_enabled: cognitiveCoachingEnabled,
+          risk_pattern_detection_enabled: riskPatternDetectionEnabled,
+        })) as { status?: string; message?: string; hook_healthy?: boolean },
+        "Supervision settings were not saved",
+      );
       hookHealthy = result.hook_healthy ?? false;
       saved = true;
       setTimeout(() => (saved = false), 2500);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       saving = false;
     }
@@ -89,6 +97,9 @@
   {#if loading}
     <div class="empty">Loading...</div>
   {:else}
+    {#if error}
+      <p class="panel-error" role="alert">{error}</p>
+    {/if}
     {#if enabled}
       <div class="setting-row">
         <div class="setting-info">
@@ -198,6 +209,16 @@
     text-align: center;
     color: var(--text-muted);
     font-size: 13px;
+  }
+
+  .panel-error {
+    margin: 10px 14px 0;
+    padding: 8px 10px;
+    color: var(--danger, #ef4444);
+    font-size: 11px;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: var(--radius-sm);
   }
 
   .setting-row {

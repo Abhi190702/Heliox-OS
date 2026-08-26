@@ -19,6 +19,20 @@ type JsonRpcResponse = {
 type NotificationHandler = (method: string, params: unknown) => void;
 type ConnectionHandler = (connected: boolean) => void;
 
+export type DaemonStatusResult = {
+  status?: string;
+  message?: string;
+  error?: string;
+};
+
+/** Reject application-level RPC failures that still arrived successfully. */
+export function requireOkResult<T extends DaemonStatusResult>(result: T, fallbackMessage: string): T {
+  if (result?.status !== "ok") {
+    throw new Error(result?.message || result?.error || fallbackMessage);
+  }
+  return result;
+}
+
 let ws: WebSocket | null = null;
 let messageId = 0;
 const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();

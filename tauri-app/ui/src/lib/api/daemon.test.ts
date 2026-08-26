@@ -109,3 +109,28 @@ describe("daemon websocket interruption", () => {
     vi.useRealTimers();
   });
 });
+
+describe("daemon application results", () => {
+  it("accepts successful status results", async () => {
+    const { requireOkResult } = await import("./daemon");
+    const result = { status: "ok", value: 3 };
+
+    expect(requireOkResult(result, "failed")).toBe(result);
+  });
+
+  it("surfaces a daemon rejection instead of reporting success", async () => {
+    const { requireOkResult } = await import("./daemon");
+
+    expect(() => requireOkResult({ status: "error", message: "Hook could not start" }, "failed")).toThrow(
+      "Hook could not start",
+    );
+  });
+
+  it("uses a bounded fallback when a rejection has no message", async () => {
+    const { requireOkResult } = await import("./daemon");
+
+    expect(() => requireOkResult({ status: "error" }, "Configuration was not saved")).toThrow(
+      "Configuration was not saved",
+    );
+  });
+});

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { _ } from "svelte-i18n";
-  import { call } from "../api/daemon";
+  import { call, requireOkResult, type DaemonStatusResult } from "../api/daemon";
 
   let enabled = $state(false);
   let narrateSteps = $state(true);
@@ -14,6 +14,7 @@
   let loading = $state(true);
   let saving = $state(false);
   let saved = $state(false);
+  let error = $state("");
   let learnedPatternCount = $state(0);
   let suggestionShownCount = $state(0);
   let suggestionAcceptedCount = $state(0);
@@ -45,8 +46,9 @@
       followUpEnabled = result.follow_up_enabled ?? true;
       confirmTimeoutSeconds = result.confirm_timeout_seconds ?? 120;
       advisoryTimeoutSeconds = result.advisory_timeout_seconds ?? 5;
-    } catch {
-      /* daemon unreachable -- keep last known state */
+      error = "";
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       loading = false;
     }
@@ -55,19 +57,25 @@
   async function save() {
     saving = true;
     saved = false;
+    error = "";
     try {
-      await call("narration_config_update", {
-        enabled,
-        narrate_steps: narrateSteps,
-        interrupt_on_risk: interruptOnRisk,
-        proactive_review_enabled: proactiveReviewEnabled,
-        live_corrections_enabled: liveCorrectionsEnabled,
-        follow_up_enabled: followUpEnabled,
-        confirm_timeout_seconds: confirmTimeoutSeconds,
-        advisory_timeout_seconds: advisoryTimeoutSeconds,
-      });
+      requireOkResult(
+        await call<DaemonStatusResult>("narration_config_update", {
+          enabled,
+          narrate_steps: narrateSteps,
+          interrupt_on_risk: interruptOnRisk,
+          proactive_review_enabled: proactiveReviewEnabled,
+          live_corrections_enabled: liveCorrectionsEnabled,
+          follow_up_enabled: followUpEnabled,
+          confirm_timeout_seconds: confirmTimeoutSeconds,
+          advisory_timeout_seconds: advisoryTimeoutSeconds,
+        }),
+        "Narration settings were not saved",
+      );
       saved = true;
       setTimeout(() => (saved = false), 2500);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       saving = false;
     }
@@ -118,6 +126,9 @@
   {#if loading}
     <div class="empty">Loading...</div>
   {:else}
+    {#if error}
+      <p class="panel-error" role="alert">{error}</p>
+    {/if}
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-label">{$_("settings.narration_narrate_steps")}</span>
@@ -288,6 +299,16 @@
     text-align: center;
     color: var(--text-muted);
     font-size: 13px;
+  }
+
+  .panel-error {
+    margin: 10px 14px 0;
+    padding: 8px 10px;
+    color: var(--danger, #ef4444);
+    font-size: 11px;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: var(--radius-sm);
   }
 
   .setting-row {
