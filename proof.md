@@ -42,7 +42,7 @@ cd daemon
 python ../scripts/generate_benchmark_evidence.py
 ```
 
-Bundle environment: Windows 11, Python 3.12.6. Source commit: `af36ab1a77b1`.
+Bundle environment: Windows 11, Python 3.12.6. Source commit: `45de280ea2cf`.
 
 ### Guarded local request latency
 
@@ -50,11 +50,11 @@ Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk ass
 
 | Metric | Ready-cold | Warm steady state |
 | --- | ---: | ---: |
-| Median | — | 26.664 ms |
-| p95 | — | 30.238 ms |
-| p99 | — | 30.717 ms |
-| Minimum | — | 25.256 ms |
-| Maximum | 89.570 ms | 31.873 ms |
+| Median | — | 26.858 ms |
+| p95 | — | 28.165 ms |
+| p99 | — | 28.323 ms |
+| Minimum | — | 25.172 ms |
+| Maximum | 33.059 ms | 28.522 ms |
 
 - The harness executes local planning, routing, risk assessment, execution, post-condition verification, and response shaping.
 - All 100 measured steady-state iterations made **0 model calls**.
@@ -64,20 +64,20 @@ Scope: Ready-daemon guarded CPU usage request: local planning, routing, risk ass
 
 | Real guarded action | Iterations | Median | p95 | p99 |
 | --- | ---: | ---: | ---: | ---: |
-| CPU usage | 50 | 26.569 ms | 27.985 ms | 29.234 ms |
-| Memory usage | 50 | 11.471 ms | 15.027 ms | 16.633 ms |
-| Disk usage | 50 | 10.220 ms | 12.651 ms | 13.060 ms |
-| Comprehensive system information | 50 | 60.282 ms | 79.621 ms | 82.536 ms |
+| CPU usage | 50 | 27.255 ms | 28.575 ms | 29.682 ms |
+| Memory usage | 50 | 7.109 ms | 8.785 ms | 9.038 ms |
+| Disk usage | 50 | 4.992 ms | 6.001 ms | 6.261 ms |
+| Comprehensive system information | 50 | 58.383 ms | 80.759 ms | 82.450 ms |
 
 Each case validates the exact selected action, executes the real read-only host probe, and makes zero model calls.
 
 ### Event-loop responsiveness
 
-During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **65 ticks**, with **15.585 ms median**, **16.259 ms p95**, and **25.470 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
+During a real one-second CPU monitor sample, a 10 ms asyncio heartbeat produced **66 ticks**, with **15.497 ms median**, **15.999 ms p95**, and **16.367 ms maximum** gaps. This measures scheduler availability—not monitor completion speed—and is affected by Windows timer granularity.
 
 ### Deterministic intent dispatch
 
-The curated routing regression set passed **59/59 cases** with **0.020 ms median** dispatch latency. It covers bounded positive intents and ambiguous controls that must fall through to model planning. It is not a population-level language-understanding benchmark, and application routing does not prove an application is installed.
+The curated routing regression set passed **59/59 cases** with **0.022 ms median** dispatch latency. It covers bounded positive intents and ambiguous controls that must fall through to model planning. It is not a population-level language-understanding benchmark, and application routing does not prove an application is installed.
 
 ### Learned-risk world model
 
@@ -88,7 +88,7 @@ The shipped `risk-mlp-v3-calibrated` artifact records **36,000 training** and **
 | Disk-delta MAE | 0.0000000330 | 0.0000000718 | 54.0154% |
 | Process-delta MAE | 0.0000130251 | 0.0022166655 | 99.4124% |
 
-The audit passed **5/5 direction invariants** and measured **0.031 ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
+The audit passed **5/5 direction invariants** and measured **0.033 ms median** inference. These are coarse disk/process predictions. Deterministic safety rules remain authoritative; this is not a general physical-world or user-intent model.
 
 ### Subscription-backed planning
 
@@ -119,7 +119,7 @@ A developer-machine run through the official **Codex CLI** passed **3/3 fixed pl
 - None of these software benchmarks measures model-provider, network, browser page-load, UI-rendering, microphone, TTS, camera, gaze, gesture, EEG, or human latency/accuracy.
 - Local snapshots are reproducibility evidence, not universal performance guarantees.
 
-Raw evidence: [`software-benchmarks-2026-08-27.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/software-benchmarks-2026-08-27.json), [`subscription-planning-codex-2026-08-16.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/subscription-planning-codex-2026-08-16.json), and the [historical CPU artifact](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/react-latency-2026-08-12.json).
+Raw evidence: [`software-benchmarks-2026-08-27.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/software-benchmarks-2026-08-27.json), [`subscription-planning-codex-2026-08-16.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/subscription-planning-codex-2026-08-16.json), [`local-tts-isolation-2026-08-27.json`](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/local-tts-isolation-2026-08-27.json), and the [historical CPU artifact](https://github.com/VyomKulshrestha/Heliox-OS/blob/main/docs/evidence/react-latency-2026-08-12.json).
 
 ## Platform and hardware evidence
 
@@ -128,7 +128,7 @@ Raw evidence: [`software-benchmarks-2026-08-27.json`](https://github.com/VyomKul
 | Typed plans and action routing | Schema, permission, executor, provider-coverage, and result-contract tests | No special hardware required | Software path is tested; individual host actions still depend on platform adapters and permissions. |
 | Browser automation | Unit/integration and visual-browser contracts | Site behavior and browser versions vary | Supported through guarded browser actions; no claim of universal website compatibility. |
 | Voice recognition | Configuration, routing, cancellation, and fusion tests | Human microphone accuracy is not a release gate | Hardware test required for the user's microphone, language, noise, and accent. |
-| Pocket/Kokoro/OS TTS | Engine, fallback, cancellation, and response tests | A Pocket TTS developer run through real speakers is documented; not continuously reproduced in CI | Local TTS is implemented; audible quality and device output require a human check. |
+| Pocket/Kokoro/OS TTS | Engine, fallback, cancellation, response, worker isolation, and idle-release tests; real Kokoro WAV synthesis was 21.401 s cold and 0.138 s warm with zero Torch/CUDA modules retained by the parent | Audible output was not assessed in this run and is not continuously reproduced in CI | Local TTS and bounded process isolation are implemented; audible quality, device output, and universal latency require separate validation. |
 | Camera gesture and cursor control | Geometry, temporal verification, calibration, workflow, and false-positive regression tests | Physical accuracy is not established across cameras, lighting, skin tones, backgrounds, or users | Experimental opt-in input; users must retain the stop controls. |
 | Gaze tracking | Model loading, event validation, fusion, and settings tests | Physical gaze accuracy is not a release gate | Coarse on-device region signal, not eye-tracking-grade measurement. |
 | Neural intent | Synthetic BrainFlow, recorded EEG playback, provenance, calibration, decoder, bounded text-authored task staging, neural selection, autonomous dispatch, gateway, and fault tests | No live headset/human validation has established control accuracy | Research pipeline can select a pre-staged goal and launch the normal guarded autonomous path; it does not decode an unstated task and is not proven live brain control or medical use. |
@@ -154,6 +154,7 @@ This is not a claim that no defects remain. It records representative failures t
 
 | Date | Observed failure | Resolution |
 | --- | --- | --- |
+| 2026-08-27 | A local neural TTS request retained PyTorch/CUDA libraries in the long-lived daemon after speech completed. | `2666b39` moved Pocket/Kokoro inference into a reusable worker that exits after a 10-second idle window; the raw isolation artifact records real file synthesis and parent-process module evidence. |
 | 2026-08-12 | The latency benchmark used an obsolete memory/permission harness contract and leaked worker threads after failure, appearing to hang. | [`f2df192`](https://github.com/VyomKulshrestha/Heliox-OS/commit/f2df192) repaired teardown and reduced blocking CPU sampling latency. |
 | 2026-08-13 | Background CPU samples blocked the shared asyncio loop for up to one second. | `bf6ac9c` moved interval sampling to workers; the evidence bundle records concurrent heartbeat responsiveness. |
 | 2026-08-13 | Ambiguous tasks such as “run the tests” were misrouted as application launches. | `cae908d` tightened the bounded app fast path; the 59-case dispatch suite now passes all controls. |

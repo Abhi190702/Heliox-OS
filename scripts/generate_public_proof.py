@@ -32,6 +32,14 @@ def _latest_subscription_benchmark_path() -> Path:
     return candidates[-1]
 
 
+def _latest_tts_benchmark_path() -> Path:
+    evidence_dir = REPO_ROOT / "docs" / "evidence"
+    candidates = sorted(evidence_dir.glob("local-tts-isolation-*.json"))
+    if not candidates:
+        raise FileNotFoundError("No local TTS isolation evidence bundle is committed")
+    return candidates[-1]
+
+
 def _matrix_values(workflow: str, key: str) -> list[str]:
     match = re.search(rf"^\s*{re.escape(key)}:\s*\[([^\]]+)]", workflow, re.MULTILINE)
     if not match:
@@ -50,6 +58,9 @@ def build_proof() -> str:
     benchmarks = _load_json(benchmark_path)
     subscription_benchmark_path = _latest_subscription_benchmark_path()
     subscription_benchmark = _load_json(subscription_benchmark_path)
+    tts_benchmark_path = _latest_tts_benchmark_path()
+    tts_benchmark = _load_json(tts_benchmark_path)
+    tts_results = tts_benchmark["results"]
     ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     ci_operating_systems = _matrix_values(ci_workflow, "os")
     python_versions = _matrix_values(ci_workflow, "python-version")
@@ -202,7 +213,7 @@ A developer-machine run through the official **{subscription_benchmark["provider
 - None of these software benchmarks measures model-provider, network, browser page-load, UI-rendering, microphone, TTS, camera, gaze, gesture, EEG, or human latency/accuracy.
 - Local snapshots are reproducibility evidence, not universal performance guarantees.
 
-Raw evidence: [`{benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence/{benchmark_path.name}), [`{subscription_benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence/{subscription_benchmark_path.name}), and the [historical CPU artifact]({REPOSITORY_URL}/blob/main/docs/evidence/react-latency-2026-08-12.json).
+Raw evidence: [`{benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence/{benchmark_path.name}), [`{subscription_benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence/{subscription_benchmark_path.name}), [`{tts_benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence/{tts_benchmark_path.name}), and the [historical CPU artifact]({REPOSITORY_URL}/blob/main/docs/evidence/react-latency-2026-08-12.json).
 
 ## Platform and hardware evidence
 
@@ -211,7 +222,7 @@ Raw evidence: [`{benchmark_path.name}`]({REPOSITORY_URL}/blob/main/docs/evidence
 | Typed plans and action routing | Schema, permission, executor, provider-coverage, and result-contract tests | No special hardware required | Software path is tested; individual host actions still depend on platform adapters and permissions. |
 | Browser automation | Unit/integration and visual-browser contracts | Site behavior and browser versions vary | Supported through guarded browser actions; no claim of universal website compatibility. |
 | Voice recognition | Configuration, routing, cancellation, and fusion tests | Human microphone accuracy is not a release gate | Hardware test required for the user's microphone, language, noise, and accent. |
-| Pocket/Kokoro/OS TTS | Engine, fallback, cancellation, and response tests | A Pocket TTS developer run through real speakers is documented; not continuously reproduced in CI | Local TTS is implemented; audible quality and device output require a human check. |
+| Pocket/Kokoro/OS TTS | Engine, fallback, cancellation, response, worker isolation, and idle-release tests; real Kokoro WAV synthesis was {tts_results["cold_synthesis_seconds"]:.3f} s cold and {tts_results["warm_synthesis_seconds"]:.3f} s warm with zero Torch/CUDA modules retained by the parent | Audible output was not assessed in this run and is not continuously reproduced in CI | Local TTS and bounded process isolation are implemented; audible quality, device output, and universal latency require separate validation. |
 | Camera gesture and cursor control | Geometry, temporal verification, calibration, workflow, and false-positive regression tests | Physical accuracy is not established across cameras, lighting, skin tones, backgrounds, or users | Experimental opt-in input; users must retain the stop controls. |
 | Gaze tracking | Model loading, event validation, fusion, and settings tests | Physical gaze accuracy is not a release gate | Coarse on-device region signal, not eye-tracking-grade measurement. |
 | Neural intent | Synthetic BrainFlow, recorded EEG playback, provenance, calibration, decoder, bounded text-authored task staging, neural selection, autonomous dispatch, gateway, and fault tests | No live headset/human validation has established control accuracy | Research pipeline can select a pre-staged goal and launch the normal guarded autonomous path; it does not decode an unstated task and is not proven live brain control or medical use. |
@@ -237,6 +248,7 @@ This is not a claim that no defects remain. It records representative failures t
 
 | Date | Observed failure | Resolution |
 | --- | --- | --- |
+| 2026-08-27 | A local neural TTS request retained PyTorch/CUDA libraries in the long-lived daemon after speech completed. | `2666b39` moved Pocket/Kokoro inference into a reusable worker that exits after a 10-second idle window; the raw isolation artifact records real file synthesis and parent-process module evidence. |
 | 2026-08-12 | The latency benchmark used an obsolete memory/permission harness contract and leaked worker threads after failure, appearing to hang. | [`f2df192`]({REPOSITORY_URL}/commit/f2df192) repaired teardown and reduced blocking CPU sampling latency. |
 | 2026-08-13 | Background CPU samples blocked the shared asyncio loop for up to one second. | `bf6ac9c` moved interval sampling to workers; the evidence bundle records concurrent heartbeat responsiveness. |
 | 2026-08-13 | Ambiguous tasks such as “run the tests” were misrouted as application launches. | `cae908d` tightened the bounded app fast path; the 59-case dispatch suite now passes all controls. |

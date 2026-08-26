@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0.0",
+  "captured_at": "2026-08-27T01:26:00+05:30",
+  "captured_on": "2026-08-27",
+  "source_commit": "2666b396e6596f71fbc310db9200f29c4cf8b485",
+  "benchmark": "process_isolated_local_tts_burst",
+  "scope": "Two sequential real Kokoro file-synthesis requests through the reusable local-TTS worker, followed by idle-process release",
+  "environment": {
+    "operating_system": "Windows 11",
+    "python": "3.12.6",
+    "engine": "kokoro_tts",
+    "voice": "af_heart",
+    "idle_timeout_seconds": 10
+  },
+  "results": {
+    "cold_synthesis_seconds": 21.401,
+    "warm_synthesis_seconds": 0.138,
+    "first_wave_bytes": 141644,
+    "second_wave_bytes": 114044,
+    "parent_torch_or_cuda_modules": 0,
+    "worker_alive_after_11_5_seconds": false,
+    "worker_slot_cleared_after_idle": true
+  },
+  "claim_boundary": "Developer-machine file synthesis and process-lifetime evidence only; no claim of audible quality, speaker compatibility, universal latency, or Pocket TTS performance",
+  "limitations": [
+    "Cold latency depends on host load, storage cache, model availability, and model-download state.",
+    "The warm measurement covers one immediate follow-up within the bounded worker lifetime.",
+    "Audio was verified as non-empty WAV output, not assessed by a human listener in this run.",
+    "The worker temporarily consumes model memory while active; isolation ensures those libraries are not retained by the long-lived daemon."
+  ]
+}
