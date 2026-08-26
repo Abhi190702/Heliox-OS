@@ -13,6 +13,7 @@ This replaces the simple MultiAgentRouter with a full agent coordination system.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 import uuid
@@ -103,16 +104,43 @@ class AgentOrchestrator:
         self.background_allowed.set()  # Start unpaused
 
         # Start the continuous scheduler loop in the background
+        self._background_tasks: set[asyncio.Task[Any]] = set()
         self._scheduler_task = asyncio.create_task(self.scheduler_loop())
 
     async def stop(self) -> None:
-        """Cancel the background scheduler task cleanly."""
+        """Cancel the scheduler and every task it owns."""
         if hasattr(self, "_scheduler_task") and not self._scheduler_task.done():
             self._scheduler_task.cancel()
-            try:
-                await self._scheduler_task
-            except asyncio.CancelledError:
-                pass
+            await asyncio.gather(self._scheduler_task, return_exceptions=True)
+
+        while not self.task_queue.empty():
+            queued = self.task_queue.get_nowait()
+            self._dispose_awaitable(queued.coro)
+            self.task_queue.task_done()
+
+        background_tasks = tuple(self._background_tasks)
+        for task in background_tasks:
+            task.cancel()
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
+        self.background_allowed.set()
+
+    @staticmethod
+    def _dispose_awaitable(awaitable: Any) -> None:
+        """Cancel or close work that will never be scheduled."""
+        if isinstance(awaitable, asyncio.Future):
+            awaitable.cancel()
+        elif inspect.iscoroutine(awaitable):
+            awaitable.close()
+
+    def _background_done(self, task: asyncio.Task[Any]) -> None:
+        self._background_tasks.discard(task)
+        if task.cancelled():
+            return
+        try:
+            task.result()
+        except Exception:
+            logger.exception("Scheduled background task failed")
 
     def set_budget_tracker(self, tracker: BudgetTracker) -> None:
         """Inject the budget tracker. Called by server.py during startup."""
@@ -152,26 +180,35 @@ class AgentOrchestrator:
         while True:
             # Pull the highest priority task (lowest integer value)
             p_task = await self.task_queue.get()
-
-            if p_task.priority == TaskPriority.USER_REALTIME:
-                # INTERRUPT: Freeze all background tasks
-                logger.info(f"High-priority interrupt received: {p_task.task_id}. Suspending background tasks.")
-                self.background_allowed.clear()
-
-                # Execute the real-time task immediately
-                await p_task.coro
-
-                # RESUME: Unfreeze background tasks
-                logger.info(f"Real-time task {p_task.task_id} complete. Resuming background tasks.")
-                self.background_allowed.set()
-
-            else:
-                # Wait until we are allowed to run background tasks
-                await self.background_allowed.wait()
-                # Fire and forget the background task so the loop can keep listening
-                asyncio.create_task(p_task.coro)
-
-            self.task_queue.task_done()
+            work_started = False
+            try:
+                if p_task.priority == TaskPriority.USER_REALTIME:
+                    # INTERRUPT: Freeze all background tasks
+                    logger.info("High-priority interrupt received: %s. Suspending background tasks.", p_task.task_id)
+                    self.background_allowed.clear()
+                    work_started = True
+                    try:
+                        await p_task.coro
+                    except Exception:
+                        logger.exception("Real-time scheduled task %s failed", p_task.task_id)
+                    finally:
+                        # A failed interactive task must never suppress every
+                        # lower-priority feature indefinitely.
+                        self.background_allowed.set()
+                        logger.info("Real-time task %s complete. Resuming background tasks.", p_task.task_id)
+                else:
+                    # Wait until we are allowed to run background tasks.
+                    await self.background_allowed.wait()
+                    task = asyncio.create_task(p_task.coro, name=f"scheduled_{p_task.task_id}")
+                    work_started = True
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_done)
+            except asyncio.CancelledError:
+                if not work_started:
+                    self._dispose_awaitable(p_task.coro)
+                raise
+            finally:
+                self.task_queue.task_done()
 
     # ── Agent Registration ──
 
