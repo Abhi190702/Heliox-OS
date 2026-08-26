@@ -7,9 +7,12 @@ system TTS or edge-tts, and optional wake word detection.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -80,6 +83,165 @@ def _looks_like_autonomous_voice_intent(text: str) -> bool:
 # same pop/cancel idiom VoiceGestureWorkflowEngine._active_tasks uses per
 # workflow_id, just with a single slot instead of a dict.
 _current_speech_task: asyncio.Task[str] | None = None
+_local_tts_process: subprocess.Popen[bytes] | None = None
+_local_tts_engine: str | None = None
+_local_tts_idle_task: asyncio.Task[None] | None = None
+_LOCAL_TTS_IDLE_SECONDS = 10.0
+
+
+async def _play_local_tts_file(path: Path) -> None:
+    """Play a synthesized WAV without importing the model runtime."""
+
+    def _play() -> None:
+        import sounddevice as sd
+        import soundfile
+
+        audio, sample_rate = soundfile.read(path, dtype="float32")
+        sd.play(audio, sample_rate)
+        sd.wait()
+
+    try:
+        await asyncio.to_thread(_play)
+    except asyncio.CancelledError:
+        import sounddevice as sd
+
+        sd.stop()
+        raise
+
+
+async def _shutdown_local_tts_worker(process: subprocess.Popen[bytes] | None = None) -> None:
+    global _local_tts_process, _local_tts_engine, _local_tts_idle_task
+    worker = process or _local_tts_process
+    idle_task = _local_tts_idle_task
+    _local_tts_idle_task = None
+    if idle_task is not None and idle_task is not asyncio.current_task() and not idle_task.done():
+        idle_task.cancel()
+    if worker is None:
+        return
+    if worker is _local_tts_process:
+        _local_tts_process = None
+        _local_tts_engine = None
+
+    def _close() -> None:
+        try:
+            if worker.poll() is None:
+                if worker.stdin is not None:
+                    try:
+                        worker.stdin.close()
+                    except (BrokenPipeError, OSError):
+                        pass
+                try:
+                    worker.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    worker.terminate()
+                    try:
+                        worker.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        worker.kill()
+                        worker.wait()
+        finally:
+            if worker.stdin is not None and not worker.stdin.closed:
+                try:
+                    worker.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+            if worker.stdout is not None:
+                worker.stdout.close()
+
+    await asyncio.to_thread(_close)
+
+
+async def _expire_local_tts_worker(process: subprocess.Popen[bytes]) -> None:
+    await asyncio.sleep(_LOCAL_TTS_IDLE_SECONDS)
+    if process is _local_tts_process:
+        await _shutdown_local_tts_worker(process)
+
+
+def _schedule_local_tts_worker_expiry(process: subprocess.Popen[bytes]) -> None:
+    global _local_tts_idle_task
+    if _local_tts_idle_task is not None and not _local_tts_idle_task.done():
+        _local_tts_idle_task.cancel()
+    _local_tts_idle_task = asyncio.create_task(_expire_local_tts_worker(process))
+
+
+async def _get_local_tts_worker(engine: str) -> subprocess.Popen[bytes]:
+    global _local_tts_process, _local_tts_engine, _local_tts_idle_task
+    if _local_tts_idle_task is not None and not _local_tts_idle_task.done():
+        _local_tts_idle_task.cancel()
+    _local_tts_idle_task = None
+    if _local_tts_process is not None and _local_tts_process.poll() is None and _local_tts_engine == engine:
+        return _local_tts_process
+    await _shutdown_local_tts_worker()
+
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    command = [sys.executable, "-m", "pilot.system.local_tts_worker", "--engine", engine, "--serve"]
+    _local_tts_process = await asyncio.to_thread(
+        subprocess.Popen,
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        creationflags=creationflags,
+    )
+    _local_tts_engine = engine
+    return _local_tts_process
+
+
+def _exchange_local_tts_request(process: subprocess.Popen[bytes], request: dict[str, str]) -> bytes:
+    if process.stdin is None or process.stdout is None:
+        raise RuntimeError("Local TTS worker streams are unavailable")
+    process.stdin.write((json.dumps(request) + "\n").encode("utf-8"))
+    process.stdin.flush()
+    return process.stdout.readline()
+
+
+async def _run_local_tts_worker(
+    engine: str,
+    text: str,
+    voice: str,
+    output_file: str | None,
+) -> None:
+    """Synthesize heavy local voices outside the long-lived daemon process."""
+    if engine not in {"kokoro_tts", "pocket_tts"}:
+        raise ValueError(f"Unsupported local TTS engine: {engine}")
+    if len(text) > 20_000:
+        raise ValueError("Speech text exceeds the 20,000 character limit")
+
+    with tempfile.TemporaryDirectory(prefix="heliox-tts-") as temp_dir:
+        request_path = Path(temp_dir) / "request.txt"
+        request_path.write_text(text, encoding="utf-8")
+        target_path = Path(output_file) if output_file else Path(temp_dir) / "speech.wav"
+        process = await _get_local_tts_worker(engine)
+        request = {
+            "text_file": str(request_path),
+            "voice": voice,
+            "output_file": str(target_path),
+        }
+        try:
+            response_line = await asyncio.to_thread(_exchange_local_tts_request, process, request)
+        except asyncio.CancelledError:
+            await _shutdown_local_tts_worker(process)
+            raise
+        if not response_line:
+            await _shutdown_local_tts_worker(process)
+            raise RuntimeError(f"{engine} worker exited before returning audio")
+        try:
+            response = json.loads(response_line)
+        except json.JSONDecodeError as exc:
+            await _shutdown_local_tts_worker(process)
+            raise RuntimeError(f"{engine} worker returned an invalid response") from exc
+        if response.get("status") != "ok":
+            await _shutdown_local_tts_worker(process)
+            reason = str(response.get("error") or "unknown synthesis failure")[-500:]
+            raise RuntimeError(f"{engine} worker failed: {reason}")
+        if not target_path.is_file() or target_path.stat().st_size == 0:
+            await _shutdown_local_tts_worker(process)
+            raise RuntimeError(f"{engine} worker produced no audio")
+        try:
+            if output_file is None:
+                await _play_local_tts_file(target_path)
+        finally:
+            _schedule_local_tts_worker_expiry(process)
 
 
 # ── Text-to-Speech ───────────────────────────────────────────────────
@@ -165,12 +327,9 @@ async def _speak_impl(
     config = PilotConfig.load()
     if config.voice.tts_engine == "kokoro_tts":
         try:
-            from pilot.system.kokoro_tts import synthesize_and_play, synthesize_to_file
-
+            await _run_local_tts_worker("kokoro_tts", spoken_text, config.voice.tts_voice, output_file)
             if output_file:
-                await synthesize_to_file(spoken_text, config.voice.tts_voice, output_file)
                 return f"Speech saved to {output_file}"
-            await synthesize_and_play(spoken_text, config.voice.tts_voice)
             return f"Spoken: {text[:80]}..."
         except asyncio.CancelledError:
             raise
@@ -179,15 +338,12 @@ async def _speak_impl(
 
     if config.voice.tts_engine == "pocket_tts":
         try:
-            from pilot.system.pocket_tts import synthesize_and_play, synthesize_to_file
-
             # Pocket TTS has no SAPI-style integer rate/volume knob to carry
             # the cognitive-load rate modulation above onto -- out of scope
             # for this pass, see SECURITY.md.
+            await _run_local_tts_worker("pocket_tts", spoken_text, config.voice.tts_voice, output_file)
             if output_file:
-                await synthesize_to_file(spoken_text, config.voice.tts_voice, output_file)
                 return f"Speech saved to {output_file}"
-            await synthesize_and_play(spoken_text, config.voice.tts_voice)
             return f"Spoken: {text[:80]}..."
         except asyncio.CancelledError:
             # Barge-in -- propagate exactly like the OS-native paths do,

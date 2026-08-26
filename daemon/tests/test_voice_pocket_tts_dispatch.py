@@ -29,10 +29,10 @@ def _config_with(tts_engine: str = "pocket_tts", tts_voice: str = "alba") -> Pil
 async def test_kokoro_engine_uses_selected_natural_voice(monkeypatch):
     monkeypatch.setattr(PilotConfig, "load", lambda: _config_with("kokoro_tts", "af_heart"))
 
-    with patch("pilot.system.kokoro_tts.synthesize_and_play", new=AsyncMock()) as mock_synth:
+    with patch.object(voice, "_run_local_tts_worker", new=AsyncMock()) as mock_synth:
         result = await voice._speak_impl("hello world")
 
-    mock_synth.assert_awaited_once_with("hello world", "af_heart")
+    mock_synth.assert_awaited_once_with("kokoro_tts", "hello world", "af_heart", None)
     assert result == "Spoken: hello world..."
 
 
@@ -40,10 +40,10 @@ async def test_kokoro_engine_uses_selected_natural_voice(monkeypatch):
 async def test_product_name_uses_explicit_pronunciation_for_kokoro(monkeypatch):
     monkeypatch.setattr(PilotConfig, "load", lambda: _config_with("kokoro_tts", "af_heart"))
 
-    with patch("pilot.system.kokoro_tts.synthesize_and_play", new=AsyncMock()) as mock_synth:
+    with patch.object(voice, "_run_local_tts_worker", new=AsyncMock()) as mock_synth:
         result = await voice._speak_impl("Heliox is ready")
 
-    mock_synth.assert_awaited_once_with("Hee-lee-ox is ready", "af_heart")
+    mock_synth.assert_awaited_once_with("kokoro_tts", "Hee-lee-ox is ready", "af_heart", None)
     assert result == "Spoken: Heliox is ready..."
 
 
@@ -53,8 +53,9 @@ async def test_kokoro_failure_falls_back_to_os_native(monkeypatch):
     monkeypatch.setattr(voice, "CURRENT_PLATFORM", Platform.WINDOWS)
 
     with (
-        patch(
-            "pilot.system.kokoro_tts.synthesize_and_play",
+        patch.object(
+            voice,
+            "_run_local_tts_worker",
             new=AsyncMock(side_effect=RuntimeError("model failed to load")),
         ),
         patch.object(voice, "_tts_windows", new=AsyncMock(return_value="os-native result")) as mock_os_tts,
@@ -71,8 +72,9 @@ async def test_kokoro_cancellation_does_not_start_fallback(monkeypatch):
     monkeypatch.setattr(voice, "CURRENT_PLATFORM", Platform.WINDOWS)
 
     with (
-        patch(
-            "pilot.system.kokoro_tts.synthesize_and_play",
+        patch.object(
+            voice,
+            "_run_local_tts_worker",
             new=AsyncMock(side_effect=asyncio.CancelledError()),
         ),
         patch.object(voice, "_tts_windows", new=AsyncMock(return_value="os-native result")) as mock_os_tts,
@@ -87,10 +89,10 @@ async def test_kokoro_cancellation_does_not_start_fallback(monkeypatch):
 async def test_default_engine_uses_pocket_tts(monkeypatch):
     monkeypatch.setattr(PilotConfig, "load", lambda: _config_with())
 
-    with patch("pilot.system.pocket_tts.synthesize_and_play", new=AsyncMock()) as mock_synth:
+    with patch.object(voice, "_run_local_tts_worker", new=AsyncMock()) as mock_synth:
         result = await voice._speak_impl("hello world")
 
-    mock_synth.assert_awaited_once_with("hello world", "alba")
+    mock_synth.assert_awaited_once_with("pocket_tts", "hello world", "alba", None)
     assert result == "Spoken: hello world..."
 
 
@@ -98,10 +100,10 @@ async def test_default_engine_uses_pocket_tts(monkeypatch):
 async def test_pocket_tts_writes_to_output_file_when_given(monkeypatch):
     monkeypatch.setattr(PilotConfig, "load", lambda: _config_with())
 
-    with patch("pilot.system.pocket_tts.synthesize_to_file", new=AsyncMock()) as mock_write:
+    with patch.object(voice, "_run_local_tts_worker", new=AsyncMock()) as mock_write:
         result = await voice._speak_impl("hello", output_file="out.wav")
 
-    mock_write.assert_awaited_once_with("hello", "alba", "out.wav")
+    mock_write.assert_awaited_once_with("pocket_tts", "hello", "alba", "out.wav")
     assert result == "Speech saved to out.wav"
 
 
@@ -111,7 +113,7 @@ async def test_os_native_engine_skips_pocket_tts_entirely(monkeypatch):
     monkeypatch.setattr(voice, "CURRENT_PLATFORM", Platform.WINDOWS)
 
     with (
-        patch("pilot.system.pocket_tts.synthesize_and_play", new=AsyncMock()) as mock_synth,
+        patch.object(voice, "_run_local_tts_worker", new=AsyncMock()) as mock_synth,
         patch.object(voice, "_tts_windows", new=AsyncMock(return_value="os-native result")) as mock_os_tts,
     ):
         result = await voice._speak_impl("hello")
@@ -127,8 +129,9 @@ async def test_pocket_tts_failure_falls_back_to_os_native(monkeypatch):
     monkeypatch.setattr(voice, "CURRENT_PLATFORM", Platform.WINDOWS)
 
     with (
-        patch(
-            "pilot.system.pocket_tts.synthesize_and_play",
+        patch.object(
+            voice,
+            "_run_local_tts_worker",
             new=AsyncMock(side_effect=RuntimeError("model failed to load")),
         ) as mock_synth,
         patch.object(voice, "_tts_windows", new=AsyncMock(return_value="os-native result")) as mock_os_tts,
@@ -150,7 +153,7 @@ async def test_pocket_tts_import_error_falls_back_to_os_native(monkeypatch):
         raise ImportError("No module named 'pocket_tts'")
 
     with (
-        patch("pilot.system.pocket_tts.synthesize_and_play", side_effect=_raise_import_error),
+        patch.object(voice, "_run_local_tts_worker", side_effect=_raise_import_error),
         patch.object(voice, "_tts_windows", new=AsyncMock(return_value="os-native result")) as mock_os_tts,
     ):
         result = await voice._speak_impl("hello")
@@ -165,8 +168,9 @@ async def test_pocket_tts_cancellation_propagates_without_falling_back(monkeypat
     monkeypatch.setattr(voice, "CURRENT_PLATFORM", Platform.WINDOWS)
 
     with (
-        patch(
-            "pilot.system.pocket_tts.synthesize_and_play",
+        patch.object(
+            voice,
+            "_run_local_tts_worker",
             new=AsyncMock(side_effect=asyncio.CancelledError()),
         ),
         patch.object(voice, "_tts_windows", new=AsyncMock(return_value="os-native result")) as mock_os_tts,
