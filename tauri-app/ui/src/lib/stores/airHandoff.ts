@@ -1,6 +1,10 @@
 import { get, writable } from "svelte/store";
 import { call, onNotification } from "../api/daemon";
 import { airHandoffGestureCommand } from "../gesture/airHandoffGesture";
+import {
+  resolveAirHandoffDelivery,
+  type AirHandoffDeliveryEvent,
+} from "../gesture/airHandoffDelivery";
 
 export interface AirHandoffDevice {
   device_id: string;
@@ -33,8 +37,11 @@ export interface AirHandoffState {
   pairing: AirHandoffPairing | null;
   draft: AirHandoffDraft | null;
   ready_transfers: number;
+  recent: AirHandoffDeliveryEvent[];
   secure_storage_available: boolean;
   selectedDeviceId: string;
+  awaitingTransferId: string;
+  awaitingTargetName: string;
   gestureArmed: boolean;
   busy: boolean;
   error: string;
@@ -51,8 +58,11 @@ const initialState: AirHandoffState = {
   pairing: null,
   draft: null,
   ready_transfers: 0,
+  recent: [],
   secure_storage_available: false,
   selectedDeviceId: typeof localStorage === "undefined" ? "" : localStorage.getItem(selectedKey) || "",
+  awaitingTransferId: "",
+  awaitingTargetName: "",
   gestureArmed: false,
   busy: false,
   error: "",
@@ -66,8 +76,15 @@ function createAirHandoffStore() {
   function mergeRemote(remote: Partial<AirHandoffState>): void {
     update((current) => {
       const devices = remote.paired_devices ?? current.paired_devices;
+      const recent = remote.recent ?? current.recent;
       const selectedStillExists = devices.some((device) => device.device_id === current.selectedDeviceId);
       const selectedDeviceId = selectedStillExists ? current.selectedDeviceId : devices[0]?.device_id || "";
+      const selectedName = devices.find((device) => device.device_id === selectedDeviceId)?.name || "Phone";
+      const delivery = resolveAirHandoffDelivery(
+        current.awaitingTransferId,
+        recent,
+        current.awaitingTargetName || selectedName,
+      );
       if (typeof localStorage !== "undefined") {
         if (selectedDeviceId) localStorage.setItem(selectedKey, selectedDeviceId);
         else localStorage.removeItem(selectedKey);
@@ -76,7 +93,11 @@ function createAirHandoffStore() {
         ...current,
         ...remote,
         paired_devices: devices,
+        recent,
         selectedDeviceId,
+        awaitingTransferId: delivery?.awaitingTransferId ?? current.awaitingTransferId,
+        awaitingTargetName: delivery ? "" : current.awaitingTargetName,
+        message: delivery?.message ?? remote.message ?? current.message,
         gestureArmed:
           remote.enabled === false || remote.running === false || !selectedDeviceId ? false : current.gestureArmed,
       };
@@ -162,11 +183,17 @@ function createAirHandoffStore() {
   async function dropToSelected(): Promise<void> {
     const state = get(store);
     if (!state.selectedDeviceId) throw new Error("Select a paired phone first");
-    await invoke("air_handoff_drop", { target_device_id: state.selectedDeviceId });
+    const result = await invoke<{ transfer: { transfer_id: string } }>("air_handoff_drop", {
+      target_device_id: state.selectedDeviceId,
+    });
+    const targetName =
+      state.paired_devices.find((device) => device.device_id === state.selectedDeviceId)?.name || "selected phone";
     mergeRemote({
       draft: null,
       gestureArmed: false,
-      message: "Sent securely to the selected phone",
+      awaitingTransferId: result.transfer.transfer_id,
+      awaitingTargetName: targetName,
+      message: `Queued securely for ${targetName}; waiting for receipt confirmation`,
     });
   }
 

@@ -454,7 +454,18 @@ class AirHandoffManager:
             self._delete_path(Path(self._draft.path))
             self._draft = None
         for transfer_id, transfer in list(self._transfers.items()):
-            if transfer.expires_at <= now or transfer.status == "acknowledged":
+            if transfer.expires_at <= now:
+                self._recent.appendleft(
+                    {
+                        "event": "expired",
+                        "transfer_id": transfer_id,
+                        "device_id": transfer.target_device_id,
+                        "at": now,
+                    }
+                )
+                self._delete_path(Path(transfer.path))
+                self._transfers.pop(transfer_id, None)
+            elif transfer.status == "acknowledged":
                 self._delete_path(Path(transfer.path))
                 self._transfers.pop(transfer_id, None)
 

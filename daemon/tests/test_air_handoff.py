@@ -232,6 +232,21 @@ async def test_ephemeral_payloads_are_purged_on_startup_and_shutdown(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_expired_transfer_is_reported_without_claiming_delivery(tmp_path: Path) -> None:
+    manager = AirHandoffManager(FakeVault(), data_dir=tmp_path)
+    credential, _ = await pair_device(manager)
+    await manager.grab_text("expires before receipt")
+    transfer = await manager.drop(credential["device_id"])
+    manager._transfers[transfer["transfer_id"]].expires_at = 0
+
+    status = await manager.status()
+
+    assert status["ready_transfers"] == 0
+    assert status["recent"][0]["event"] == "expired"
+    assert status["recent"][0]["transfer_id"] == transfer["transfer_id"]
+
+
+@pytest.mark.asyncio
 async def test_receiver_serves_hardened_assets_and_authenticated_poll(tmp_path: Path) -> None:
     manager = AirHandoffManager(FakeVault(), data_dir=tmp_path)
     server = AirHandoffServer(manager, host="127.0.0.1", port=0)
