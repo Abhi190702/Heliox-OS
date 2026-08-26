@@ -504,8 +504,8 @@ class NetworkConfig:
     enabled: bool = False
     port: int = 8786  # peer-to-peer WebSocket port (separate from client port)
     peer_timeout_s: int = 30  # seconds before a silent peer is considered gone
-    skill_sync_enabled: bool = True  # broadcast/receive plugins from peers
-    collab_exec_enabled: bool = True  # distribute parallelizable action batches
+    skill_sync_enabled: bool = False  # broadcast/receive plugins from authenticated peers
+    collab_exec_enabled: bool = False  # distribute actions only to authenticated peers
 
 
 @dataclass

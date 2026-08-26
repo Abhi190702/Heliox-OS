@@ -19,7 +19,17 @@ logger = logging.getLogger("pilot.security.vault")
 
 VAULT_SERVICE = "pilot-ai-command-center"
 LEGACY_VAULT_FILE = DATA_DIR / "vault.enc"
-KNOWN_PROVIDERS = ("openai", "openrouter", "anthropic", "claude", "gemini", "meta", "caldav", "email")
+KNOWN_PROVIDERS = (
+    "openai",
+    "openrouter",
+    "anthropic",
+    "claude",
+    "gemini",
+    "meta",
+    "caldav",
+    "email",
+    "heliox_mesh",
+)
 
 
 class VaultUnavailableError(RuntimeError):

@@ -18,10 +18,12 @@ Message types
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
+import secrets
 import time
-import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -29,6 +31,97 @@ logger = logging.getLogger("pilot.network.peer_connection")
 
 _HEARTBEAT_INTERVAL = 15  # seconds between heartbeat pings
 _HEARTBEAT_TIMEOUT = 45  # seconds before declaring a peer dead
+_MESSAGE_CLOCK_SKEW_SECONDS = 90
+
+
+class PeerAuthenticationError(ValueError):
+    """Raised when a peer message is unsigned, forged, stale, or replayed."""
+
+
+def encode_peer_message(
+    shared_secret: bytes,
+    sender_id: str,
+    msg_type: str,
+    payload: dict[str, Any],
+    *,
+    timestamp: int | None = None,
+    nonce: str | None = None,
+) -> str:
+    """Create a signed peer envelope without transmitting the shared secret."""
+    body = {
+        "sender": sender_id,
+        "type": msg_type,
+        "payload": payload,
+        "timestamp": int(time.time()) if timestamp is None else timestamp,
+        "nonce": nonce or secrets.token_urlsafe(18),
+    }
+    canonical = json.dumps(body, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    body["signature"] = hmac.new(shared_secret, canonical, hashlib.sha256).hexdigest()
+    return json.dumps(body, separators=(",", ":"))
+
+
+def decode_peer_message(
+    shared_secret: bytes,
+    raw: str | bytes,
+    seen_nonces: dict[str, int],
+    *,
+    expected_sender: str | None = None,
+    now: int | None = None,
+) -> dict[str, Any]:
+    """Verify a signed peer envelope and reject stale or replayed messages."""
+    try:
+        message = json.loads(raw)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise PeerAuthenticationError("peer message is not valid JSON") from exc
+    if not isinstance(message, dict):
+        raise PeerAuthenticationError("peer message must be an object")
+
+    required = {"sender", "type", "payload", "timestamp", "nonce", "signature"}
+    if not required.issubset(message):
+        raise PeerAuthenticationError("peer message is unsigned or incomplete")
+    sender = message["sender"]
+    msg_type = message["type"]
+    payload = message["payload"]
+    timestamp = message["timestamp"]
+    nonce = message["nonce"]
+    signature = message["signature"]
+    if not isinstance(sender, str) or not sender or len(sender) > 128:
+        raise PeerAuthenticationError("peer sender is invalid")
+    if expected_sender is not None and sender != expected_sender:
+        raise PeerAuthenticationError("peer sender does not match discovery identity")
+    if not isinstance(msg_type, str) or not msg_type or len(msg_type) > 64:
+        raise PeerAuthenticationError("peer message type is invalid")
+    if not isinstance(payload, dict):
+        raise PeerAuthenticationError("peer payload must be an object")
+    if isinstance(timestamp, bool) or not isinstance(timestamp, int):
+        raise PeerAuthenticationError("peer timestamp is invalid")
+    if not isinstance(nonce, str) or not nonce or len(nonce) > 128:
+        raise PeerAuthenticationError("peer nonce is invalid")
+    if not isinstance(signature, str):
+        raise PeerAuthenticationError("peer signature is invalid")
+
+    current_time = int(time.time()) if now is None else now
+    if abs(current_time - timestamp) > _MESSAGE_CLOCK_SKEW_SECONDS:
+        raise PeerAuthenticationError("peer message is stale")
+    for cached_nonce, cached_at in tuple(seen_nonces.items()):
+        if current_time - cached_at > _MESSAGE_CLOCK_SKEW_SECONDS:
+            seen_nonces.pop(cached_nonce, None)
+    if nonce in seen_nonces:
+        raise PeerAuthenticationError("peer message was replayed")
+
+    signed_body = {
+        "sender": sender,
+        "type": msg_type,
+        "payload": payload,
+        "timestamp": timestamp,
+        "nonce": nonce,
+    }
+    canonical = json.dumps(signed_body, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    expected = hmac.new(shared_secret, canonical, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise PeerAuthenticationError("peer signature is invalid")
+    seen_nonces[nonce] = timestamp
+    return signed_body
 
 
 @dataclass
@@ -69,6 +162,7 @@ class PeerConnection:
         host: str,
         port: int,
         own_capabilities: PeerCapabilities,
+        shared_secret: bytes,
         on_message: Callable[[str, str, dict[str, Any]], Any] | None = None,
         on_disconnect: Callable[[str], None] | None = None,
     ) -> None:
@@ -76,6 +170,7 @@ class PeerConnection:
         self.host = host
         self.port = port
         self._own_caps = own_capabilities
+        self._shared_secret = shared_secret
         self._on_message = on_message
         self._on_disconnect = on_disconnect
 
@@ -85,6 +180,8 @@ class PeerConnection:
         self._peer_caps: PeerCapabilities | None = None
         self._send_queue: asyncio.Queue[str] = asyncio.Queue()
         self._task: asyncio.Task | None = None
+        self._direct_send = False
+        self._seen_nonces: dict[str, int] = {}
 
     @property
     def connected(self) -> bool:
@@ -119,8 +216,11 @@ class PeerConnection:
     async def disconnect(self) -> None:
         """Gracefully close the connection."""
         self._connected = False
-        if self._task:
-            self._task.cancel()
+        task = self._task
+        self._task = None
+        if task and task is not asyncio.current_task():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         if self._ws:
             try:
                 await self._ws.close()
@@ -133,12 +233,40 @@ class PeerConnection:
         if not self._connected:
             logger.warning("PeerConnection.send: not connected to %s", self.peer_id)
             return
-        await self._send_queue.put(json.dumps({"type": msg_type, "payload": payload}))
+        raw = encode_peer_message(
+            self._shared_secret,
+            self._own_caps.instance_id,
+            msg_type,
+            payload,
+        )
+        if self._direct_send:
+            await self._ws.send(raw)
+            return
+        await self._send_queue.put(raw)
+
+    def attach_inbound(self, websocket: Any, peer_capabilities: PeerCapabilities) -> None:
+        """Attach an accepted socket whose receive loop is owned by the mesh."""
+        self._ws = websocket
+        self._connected = True
+        self._direct_send = True
+        self._last_heartbeat = time.time()
+        self._peer_caps = peer_capabilities
+
+    def note_heartbeat(self) -> None:
+        """Refresh liveness for a receive loop owned by the mesh server."""
+        self._last_heartbeat = time.time()
 
     async def _send_raw(self, msg_type: str, payload: dict[str, Any]) -> None:
         """Send immediately (used for handshake before the queue loop starts)."""
         if self._ws:
-            await self._ws.send(json.dumps({"type": msg_type, "payload": payload}))
+            await self._ws.send(
+                encode_peer_message(
+                    self._shared_secret,
+                    self._own_caps.instance_id,
+                    msg_type,
+                    payload,
+                )
+            )
 
     async def _run(self) -> None:
         """Main I/O loop: receive messages and drain the send queue."""
@@ -153,10 +281,14 @@ class PeerConnection:
             )
             for t in pending:
                 t.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
         except asyncio.CancelledError:
             recv_task.cancel()
             send_task.cancel()
             hb_task.cancel()
+            await asyncio.gather(recv_task, send_task, hb_task, return_exceptions=True)
+            raise
         finally:
             self._connected = False
             if self._on_disconnect:
@@ -167,7 +299,17 @@ class PeerConnection:
         try:
             async for raw in self._ws:
                 try:
-                    msg = json.loads(raw)
+                    msg = decode_peer_message(
+                        self._shared_secret,
+                        raw,
+                        self._seen_nonces,
+                        expected_sender=self.peer_id,
+                    )
+                except PeerAuthenticationError as exc:
+                    logger.warning("PeerConnection: rejected unauthenticated peer %s: %s", self.peer_id, exc)
+                    await self._ws.close(code=1008, reason="peer authentication failed")
+                    return
+                try:
                     msg_type = msg.get("type", "")
                     payload = msg.get("payload", {})
 
@@ -179,6 +321,13 @@ class PeerConnection:
                         self._last_heartbeat = time.time()
                         continue
                     if msg_type == "peer_info":
+                        if payload.get("instance_id") != self.peer_id:
+                            logger.warning(
+                                "PeerConnection: peer %s advertised a mismatched signed identity",
+                                self.peer_id,
+                            )
+                            await self._ws.close(code=1008, reason="peer identity mismatch")
+                            return
                         self._peer_caps = PeerCapabilities(**payload)
                         logger.debug("PeerConnection: received caps from %s", self.peer_id)
                         continue

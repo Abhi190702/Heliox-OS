@@ -662,6 +662,7 @@ class PilotServer:
         self._rss_agent: Any = None
         # ── LAN Mesh Network ──
         self._mesh: Any = None
+        self._mesh_error = ""
         # Separate least-privileged LAN service for encrypted phone handoffs.
         self._air_handoff_manager: Any = None
         self._air_handoff_server: Any = None
@@ -1454,13 +1455,22 @@ class PilotServer:
                 from pilot.network.mesh import HelioxMesh
                 from pilot.system.plugins import get_manager as get_plugin_manager
 
+                mesh_secret = await self._vault.get_key("heliox_mesh")
+                if not mesh_secret or len(mesh_secret.encode("utf-8")) < 32:
+                    self._mesh_error = (
+                        "Save the same LAN mesh secret (at least 32 bytes) in the OS credential vault on each peer"
+                    )
+                    raise ValueError(self._mesh_error)
                 self._mesh = HelioxMesh(
                     config=self.config.network,
                     executor=self._executor,
                     plugin_manager=get_plugin_manager(),
+                    shared_secret=mesh_secret.encode("utf-8"),
                 )
                 logger.info("HelioxMesh initialised (will start with server)")
-            except Exception:
+            except Exception as exc:
+                if not self._mesh_error:
+                    self._mesh_error = str(exc)
                 logger.warning("HelioxMesh init failed (non-critical)", exc_info=True)
 
     async def _broadcast_notification(self, method: str, params: Any) -> None:
@@ -8088,10 +8098,12 @@ def handle_tool(tool_name, params):
         if not self._mesh:
             return {
                 "enabled": False,
-                "reason": "Set [network] enabled = true in config.toml to activate",
+                "authenticated": False,
+                "reason": self._mesh_error or "Enable Peer Mesh and save a shared secret in Settings to activate it",
             }
         return {
             "enabled": True,
+            "authenticated": True,
             "instance_id": self._mesh.instance_id,
             "peer_count": len(self._mesh.peer_ids),
             "skill_sync_enabled": self.config.network.skill_sync_enabled,

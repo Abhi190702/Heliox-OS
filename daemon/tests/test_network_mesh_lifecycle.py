@@ -14,7 +14,7 @@ def _mesh() -> HelioxMesh:
         skill_sync_enabled=False,
     )
     plugin_manager = SimpleNamespace(list_plugins=lambda: [])
-    return HelioxMesh(config, MagicMock(), plugin_manager)
+    return HelioxMesh(config, MagicMock(), plugin_manager, shared_secret=b"m" * 32)
 
 
 @pytest.mark.asyncio

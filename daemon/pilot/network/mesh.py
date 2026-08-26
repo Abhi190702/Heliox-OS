@@ -37,7 +37,12 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from pilot.models.gpu_utils import get_available_vram
-from pilot.network.peer_connection import PeerCapabilities, PeerConnection
+from pilot.network.peer_connection import (
+    PeerAuthenticationError,
+    PeerCapabilities,
+    PeerConnection,
+    decode_peer_message,
+)
 
 if TYPE_CHECKING:
     from pilot.agents.executor import Executor
@@ -65,10 +70,14 @@ class HelioxMesh:
         config: NetworkConfig,
         executor: Executor,
         plugin_manager: PluginManager,
+        shared_secret: bytes,
     ) -> None:
+        if len(shared_secret) < 32:
+            raise ValueError("LAN mesh shared secret must contain at least 32 bytes")
         self._config = config
         self._executor = executor
         self._plugin_manager = plugin_manager
+        self._shared_secret = shared_secret
         self._instance_id = str(uuid.uuid4())[:8]
 
         self._connections: dict[str, PeerConnection] = {}
@@ -200,7 +209,9 @@ class HelioxMesh:
 
     def _on_peer_found(self, peer_info: Any) -> None:
         """Called by PeerDiscovery when a new peer is found on the LAN."""
-        if self._running:
+        # Exactly one side opens the connection so simultaneous mDNS discovery
+        # cannot create two sockets for the same peer pair.
+        if self._running and self._instance_id < peer_info.peer_id:
             self._spawn(self._connect_to_peer(peer_info))
 
     def _on_peer_lost(self, peer_id: str) -> None:
@@ -222,6 +233,7 @@ class HelioxMesh:
             host=peer_info.host,
             port=peer_info.port,
             own_capabilities=own_caps,
+            shared_secret=self._shared_secret,
             on_message=self._on_peer_message,
             on_disconnect=self._on_connection_lost,
         )
@@ -300,39 +312,70 @@ class HelioxMesh:
             logger.info("HelioxMesh: P2P server listening on port %d", self._config.port)
         except Exception as exc:
             logger.error("HelioxMesh: failed to start P2P server: %s", exc)
+            raise
 
     async def _handle_inbound_peer(self, websocket: Any) -> None:
         """Handle an inbound WebSocket connection from a peer."""
-        import json
-
         peer_id: str | None = None
+        seen_nonces: dict[str, int] = {}
         try:
             async for raw in websocket:
-                msg = json.loads(raw)
+                try:
+                    msg = decode_peer_message(
+                        self._shared_secret,
+                        raw,
+                        seen_nonces,
+                        expected_sender=peer_id,
+                    )
+                except PeerAuthenticationError as exc:
+                    logger.warning("HelioxMesh: rejected unauthenticated inbound peer: %s", exc)
+                    await websocket.close(code=1008, reason="peer authentication failed")
+                    return
                 msg_type = msg.get("type", "")
                 payload = msg.get("payload", {})
 
                 if msg_type == "peer_info":
-                    peer_id = payload.get("instance_id", str(uuid.uuid4())[:8])
+                    advertised_peer_id = payload.get("instance_id", "")
+                    if advertised_peer_id != msg["sender"]:
+                        logger.warning("HelioxMesh: peer identity does not match signed sender")
+                        await websocket.close(code=1008, reason="peer identity mismatch")
+                        return
+                    peer_id = msg["sender"]
                     # Register a lightweight inbound connection wrapper
-                    if peer_id not in self._connections:
-                        own_caps = self._build_own_capabilities()
-                        conn = PeerConnection(
-                            peer_id=peer_id,
-                            host=websocket.remote_address[0],
-                            port=self._config.port,
-                            own_capabilities=own_caps,
-                            on_message=self._on_peer_message,
-                            on_disconnect=self._on_connection_lost,
-                        )
-                        # Attach the already-open websocket
-                        conn._ws = websocket
-                        conn._connected = True
-                        self._connections[peer_id] = conn
-                        logger.info("HelioxMesh: inbound peer %s connected", peer_id)
+                    if peer_id in self._connections:
+                        await websocket.close(code=1000, reason="duplicate peer connection")
+                        return
+                    try:
+                        peer_caps = PeerCapabilities(**payload)
+                    except (TypeError, ValueError) as exc:
+                        logger.warning("HelioxMesh: invalid capabilities from peer %s: %s", peer_id, exc)
+                        await websocket.close(code=1008, reason="invalid peer capabilities")
+                        return
+                    own_caps = self._build_own_capabilities()
+                    conn = PeerConnection(
+                        peer_id=peer_id,
+                        host=websocket.remote_address[0],
+                        port=self._config.port,
+                        own_capabilities=own_caps,
+                        shared_secret=self._shared_secret,
+                        on_message=self._on_peer_message,
+                        on_disconnect=self._on_connection_lost,
+                    )
+                    conn.attach_inbound(websocket, peer_caps)
+                    self._connections[peer_id] = conn
+                    await conn.send("peer_info", own_caps.__dict__)
+                    logger.info("HelioxMesh: inbound peer %s connected", peer_id)
                     continue
 
                 if peer_id:
+                    conn = self._connections.get(peer_id)
+                    if msg_type == "heartbeat" and conn:
+                        conn.note_heartbeat()
+                        await conn.send("heartbeat_ack", {})
+                        continue
+                    if msg_type == "heartbeat_ack" and conn:
+                        conn.note_heartbeat()
+                        continue
                     await self._on_peer_message(peer_id, msg_type, payload)
         except Exception as exc:
             logger.debug("HelioxMesh: inbound peer connection closed: %s", exc)
