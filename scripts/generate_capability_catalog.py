@@ -35,6 +35,7 @@ LINUX_ONLY = {
     ActionType.DBUS_CALL,
 }
 
+
 def _sha256(path: Path) -> str:
     content = path.read_bytes()
     if path.suffix.lower() in {".json", ".py"}:
