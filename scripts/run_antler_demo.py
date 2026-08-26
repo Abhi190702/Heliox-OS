@@ -24,7 +24,9 @@ def _port_closed(port: int) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, help="Evidence directory (defaults under .codex-artifacts).")
+    parser.add_argument(
+        "--output", type=Path, help="Evidence directory (defaults under .codex-artifacts)."
+    )
     args = parser.parse_args()
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -32,7 +34,9 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     npm = shutil.which("npm")
     if npm is None:
-        parser.error("npm is required; install the checked-in UI dependencies before running the demo")
+        parser.error(
+            "npm is required; install the checked-in UI dependencies before running the demo"
+        )
 
     env = os.environ.copy()
     env["HELIOX_APPROVAL_ARTIFACT_DIR"] = str(output)
