@@ -276,10 +276,11 @@
       if (isTauriRuntime()) {
         await invoke("move_gesture_cursor", { x, y });
       } else {
-        const result = await call<{ status?: string; message?: string }>("cursor_move", { x, y });
-        if (result?.status === "error") {
-          throw new Error(result.message || "Cursor move was rejected");
-        }
+        requireResultStatus(
+          await call<{ status?: string; message?: string }>("cursor_move", { x, y }),
+          "ok",
+          "Cursor move was rejected",
+        );
       }
       cursorRetryAfter = 0;
       if (cursorModeActive) {
@@ -309,10 +310,11 @@
       } else {
         // The daemon fallback has no "click at current position" concept —
         // reuse the same coordinates the last cursor_move call already sent.
-        const result = await call<{ status?: string; message?: string }>("cursor_click", { x, y });
-        if (result?.status === "error") {
-          throw new Error(result.message || "Cursor click was rejected");
-        }
+        requireResultStatus(
+          await call<{ status?: string; message?: string }>("cursor_click", { x, y }),
+          "ok",
+          "Cursor click was rejected",
+        );
       }
     } catch (error) {
       cursorRuntimePhase = "error";
