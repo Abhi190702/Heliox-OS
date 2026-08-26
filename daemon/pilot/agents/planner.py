@@ -158,12 +158,12 @@ FORENSICS & LOG ANALYSIS:
 - log_analyze — Parse and analyze system/service logs for anomalies, session correlation, failed logins, and resource spikes. Params: {{"log_path": "auth", "log_type": "auth", "query": "failed", "time_window": "24h", "llm_contextual": true}}
 
 API INTEGRATION, MESSAGING & WEBHOOKS (OpenClaw-style Hub):
-- api_request — Params: {{"method": "GET", "url": "https://api.example.com", "headers": {{}}, "body": null}}
+- api_request — Params: {{"method": "GET", "url": "https://api.example.com", "headers": {{}}, "body": null, "allow_private_network": false}}. Set allow_private_network=true only when the user explicitly requests a localhost/LAN endpoint; it requires approval.
 - api_github — Params: {{"endpoint": "/user/repos", "method": "GET", "body": null}}
 - api_send_email — Params: {{"to": "user@example.com", "subject": "Hi", "body": "Hello"}}
 - api_webhook, api_slack, api_discord — Params: {{"url": "...", "payload": {{"text": "Hello"}}}}
 - api_whatsapp — Params: {{"phone": "+1234567890", "message": "Your agent update."}}
-- api_scrape — Web scraping without browser. Params: {{"url": "https://...", "selector": "h1", "extract": "text"}}
+- api_scrape — Web scraping without browser. Params: {{"url": "https://...", "selector": "h1", "extract": "text", "allow_private_network": false}}. Private-network scraping requires explicit user intent and approval.
 
 # === STANDARD SYSTEM CONTROLS ===
 

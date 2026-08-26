@@ -68,6 +68,22 @@ def test_mutating_api_methods_always_require_confirmation(action_type, method):
     assert action.is_irreversible is True
 
 
+@pytest.mark.parametrize("action_type", [ActionType.API_REQUEST, ActionType.API_SCRAPE])
+def test_private_network_access_requires_confirmation(action_type):
+    action = Action(
+        action_type=action_type,
+        parameters=ApiRequestParams(
+            method="GET",
+            url="http://127.0.0.1:8080",
+            allow_private_network=True,
+        ),
+    )
+
+    assert action.permission_tier == PermissionTier.SYSTEM_MODIFY
+    assert action.requires_confirmation is True
+    assert action.is_irreversible is True
+
+
 class TestBrowserActionRetiering:
     """Browser actions used to be blanket ALWAYS_SAFE (Tier 1) regardless of
     what they did — this is the fix for that gap (see SECURITY.md's Agent

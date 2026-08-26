@@ -785,6 +785,7 @@ class ApiRequestParams(BaseModel):
     body: dict | None = None
     params: dict[str, str] = Field(default_factory=dict)
     timeout: int = 30
+    allow_private_network: bool = False
     # GitHub specific
     endpoint: str = ""  # e.g. /user/repos
     token: str | None = None
@@ -988,9 +989,15 @@ class Action(BaseModel):
         if self.action_type in ALWAYS_SAFE:
             return PermissionTier.USER_WRITE
         if self.action_type in {ActionType.API_REQUEST, ActionType.API_GITHUB}:
+            if self.action_type == ActionType.API_REQUEST and bool(
+                getattr(self.parameters, "allow_private_network", False)
+            ):
+                return PermissionTier.SYSTEM_MODIFY
             method = str(getattr(self.parameters, "method", "GET")).upper()
             if method in READ_ONLY_HTTP_METHODS:
                 return PermissionTier.READ_ONLY
+            return PermissionTier.SYSTEM_MODIFY
+        if self.action_type == ActionType.API_SCRAPE and bool(getattr(self.parameters, "allow_private_network", False)):
             return PermissionTier.SYSTEM_MODIFY
         if self.action_type in READ_ONLY_ACTIONS:
             return PermissionTier.READ_ONLY
@@ -1023,6 +1030,10 @@ class Action(BaseModel):
         if self.permission_tier == PermissionTier.ROOT_CRITICAL:
             return True
         if self.dangerous_flags:
+            return True
+        if self.action_type in {ActionType.API_REQUEST, ActionType.API_SCRAPE} and bool(
+            getattr(self.parameters, "allow_private_network", False)
+        ):
             return True
         if self.action_type in {ActionType.API_REQUEST, ActionType.API_GITHUB}:
             method = str(getattr(self.parameters, "method", "GET")).upper()

@@ -2615,7 +2615,15 @@ class Executor:
         from pilot.system.api_client import api_request
 
         p: ApiRequestParams = action.parameters  # type: ignore[assignment]
-        return await api_request(p.method, p.url, p.headers or None, p.body, p.params or None, timeout=p.timeout)
+        return await api_request(
+            p.method,
+            p.url,
+            p.headers or None,
+            p.body,
+            p.params or None,
+            timeout=p.timeout,
+            allow_private_network=p.allow_private_network,
+        )
 
     async def _exec_api_github(self, action: Action) -> str:
         from pilot.system.api_client import github_api
@@ -2651,7 +2659,12 @@ class Executor:
         from pilot.system.api_client import scrape_url
 
         p: ApiRequestParams = action.parameters  # type: ignore[assignment]
-        return await scrape_url(p.url, p.selector, p.extract)
+        return await scrape_url(
+            p.url,
+            p.selector,
+            p.extract,
+            allow_private_network=p.allow_private_network,
+        )
 
     # ======================================================================
     # WORKSPACE SEMANTIC SEARCH (RAG)
