@@ -686,41 +686,23 @@ class PilotServer:
         self._mcp_auth_token = secrets.token_urlsafe(32)
 
     def _start_tts_warmup(self) -> None:
-        """Warm the selected local voice without blocking daemon startup.
+        """Keep local TTS lazy so idle Heliox does not load PyTorch.
 
-        Replacing the engine or preset cancels the obsolete warmup. Failures
-        stay non-fatal because voice.py will use the OS-native fallback.
+        Kokoro and Pocket TTS both pull a sizeable inference runtime into the
+        daemon.  Loading it at startup consumed several gigabytes on CUDA
+        Python installations even when the user never asked Heliox to speak.
+        The voice dispatcher already loads the selected engine on its first
+        utterance and retains its model cache for subsequent speech, so an
+        eager warmup is unnecessary.
         """
         if self._tts_warmup_task and not self._tts_warmup_task.done():
             self._tts_warmup_task.cancel()
-
-        engine = self.config.voice.tts_engine
-        voice = self.config.voice.tts_voice
-        if engine not in {"kokoro_tts", "pocket_tts"}:
-            self._tts_warmup_task = None
-            return
-
-        async def _warm_selected_voice() -> None:
-            display_name = "Kokoro TTS" if engine == "kokoro_tts" else "Pocket TTS"
-            try:
-                if engine == "kokoro_tts":
-                    from pilot.system.kokoro_tts import warmup
-                else:
-                    from pilot.system.pocket_tts import warmup
-
-                logger.info("%s warmup started (voice=%s)", display_name, voice)
-                await warmup(voice)
-                logger.info("%s warmup completed (voice=%s)", display_name, voice)
-            except asyncio.CancelledError:
-                return
-            except Exception:
-                logger.warning(
-                    "%s warmup failed; OS voice fallback remains available",
-                    display_name,
-                    exc_info=True,
-                )
-
-        self._tts_warmup_task = asyncio.create_task(_warm_selected_voice())
+        self._tts_warmup_task = None
+        if self.config.voice.tts_engine in {"kokoro_tts", "pocket_tts"}:
+            logger.info(
+                "%s model deferred until first speech request",
+                "Kokoro TTS" if self.config.voice.tts_engine == "kokoro_tts" else "Pocket TTS",
+            )
 
     async def initialize(self) -> None:
         """Initialize all agent components.
