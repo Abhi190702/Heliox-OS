@@ -165,6 +165,7 @@ class PeerConnection:
         shared_secret: bytes,
         on_message: Callable[[str, str, dict[str, Any]], Any] | None = None,
         on_disconnect: Callable[[str], None] | None = None,
+        heartbeat_timeout_seconds: float = _HEARTBEAT_TIMEOUT,
     ) -> None:
         self.peer_id = peer_id
         self.host = host
@@ -173,6 +174,11 @@ class PeerConnection:
         self._shared_secret = shared_secret
         self._on_message = on_message
         self._on_disconnect = on_disconnect
+        self._heartbeat_timeout_seconds = max(5.0, float(heartbeat_timeout_seconds))
+        self._heartbeat_interval_seconds = min(
+            float(_HEARTBEAT_INTERVAL),
+            max(1.0, self._heartbeat_timeout_seconds / 3.0),
+        )
 
         self._ws: Any = None  # websockets connection
         self._connected = False
@@ -354,11 +360,11 @@ class PeerConnection:
     async def _heartbeat_loop(self) -> None:
         """Send periodic heartbeats and detect dead peers."""
         while self._connected:
-            await asyncio.sleep(_HEARTBEAT_INTERVAL)
+            await asyncio.sleep(self._heartbeat_interval_seconds)
             if not self._connected:
                 break
             elapsed = time.time() - self._last_heartbeat
-            if elapsed > _HEARTBEAT_TIMEOUT:
+            if elapsed > self._heartbeat_timeout_seconds:
                 logger.warning("PeerConnection: peer %s timed out (%.0fs)", self.peer_id, elapsed)
                 break
             await self._send_raw("heartbeat", {"ts": time.time()})

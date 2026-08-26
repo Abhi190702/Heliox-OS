@@ -244,6 +244,7 @@ class HelioxMesh:
             shared_secret=self._shared_secret,
             on_message=self._on_peer_message,
             on_disconnect=self._on_connection_lost,
+            heartbeat_timeout_seconds=getattr(self._config, "peer_timeout_s", 45),
         )
         success = await conn.connect()
         if success:
@@ -337,8 +338,18 @@ class HelioxMesh:
         """Handle an inbound WebSocket connection from a peer."""
         peer_id: str | None = None
         seen_nonces: dict[str, int] = {}
+        timeout_seconds = max(5.0, float(getattr(self._config, "peer_timeout_s", 45)))
+        iterator = websocket.__aiter__()
         try:
-            async for raw in websocket:
+            while True:
+                try:
+                    raw = await asyncio.wait_for(iterator.__anext__(), timeout=timeout_seconds)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    logger.warning("HelioxMesh: inbound peer %s timed out", peer_id or "before handshake")
+                    await websocket.close(code=1001, reason="peer timed out")
+                    return
                 try:
                     msg = decode_peer_message(
                         self._shared_secret,
@@ -379,6 +390,7 @@ class HelioxMesh:
                         shared_secret=self._shared_secret,
                         on_message=self._on_peer_message,
                         on_disconnect=self._on_connection_lost,
+                        heartbeat_timeout_seconds=timeout_seconds,
                     )
                     conn.attach_inbound(websocket, peer_caps)
                     self._connections[peer_id] = conn

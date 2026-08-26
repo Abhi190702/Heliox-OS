@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -152,6 +153,45 @@ async def test_mesh_completes_authenticated_inbound_handshake_and_heartbeat():
     assert handshake_reply["type"] == "peer_info"
     assert heartbeat_reply["type"] == "heartbeat_ack"
     assert mesh.peer_ids == []
+
+
+@pytest.mark.asyncio
+async def test_mesh_closes_silent_inbound_peer_using_configured_timeout(monkeypatch):
+    config = SimpleNamespace(
+        port=8786,
+        peer_timeout_s=12,
+        collab_exec_enabled=False,
+        skill_sync_enabled=False,
+    )
+    mesh = HelioxMesh(config, MagicMock(), MagicMock(), shared_secret=SECRET)
+    websocket = _InboundSocket([])
+    observed: dict[str, float] = {}
+
+    async def timeout_immediately(awaitable, *, timeout):
+        observed["timeout"] = timeout
+        awaitable.close()
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr("pilot.network.mesh.asyncio.wait_for", timeout_immediately)
+
+    await mesh._handle_inbound_peer(websocket)
+
+    assert observed["timeout"] == 12
+    assert websocket.closed == (1001, "peer timed out")
+
+
+def test_peer_connection_derives_heartbeat_cadence_from_timeout():
+    connection = PeerConnection(
+        peer_id="peer-a",
+        host="127.0.0.1",
+        port=8786,
+        own_capabilities=PeerCapabilities(instance_id="local"),
+        shared_secret=SECRET,
+        heartbeat_timeout_seconds=30,
+    )
+
+    assert connection._heartbeat_timeout_seconds == 30
+    assert connection._heartbeat_interval_seconds == 10
 
 
 def test_mesh_rejects_short_shared_secret():
