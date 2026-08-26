@@ -80,6 +80,7 @@
     resolveHandBackend,
     shouldRunGazeInference,
     shouldSendGazeUpdate,
+    shouldRunVideoInference,
     type GazeRegion,
   } from "../gesture/gazeTracking";
   import { gazeRuntime, resetGazeRuntime, updateGazeRuntime } from "../stores/gazeRuntime";
@@ -160,6 +161,8 @@
   let lastGazeRegion: GazeRegion | null = null;
   let lastGazeSentAt = 0;
   let lastGazeInferenceAt = 0;
+  let lastHandVideoTime = -1;
+  let lastGazeVideoTime = -1;
 
   let animFrameId: number = 0;
   let lastGestureTime = 0;
@@ -618,6 +621,7 @@
     lastGazeRegion = null;
     lastGazeSentAt = 0;
     lastGazeInferenceAt = 0;
+    lastGazeVideoTime = -1;
     resetGazeRuntime();
   }
 
@@ -846,6 +850,7 @@
     }
     deactivateGazeTracking();
     lastWorldLandmarks = null;
+    lastHandVideoTime = -1;
     worldTracking = false;
     handAcquiring = false;
     handAcquireFrames = 0;
@@ -895,8 +900,12 @@
   async function detectFrame() {
     if (!isActive || !videoEl || stopping) return;
 
-    if (activeBackend === "tasks") {
-      if (handLandmarker) {
+    const videoTime = videoEl.currentTime;
+    const hasNewHandFrame = shouldRunVideoInference(videoTime, lastHandVideoTime);
+
+    if (hasNewHandFrame) {
+      lastHandVideoTime = videoTime;
+      if (activeBackend === "tasks" && handLandmarker) {
         try {
           const result = handLandmarker.detectForVideo(videoEl, performance.now());
           const landmarks = (result.landmarks?.[0] as Landmark[] | undefined) ?? null;
@@ -906,24 +915,24 @@
         } catch {
           /* ignore */
         }
+      } else if (activeBackend === "legacy" && hands) {
+        try {
+          await hands.send({ image: videoEl });
+        } catch {
+          /* ignore */
+        }
       }
-    } else if (hands) {
-      try {
-        await hands.send({ image: videoEl });
-      } catch {
-        /* ignore */
-      }
-    } else {
-      return;
     }
 
-    if (gazeTrackingActive && faceLandmarker) {
+    const gazeVideoTime = videoEl.currentTime;
+    if (gazeTrackingActive && faceLandmarker && shouldRunVideoInference(gazeVideoTime, lastGazeVideoTime)) {
       const gazeNow = performance.now();
       if (shouldRunGazeInference(gazeNow, lastGazeInferenceAt)) {
         // Record before the synchronous FaceLandmarker call so an expensive
         // detected-face pass cannot trigger another run immediately after it
         // returns and starve the hand/cursor path.
         lastGazeInferenceAt = gazeNow;
+        lastGazeVideoTime = gazeVideoTime;
         try {
           const faceResult = faceLandmarker.detectForVideo(videoEl, gazeNow);
           const faceLandmarks = faceResult.faceLandmarks?.[0] as { x: number; y: number; z?: number }[] | undefined;

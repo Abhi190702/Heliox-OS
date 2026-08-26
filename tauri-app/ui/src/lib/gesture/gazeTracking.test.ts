@@ -7,6 +7,7 @@ import {
   resolveHandBackend,
   shouldRunGazeInference,
   shouldSendGazeUpdate,
+  shouldRunVideoInference,
   type FaceLandmark,
 } from "./gazeTracking";
 
@@ -122,6 +123,22 @@ describe("shouldRunGazeInference", () => {
     expect(shouldRunGazeInference(1_499, 1_000)).toBe(false);
     expect(shouldRunGazeInference(1_000 + GAZE_INFERENCE_INTERVAL_MS, 1_000)).toBe(true);
     expect(shouldRunGazeInference(2_000, 1_000)).toBe(true);
+  });
+});
+
+describe("shouldRunVideoInference", () => {
+  it("processes the first decoded frame and each new camera frame", () => {
+    expect(shouldRunVideoInference(0, -1)).toBe(true);
+    expect(shouldRunVideoInference(1 / 30, 0)).toBe(true);
+  });
+
+  it("does not synchronously process the same camera frame twice", () => {
+    expect(shouldRunVideoInference(2.5, 2.5)).toBe(false);
+  });
+
+  it("rejects invalid media timestamps", () => {
+    expect(shouldRunVideoInference(Number.NaN, 0)).toBe(false);
+    expect(shouldRunVideoInference(-1, 0)).toBe(false);
   });
 });
 

@@ -73,6 +73,13 @@ export const GAZE_HEARTBEAT_MS = 750;
  */
 export const GAZE_INFERENCE_INTERVAL_MS = 500;
 
+/** MediaPipe's video examples guard inference with video.currentTime so a
+ * 60 Hz animation loop does not synchronously process the same 30 fps camera
+ * frame twice. The first decoded frame is always eligible. */
+export function shouldRunVideoInference(currentVideoTime: number, previousVideoTime: number): boolean {
+  return Number.isFinite(currentVideoTime) && currentVideoTime >= 0 && currentVideoTime !== previousVideoTime;
+}
+
 export function shouldRunGazeInference(nowMs: number, previousRunAtMs: number): boolean {
   return nowMs - previousRunAtMs >= GAZE_INFERENCE_INTERVAL_MS;
 }
