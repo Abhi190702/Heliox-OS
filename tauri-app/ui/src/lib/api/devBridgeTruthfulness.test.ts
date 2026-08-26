@@ -29,4 +29,11 @@ describe("browser development bridge truthfulness", () => {
     expect(devBridgeSource).toContain("execFile(");
     expect(devBridgeSource).not.toContain("exec(`${benchmark}");
   });
+
+  it("reports the native neural sidecar as truthfully disconnected", () => {
+    expect(devBridgeSource).toContain('command === "get_neural_sidecar_status"');
+    expect(devBridgeSource).toContain("running: false");
+    expect(devBridgeSource).toContain("available: false");
+    expect(devBridgeSource).toContain("only available in the packaged Heliox desktop app");
+  });
 });

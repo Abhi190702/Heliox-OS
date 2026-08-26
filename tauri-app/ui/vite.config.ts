@@ -320,6 +320,16 @@ function daemonTokenDevPlugin(): Plugin {
               return;
             }
 
+            if (command === "get_neural_sidecar_status") {
+              sendJson(res, 200, {
+                running: false,
+                pid: null,
+                available: false,
+                reason: "The native neural sidecar is only available in the packaged Heliox desktop app",
+              });
+              return;
+            }
+
             if (command === "get_uptime") {
               const uptimeSec = Math.round(os.uptime());
               const hours = Math.floor(uptimeSec / 3600);
