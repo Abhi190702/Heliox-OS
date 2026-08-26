@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { call } from "../api/daemon";
+  import { call, requireOkResult, type DaemonStatusResult } from "../api/daemon";
 
   interface GatewayAuditEvent {
     id: number;
@@ -25,6 +25,7 @@
   let loading = $state(true);
   let verifyResult: { valid: boolean; checked_entries: number; error: string } | null = $state(null);
   let verifying = $state(false);
+  let loadError = $state("");
 
   let sourceFilter = $state("");
   let familyFilter = $state("");
@@ -34,15 +35,20 @@
 
   async function loadEvents() {
     loading = true;
+    loadError = "";
     try {
       const params: Record<string, string | number> = { limit: 100 };
       if (sourceFilter) params.source_profile = sourceFilter;
       if (familyFilter) params.action_family = familyFilter;
       if (decisionFilter) params.decision = decisionFilter;
-      const result = (await call("list_gateway_events", params)) as { status: string; events: GatewayAuditEvent[] };
+      const result = requireOkResult(
+        (await call("list_gateway_events", params)) as DaemonStatusResult & { events: GatewayAuditEvent[] },
+        "The daemon did not return the gateway audit log.",
+      );
       events = result.events ?? [];
-    } catch {
+    } catch (cause) {
       events = [];
+      loadError = cause instanceof Error ? cause.message : "Could not load the gateway audit log.";
     } finally {
       loading = false;
     }
@@ -52,7 +58,14 @@
     verifying = true;
     verifyResult = null;
     try {
-      const result = (await call("verify_gateway_audit")) as { valid: boolean; checked_entries: number; error: string };
+      const result = requireOkResult(
+        (await call("verify_gateway_audit")) as DaemonStatusResult & {
+          valid: boolean;
+          checked_entries: number;
+          error: string;
+        },
+        "The daemon did not verify the gateway audit chain.",
+      );
       verifyResult = result;
     } catch (err) {
       verifyResult = { valid: false, checked_entries: 0, error: String(err instanceof Error ? err.message : err) };
@@ -122,6 +135,8 @@
 
   {#if loading}
     <div class="empty">Loading...</div>
+  {:else if loadError}
+    <div class="load-error" role="alert">{loadError}</div>
   {:else if events.length === 0}
     <div class="empty">No gateway decisions recorded yet.</div>
   {:else}
@@ -234,6 +249,12 @@
     color: var(--text-muted);
     font-size: 13px;
     padding: 20px;
+  }
+
+  .load-error {
+    padding: 16px;
+    color: var(--danger);
+    font-size: 12px;
   }
 
   .log-list {

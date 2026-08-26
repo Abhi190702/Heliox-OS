@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { call } from "../api/daemon";
+  import { call, requireOkResult, type DaemonStatusResult } from "../api/daemon";
 
   interface AuditEvent {
     id: number;
@@ -22,30 +22,40 @@
   let loading = $state(true);
   let verifyResult: { valid: boolean; checked_entries: number; error: string } | null = $state(null);
   let verifying = $state(false);
+  let loadError = $state("");
 
-  onMount(async () => {
+  onMount(loadEvents);
+
+  async function loadEvents() {
+    loadError = "";
     try {
-      const result = (await call("list_permission_events", { limit: 100 })) as {
-        status: string;
-        events: AuditEvent[];
-      };
+      const result = requireOkResult(
+        (await call("list_permission_events", { limit: 100 })) as DaemonStatusResult & {
+          events: AuditEvent[];
+        },
+        "The daemon did not return the permission audit log.",
+      );
       events = result.events ?? [];
-    } catch {
+    } catch (cause) {
       events = [];
+      loadError = cause instanceof Error ? cause.message : "Could not load the permission audit log.";
     } finally {
       loading = false;
     }
-  });
+  }
 
   async function verifyIntegrity() {
     verifying = true;
     verifyResult = null;
     try {
-      const result = (await call("verify_permission_audit")) as {
-        valid: boolean;
-        checked_entries: number;
-        error: string;
-      };
+      const result = requireOkResult(
+        (await call("verify_permission_audit")) as DaemonStatusResult & {
+          valid: boolean;
+          checked_entries: number;
+          error: string;
+        },
+        "The daemon did not verify the permission audit chain.",
+      );
       verifyResult = result;
     } catch (err) {
       verifyResult = { valid: false, checked_entries: 0, error: String(err instanceof Error ? err.message : err) };
@@ -92,6 +102,8 @@
 
   {#if loading}
     <div class="empty">Loading...</div>
+  {:else if loadError}
+    <div class="load-error" role="alert">{loadError}</div>
   {:else if events.length === 0}
     <div class="empty">No elevated permission decisions recorded yet.</div>
   {:else}
@@ -198,6 +210,12 @@
     justify-content: center;
     color: var(--text-muted);
     font-size: 13px;
+  }
+
+  .load-error {
+    padding: 16px;
+    color: var(--danger);
+    font-size: 12px;
   }
 
   .log-list {
