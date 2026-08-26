@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { call } from "../api/daemon";
+  import { call, requireOkResult, type DaemonStatusResult } from "../api/daemon";
 
   interface MemoryFact {
     fact_id: string;
@@ -37,13 +37,10 @@
     loading = true;
     error = "";
     try {
-      const result = (await call("temporal_memory_status", { limit: 50 })) as MemoryStatus & {
-        status?: string;
-        message?: string;
-      };
-      if (result.status && result.status !== "ok") {
-        throw new Error(result.message || "The daemon rejected the memory status request.");
-      }
+      const result = requireOkResult(
+        (await call("temporal_memory_status", { limit: 50 })) as MemoryStatus & DaemonStatusResult,
+        "The daemon rejected the memory status request.",
+      );
       memory = result;
     } catch (cause) {
       memory = null;
@@ -64,10 +61,13 @@
     forgettingFact = fact.fact_id;
     error = "";
     try {
-      await call("temporal_memory_retract", {
-        fact_id: fact.fact_id,
-        reason: "User retracted this memory from Settings",
-      });
+      requireOkResult(
+        (await call("temporal_memory_retract", {
+          fact_id: fact.fact_id,
+          reason: "User retracted this memory from Settings",
+        })) as DaemonStatusResult,
+        "The daemon did not forget this memory.",
+      );
       confirmingFact = "";
       await refresh();
     } catch (cause) {
