@@ -33,8 +33,13 @@ cd daemon
 python -m benchmarks.voice_quality .\voice-eval\manifest.jsonl --engine auto --model small --output .\voice-report.json
 ```
 
-Reports include aggregate and per-language/accent/condition WER, CER, p50 latency, p95 latency, and every hypothesis.
-Compare the same frozen manifest before and after a recognition change. Do not tune on the final held-out slice.
+Reports include corpus-weighted aggregate and per-language/accent/condition WER and CER, nearest-rank p50/p95
+latency, raw error/reference counts, and every hypothesis. Compare the same frozen manifest before and after a
+recognition change. Do not tune on the final held-out slice.
+
+Settings includes a **Test microphone** action for device checks. It displays exactly one recognized utterance,
+language, and transcription latency; the listener consumes the utterance before command routing, so the test never
+executes what was spoken.
 
 ## Hardware release gate
 

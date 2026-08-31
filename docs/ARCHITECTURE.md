@@ -207,6 +207,14 @@ complete utterances are eligible for routing without a wake phrase, and a
 30-second follow-up window opens after speech completes. The listener is
 suppressed while Heliox itself speaks so TTS cannot become a new command.
 
+Recognition uses Faster-Whisper when available, with OpenAI Whisper as the
+local fallback. The default `small` model balances desktop latency and
+accuracy; users can select the engine, model, and language. Endpointing keeps a
+short pre-roll and derives a bounded speech threshold from recent ambient
+audio, reducing clipped first syllables and fixed-threshold failures. Settings
+also exposes a one-utterance microphone test whose transcript is consumed by
+the listener before wake-word, workflow, or command dispatch.
+
 ### Model adapters and terminal results
 
 The model router supports local Ollama plus native Gemini and Claude adapters.

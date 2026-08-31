@@ -117,7 +117,7 @@ No comparison declares a universal winner. See the [transparent cost page](https
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Guarded task execution | Typed plans, source-scoped policy, approvals, cancellation, execution claims, and visible terminal results                                                 |
 | Adaptive app tasks     | Bounded observe → act → verify loops with fresh screen evidence, target-window reacquisition, replanning, and no-progress termination                      |
-| Continuous voice       | Wake-word and follow-up listening, VAD endpoints, coordinated TTS, barge-in, self-speech suppression, and process-isolated local voice models             |
+| Continuous voice       | Faster-Whisper/OpenAI Whisper recognition, adaptive-noise VAD with pre-roll, wake-word and follow-up listening, coordinated TTS, barge-in, self-speech suppression, and a non-executing microphone test |
 | Interactive companion  | Can warn, revise, stop, accept spoken or typed corrections, and offer grounded next steps after verified results                                           |
 | Local chat sessions    | Separate transcripts and task context with bounded cross-session preference and evidence memory                                                            |
 | Gesture and gaze       | 30+ gesture mappings, MediaPipe Tasks 3D landmarks, coarse gaze fusion, calibration, temporal rejection, and opt-in cursor control                         |
@@ -297,6 +297,9 @@ gaze_tracking_enabled = false
 enabled = false
 
 [voice]
+transcription_engine = "auto"
+whisper_model = "small"
+language = "auto"
 tts_engine = "kokoro_tts"
 ```
 
@@ -340,7 +343,7 @@ Kokoro, Pocket TTS, gaze, gesture tracking, and the learned-risk model are CPU-c
 | Ubuntu/Debian           | Python/UI CI plus desktop packages; integrations and permissions vary                                                                      |
 | macOS                   | Python/UI CI plus desktop packages; permissions and hardware require local validation                                                      |
 | Camera gesture and gaze | Automated geometry, calibration, fusion, and false-positive tests; physical accuracy is not established across users and environments      |
-| Voice and TTS           | Routing, fallback, interruption, and cancellation tests; microphone accuracy and audible quality require human checks                      |
+| Voice and TTS           | Routing, fallback, interruption, cancellation, synthetic ASR, and non-executing microphone-test coverage; human microphone accuracy and audible quality still require human checks |
 | Neural intent           | Synthetic BrainFlow and recorded EEG paths are tested. A user may stage up to eight text-authored goals and use calibrated focus/select to launch one through normal autonomous decomposition, specialist routing, permissions, approvals, and verification. No live headset accuracy, unrestricted thought reading, medical use, or physical authority is established. |
 | Cognitive HUD           | Behavioural estimates from local interaction signals, not physiological or medical measurements                                            |
 | Air Handoff             | Automated pairing, cryptography, replay, expiry, file-snapshot, and browser-receiver tests pass. A real phone, LAN/firewall, QR scan, and mobile download still require a human hardware/network check. |
