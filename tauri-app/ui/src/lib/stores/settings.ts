@@ -93,6 +93,9 @@ export interface PilotSettings {
   };
   voice: {
     input_device: string;
+    transcription_engine: "auto" | "faster_whisper" | "openai_whisper";
+    whisper_model: "tiny" | "base" | "small" | "medium" | "turbo";
+    language: string;
     tts_engine: string;
     tts_voice: string;
   };
@@ -187,6 +190,9 @@ const defaultSettings: PilotSettings = {
   },
   voice: {
     input_device: "auto",
+    transcription_engine: "auto",
+    whisper_model: "small",
+    language: "auto",
     tts_engine: "kokoro_tts",
     tts_voice: "af_heart",
   },

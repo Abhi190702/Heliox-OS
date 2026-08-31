@@ -29,8 +29,9 @@ from pilot.system.voice_calibration import WakeWordCalibrator
 logger = logging.getLogger("pilot.system.voice")
 
 _VOICE_TRANSCRIPTION_PROMPT = (
-    "Hey Heliox. Computer command vocabulary: open, close, search, launch. "
-    "Proper names: GitHub, Google, YouTube, Gmail, Spotify."
+    "Hey Heliox. Desktop command vocabulary: open, close, click, type, search, scroll, launch, switch, "
+    "select, save, send, stop, continue, approve, deny. Proper names: Heliox, GitHub, Google, YouTube, "
+    "Gmail, Spotify, Chrome, Visual Studio Code, PowerShell, Docker."
 )
 
 _AUTONOMOUS_COMMAND_START = re.compile(

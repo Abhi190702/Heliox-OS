@@ -517,6 +517,17 @@
     setTimeout(() => (speechToast = ""), 5000);
   }
 
+  async function updateSpeechRecognition(e: Event) {
+    const target = e.target as HTMLSelectElement;
+    speechSaving = true;
+    const synced = await settings.updateSection("voice", { [target.name]: target.value }, { requireDaemon: true });
+    speechSaving = false;
+    speechToast = synced
+      ? "Speech recognition setting saved."
+      : "Speech recognition was not changed because the daemon could not confirm it.";
+    setTimeout(() => (speechToast = ""), 5000);
+  }
+
   async function updateTtsEngine(e: Event) {
     const val = (e.target as HTMLInputElement).value;
     const ttsVoice =
@@ -1548,6 +1559,76 @@
             {device.name} — {device.hostapi}{device.is_default ? " (system default)" : ""}
           </option>
         {/each}
+      </select>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Speech recognition engine</span>
+        <span class="setting-desc"
+          >Automatic prefers faster local recognition and falls back safely when unavailable.</span
+        >
+      </div>
+      <select
+        class="input-md"
+        name="transcription_engine"
+        value={$settings.voice?.transcription_engine ?? "auto"}
+        onchange={updateSpeechRecognition}
+        disabled={speechSaving}
+      >
+        <option value="auto">Automatic (recommended)</option>
+        <option value="faster_whisper">Faster-Whisper only</option>
+        <option value="openai_whisper">OpenAI Whisper only</option>
+      </select>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Recognition quality</span>
+        <span class="setting-desc"
+          >Small is the recommended accuracy/speed balance; larger models need more memory.</span
+        >
+      </div>
+      <select
+        class="input-md"
+        name="whisper_model"
+        value={$settings.voice?.whisper_model ?? "small"}
+        onchange={updateSpeechRecognition}
+        disabled={speechSaving}
+      >
+        <option value="tiny">Fastest (tiny)</option>
+        <option value="base">Fast (base)</option>
+        <option value="small">Balanced (small, recommended)</option>
+        <option value="medium">More accurate (medium)</option>
+        <option value="turbo">Most accurate fast model (turbo)</option>
+      </select>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Recognition language</span>
+        <span class="setting-desc"
+          >Automatic supports multilingual speech; selecting a language can improve speed and accuracy.</span
+        >
+      </div>
+      <select
+        class="input-md"
+        name="language"
+        value={$settings.voice?.language ?? "auto"}
+        onchange={updateSpeechRecognition}
+        disabled={speechSaving}
+      >
+        <option value="auto">Automatic language detection</option>
+        <option value="en">English</option>
+        <option value="hi">Hindi</option>
+        <option value="es">Spanish</option>
+        <option value="fr">French</option>
+        <option value="de">German</option>
+        <option value="it">Italian</option>
+        <option value="ja">Japanese</option>
+        <option value="ko">Korean</option>
+        <option value="pt">Portuguese</option>
+        <option value="zh">Chinese</option>
       </select>
     </div>
 

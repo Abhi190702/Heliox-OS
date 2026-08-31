@@ -5,6 +5,7 @@ def test_defaults():
     config = PilotConfig()
     assert config.voice.vad_energy_threshold == 0.02
     assert config.voice.transcription_engine == "auto"
+    assert config.voice.whisper_model == "small"
     assert config.voice.vad_adaptive_threshold_enabled is True
     assert config.voice.vad_silence_ms == 450.0
     assert config.voice.vad_max_utterance_seconds == 20.0

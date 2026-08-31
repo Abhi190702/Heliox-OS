@@ -141,7 +141,7 @@ class VoiceConfig:
     # Faster-Whisper is preferred for substantially lower local latency and
     # memory use. "auto" retains the proven OpenAI Whisper fallback.
     transcription_engine: str = "auto"
-    whisper_model: str = "base"
+    whisper_model: str = "small"
     # Stable "host API::device name" identifier returned by
     # list_audio_input_devices. "auto" preserves automatic selection.
     input_device: str = "auto"
