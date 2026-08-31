@@ -51,7 +51,9 @@
   import { FilesetResolver, HandLandmarker, FaceLandmarker } from "@mediapipe/tasks-vision";
   import {
     LandmarkFilterBank,
+    assessHandFrame,
     computeHandQuality,
+    handFrameRejectionMessage,
     isThumbExtended,
     thumbExtensionRatio,
     handSize,
@@ -59,7 +61,6 @@
     predictCursorTarget,
     trajectoryAgreement,
     measureRecentMotion,
-    isReliableHandFrame,
     MIN_RELIABLE_HAND_CONFIDENCE,
     THUMB_EXTENDED_RATIO,
     type Landmark,
@@ -131,6 +132,8 @@
   let gestureHistory: string[] = $state([]);
   let worldTracking = $state(false);
   let handAcquiring = $state(false);
+  let handDiagnostic = $state("Show one complete hand");
+  let handSignalQuality = $state(0);
   let handAcquireFrames = 0;
 
   let videoEl: HTMLVideoElement | undefined = $state();
@@ -877,6 +880,8 @@
     worldTracking = false;
     handAcquiring = false;
     handAcquireFrames = 0;
+    handDiagnostic = "Show one complete hand";
+    handSignalQuality = 0;
 
     // 3. Stop camera tracks AFTER MediaPipe is closed
     if (stream) {
@@ -1060,9 +1065,12 @@
     worldLandmarks: Landmark[] | null,
     handednessScore: number | undefined,
   ) {
-    lastWorldLandmarks = worldLandmarks;
+    const handAssessment = assessHandFrame(landmarks, handednessScore);
+    handSignalQuality = handAssessment.quality;
+    handDiagnostic = handFrameRejectionMessage(handAssessment);
+    lastWorldLandmarks = handAssessment.reliable ? worldLandmarks : null;
 
-    if (!landmarks || !isReliableHandFrame(landmarks, handednessScore)) {
+    if (!landmarks || !handAssessment.reliable) {
       clearLandmarks();
       handDetected = false;
       handAcquiring = false;
@@ -1079,7 +1087,11 @@
       landmarkFilter.reset(); // avoid smearing stale filter state into the next detected hand
       worldModelFilter.reset();
       temporalGestureVerifier.reset();
+      wristHistory = [];
+      indexHistory = [];
       worldWristHistory = [];
+      fingerTrail = [];
+      drawTrail();
       return;
     }
 
@@ -1087,6 +1099,7 @@
     if (handAcquireFrames < HAND_ACQUIRE_FRAMES) {
       handDetected = false;
       handAcquiring = true;
+      handDiagnostic = `Verifying hand (${handAcquireFrames}/${HAND_ACQUIRE_FRAMES})`;
       worldTracking = false;
       currentGesture = "";
       confidence = 0;
@@ -1098,6 +1111,7 @@
 
     handDetected = true;
     handAcquiring = false;
+    handDiagnostic = `Hand verified · ${Math.round(handSignalQuality * 100)}% signal quality`;
     worldTracking = Boolean(worldLandmarks && worldLandmarks.length >= 21);
 
     // Update motion buffers — deliberately built from RAW (unfiltered) landmarks.
@@ -1939,9 +1953,9 @@
       title={worldTracking
         ? "MediaPipe Tasks is supplying real 3D world landmarks for orientation-independent finger detection"
         : handAcquiring
-          ? "A possible hand is being verified before gesture actions are enabled"
+          ? handDiagnostic
           : activeBackend === "tasks"
-            ? "The 3D model is ready; show one complete hand"
+            ? handDiagnostic
             : "Compatibility backend active; enable Enhanced 3D Hand Tracking in Settings"}
     >
       <span class="spatial-status-dot"></span>
@@ -1978,7 +1992,7 @@
       {/if}
       <!-- Gesture count badge -->
       <div class="pip-badge">30+ gestures</div>
-      <div class="pip-hand-badge" class:active={handDetected}>
+      <div class="pip-hand-badge" class:active={handDetected} title={handDiagnostic}>
         {handDetected ? "Hand detected" : handAcquiring ? "Hold hand steady" : "Show hand"}
       </div>
       {#if $settings.vision?.gaze_tracking_enabled}

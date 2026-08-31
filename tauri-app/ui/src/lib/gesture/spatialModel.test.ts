@@ -10,6 +10,8 @@ import {
   predictCursorTarget,
   trajectoryAgreement,
   measureRecentMotion,
+  assessHandFrame,
+  handFrameRejectionMessage,
   isReliableHandFrame,
   type Landmark,
 } from "./spatialModel";
@@ -349,6 +351,41 @@ describe("isReliableHandFrame", () => {
     const invalid = openPalmRightHand();
     invalid[8] = { x: Number.NaN, y: 0.2, z: 0 };
     expect(isReliableHandFrame(invalid, 0.99)).toBe(false);
+  });
+
+  it("explains why a hand candidate was rejected", () => {
+    expect(assessHandFrame(null, undefined)).toMatchObject({ reliable: false, reason: "missing_landmarks" });
+    expect(assessHandFrame(openPalmRightHand(), undefined)).toMatchObject({
+      reliable: false,
+      reason: "missing_confidence",
+    });
+    expect(assessHandFrame(openPalmRightHand(), 0.4)).toMatchObject({
+      reliable: false,
+      reason: "low_confidence",
+      confidence: 0.4,
+    });
+
+    const tiny = openPalmRightHand().map((point) => ({
+      ...point,
+      x: 0.5 + (point.x - 0.5) * 0.1,
+      y: 0.5 + (point.y - 0.5) * 0.1,
+    }));
+    const tinyAssessment = assessHandFrame(tiny, 0.99);
+    expect(tinyAssessment).toMatchObject({ reliable: false, reason: "too_small" });
+    expect(handFrameRejectionMessage(tinyAssessment)).toContain("closer");
+
+    const invalid = openPalmRightHand();
+    invalid[8] = { x: Number.POSITIVE_INFINITY, y: 0.2, z: 0 };
+    expect(assessHandFrame(invalid, 0.99)).toMatchObject({ reliable: false, reason: "non_finite" });
+  });
+
+  it("reports bounded quality metrics for an accepted hand", () => {
+    const assessment = assessHandFrame(openPalmRightHand(), 0.92);
+    expect(assessment).toMatchObject({ reliable: true, reason: null, confidence: 0.92 });
+    expect(assessment.span).toBeGreaterThan(0.08);
+    expect(assessment.geometricQuality).toBeGreaterThanOrEqual(0);
+    expect(assessment.geometricQuality).toBeLessThanOrEqual(1);
+    expect(assessment.quality).toBeCloseTo(0.92, 10);
   });
 });
 

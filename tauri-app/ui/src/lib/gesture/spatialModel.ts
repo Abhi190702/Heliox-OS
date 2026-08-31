@@ -384,6 +384,92 @@ export const MIN_RELIABLE_HAND_CONFIDENCE = 0.7;
 const MIN_RELIABLE_HAND_QUALITY = 0.65;
 const MIN_RELIABLE_HAND_SPAN = 0.08;
 
+export type HandFrameRejectionReason =
+  "missing_landmarks" | "missing_confidence" | "low_confidence" | "non_finite" | "too_small" | "implausible_geometry";
+
+export interface HandFrameAssessment {
+  reliable: boolean;
+  reason: HandFrameRejectionReason | null;
+  confidence: number | null;
+  geometricQuality: number;
+  span: number;
+  quality: number;
+}
+
+function rejectedHandFrame(
+  reason: HandFrameRejectionReason,
+  confidence: number | null,
+  geometricQualityValue = 0,
+  span = 0,
+): HandFrameAssessment {
+  return {
+    reliable: false,
+    reason,
+    confidence,
+    geometricQuality: geometricQualityValue,
+    span,
+    quality: 0,
+  };
+}
+
+export function handFrameRejectionMessage(assessment: HandFrameAssessment): string {
+  switch (assessment.reason) {
+    case "missing_landmarks":
+      return "Show one complete hand";
+    case "missing_confidence":
+      return "Hand candidate has no detector confidence";
+    case "low_confidence":
+      return `Hold your hand steady (${Math.round((assessment.confidence ?? 0) * 100)}% detector confidence)`;
+    case "non_finite":
+      return "Hand landmarks are incomplete";
+    case "too_small":
+      return "Move your hand closer to the camera";
+    case "implausible_geometry":
+      return "Show your full hand without occluding the fingers";
+    case null:
+      return "Hand verified";
+  }
+}
+
+/** Explainable, fail-closed hand gate used by both actions and diagnostics. */
+export function assessHandFrame(
+  landmarks: Landmark[] | null | undefined,
+  handednessScore: number | undefined,
+  minConfidence = MIN_RELIABLE_HAND_CONFIDENCE,
+): HandFrameAssessment {
+  if (!landmarks || landmarks.length < 21) return rejectedHandFrame("missing_landmarks", null);
+  if (handednessScore === undefined || !Number.isFinite(handednessScore)) {
+    return rejectedHandFrame("missing_confidence", null);
+  }
+  if (handednessScore < minConfidence) return rejectedHandFrame("low_confidence", handednessScore);
+  if (
+    landmarks.some(
+      (landmark) => !Number.isFinite(landmark.x) || !Number.isFinite(landmark.y) || !Number.isFinite(landmark.z ?? 0),
+    )
+  ) {
+    return rejectedHandFrame("non_finite", handednessScore);
+  }
+
+  const xs = landmarks.map((landmark) => landmark.x);
+  const ys = landmarks.map((landmark) => landmark.y);
+  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  if (span < MIN_RELIABLE_HAND_SPAN) return rejectedHandFrame("too_small", handednessScore, 0, span);
+
+  const geometricQualityValue = geometricQuality(landmarks);
+  const quality = handednessScore * geometricQualityValue;
+  if (quality < MIN_RELIABLE_HAND_QUALITY) {
+    return rejectedHandFrame("implausible_geometry", handednessScore, geometricQualityValue, span);
+  }
+  return {
+    reliable: true,
+    reason: null,
+    confidence: handednessScore,
+    geometricQuality: geometricQualityValue,
+    span,
+    quality,
+  };
+}
+
 /**
  * Fail-closed gate between MediaPipe detections and gesture actions.
  *
@@ -397,19 +483,5 @@ export function isReliableHandFrame(
   handednessScore: number | undefined,
   minConfidence = MIN_RELIABLE_HAND_CONFIDENCE,
 ): boolean {
-  if (landmarks.length < 21 || handednessScore === undefined || !Number.isFinite(handednessScore)) return false;
-  if (handednessScore < minConfidence) return false;
-  if (
-    landmarks.some(
-      (landmark) => !Number.isFinite(landmark.x) || !Number.isFinite(landmark.y) || !Number.isFinite(landmark.z ?? 0),
-    )
-  ) {
-    return false;
-  }
-
-  const xs = landmarks.map((landmark) => landmark.x);
-  const ys = landmarks.map((landmark) => landmark.y);
-  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
-  if (span < MIN_RELIABLE_HAND_SPAN) return false;
-  return computeHandQuality(landmarks, handednessScore) >= MIN_RELIABLE_HAND_QUALITY;
+  return assessHandFrame(landmarks, handednessScore, minConfidence).reliable;
 }
