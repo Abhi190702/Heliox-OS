@@ -75,8 +75,10 @@
   } from "../gesture/worldModel";
   import { TemporalGestureVerifier } from "../gesture/temporalGestureVerifier";
   import {
+    GazeTemporalStabilizer,
+    assessGazeFrame,
     cameraBackendNeedsRestart,
-    estimateGazeRegion,
+    gazeRejectionMessage,
     resolveHandBackend,
     shouldRunGazeInference,
     shouldSendGazeUpdate,
@@ -163,6 +165,7 @@
   let lastGazeInferenceAt = 0;
   let lastHandVideoTime = -1;
   let lastGazeVideoTime = -1;
+  const gazeStabilizer = new GazeTemporalStabilizer();
 
   let animFrameId: number = 0;
   let lastGestureTime = 0;
@@ -552,6 +555,10 @@
             },
             runningMode: "VIDEO",
             numFaces: 1,
+            minFaceDetectionConfidence: 0.6,
+            minFacePresenceConfidence: 0.6,
+            minTrackingConfidence: 0.6,
+            outputFaceBlendshapes: true,
           });
           return true;
         } catch (error) {
@@ -624,6 +631,7 @@
     lastGazeSentAt = 0;
     lastGazeInferenceAt = 0;
     lastGazeVideoTime = -1;
+    gazeStabilizer.reset();
     resetGazeRuntime();
   }
 
@@ -951,8 +959,11 @@
         try {
           const faceResult = faceLandmarker.detectForVideo(videoEl, gazeNow);
           const faceLandmarks = faceResult.faceLandmarks?.[0] as { x: number; y: number; z?: number }[] | undefined;
-          const estimate = estimateGazeRegion(faceLandmarks ?? null);
-          if (estimate) {
+          const blendshapes = faceResult.faceBlendshapes?.[0]?.categories as
+            { categoryName: string; score: number }[] | undefined;
+          const stabilized = gazeStabilizer.observe(assessGazeFrame(faceLandmarks ?? null, blendshapes));
+          if (stabilized.state === "stable" && stabilized.estimate) {
+            const estimate = stabilized.estimate;
             const now = performance.now();
             updateGazeRuntime({
               phase: "active",
@@ -968,13 +979,23 @@
               lastGazeSentAt = now;
               void sendGazeEvent(estimate.region, estimate.confidence);
             }
+          } else if (stabilized.state === "settling") {
+            updateGazeRuntime({
+              phase: "stabilizing",
+              cameraActive: true,
+              region: null,
+              confidence: null,
+              message: `Confirming gaze ${stabilized.candidateRegion ?? "direction"}…`,
+            });
           } else {
             updateGazeRuntime({
               phase: "scanning",
               cameraActive: true,
               region: null,
               confidence: null,
-              message: "Gaze is on, but no face is visible to the camera.",
+              message: stabilized.reason
+                ? gazeRejectionMessage(stabilized.reason)
+                : "Gaze is on, but no usable eye reading is available.",
             });
           }
         } catch {
@@ -1851,7 +1872,9 @@
       class="gaze-runtime-chip"
       class:active={$gazeRuntime.phase === "active"}
       class:error={$gazeRuntime.phase === "error" || $gazeRuntime.daemonStatus === "error"}
-      class:scanning={$gazeRuntime.phase === "loading" || $gazeRuntime.phase === "scanning"}
+      class:scanning={$gazeRuntime.phase === "loading" ||
+        $gazeRuntime.phase === "scanning" ||
+        $gazeRuntime.phase === "stabilizing"}
       onclick={() => {
         if (!isActive) void startGestures();
         else if ($gazeRuntime.phase === "error") void retryGazeTracking();
@@ -1867,6 +1890,8 @@
         Loading gaze…
       {:else if $gazeRuntime.phase === "scanning"}
         Gaze on · find face
+      {:else if $gazeRuntime.phase === "stabilizing"}
+        Gaze stabilizing…
       {:else if $gazeRuntime.phase === "error"}
         Gaze error · retry
       {:else}
@@ -1969,6 +1994,8 @@
             Gaze loading
           {:else if $gazeRuntime.phase === "scanning"}
             Gaze scanning
+          {:else if $gazeRuntime.phase === "stabilizing"}
+            Gaze stabilizing
           {:else}
             Gaze unavailable
           {/if}

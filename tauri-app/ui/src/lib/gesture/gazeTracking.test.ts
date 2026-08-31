@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   GAZE_INFERENCE_INTERVAL_MS,
   GAZE_HEARTBEAT_MS,
+  GazeTemporalStabilizer,
+  assessGazeFrame,
   cameraBackendNeedsRestart,
   estimateGazeRegion,
   resolveHandBackend,
@@ -93,14 +95,68 @@ describe("estimateGazeRegion", () => {
     expect(far.confidence).toBeGreaterThan(near.confidence);
   });
 
-  it("averages both eyes rather than trusting one alone", () => {
-    // Shift only the left eye's iris; the right eye stays centered, so the
-    // averaged result should be a damped (not full-magnitude) reading.
+  it("rejects a large disagreement instead of trusting one eye", () => {
     const landmarks = baseFaceMesh();
     landmarks[468] = { x: 0.39, y: 0.5 }; // left eye iris shifted hard toward inner corner
-    const result = estimateGazeRegion(landmarks)!;
-    const fullyShifted = estimateGazeRegion(shiftIris(baseFaceMesh(), 0.4, 0))!;
-    expect(result.confidence).toBeLessThan(fullyShifted.confidence);
+    expect(assessGazeFrame(landmarks)).toMatchObject({ estimate: null, reason: "inconsistent_eyes" });
+  });
+
+  it("rejects blink blendshapes and geometrically closed eyes", () => {
+    expect(assessGazeFrame(baseFaceMesh(), [{ categoryName: "eyeBlinkLeft", score: 0.9 }])).toMatchObject({
+      estimate: null,
+      reason: "eyes_closed",
+    });
+
+    const closed = baseFaceMesh();
+    closed[145] = { x: 0.35, y: 0.481 };
+    expect(assessGazeFrame(closed)).toMatchObject({ estimate: null, reason: "eyes_closed" });
+  });
+
+  it("rejects an extreme head turn, impossible iris position, and non-finite geometry", () => {
+    const turned = baseFaceMesh();
+    turned[133] = { x: 0.335, y: 0.5 };
+    expect(assessGazeFrame(turned)).toMatchObject({ estimate: null, reason: "head_turn" });
+
+    const impossibleIris = baseFaceMesh();
+    impossibleIris[468] = { x: 0.5, y: 0.5 };
+    expect(assessGazeFrame(impossibleIris)).toMatchObject({ estimate: null, reason: "iris_outside_eye" });
+
+    const invalid = baseFaceMesh();
+    invalid[473] = { x: Number.NaN, y: 0.5 };
+    expect(assessGazeFrame(invalid)).toMatchObject({ estimate: null, reason: "invalid_landmarks" });
+  });
+});
+
+describe("GazeTemporalStabilizer", () => {
+  it("accepts an initial reading but requires two matching samples to change region", () => {
+    const stabilizer = new GazeTemporalStabilizer();
+    const center = assessGazeFrame(baseFaceMesh());
+    const right = assessGazeFrame(shiftIris(baseFaceMesh(), 0.4, 0));
+
+    expect(stabilizer.observe(center)).toMatchObject({ state: "stable", estimate: { region: "center" } });
+    expect(stabilizer.observe(right)).toMatchObject({ state: "settling", estimate: null, candidateRegion: "right" });
+    expect(stabilizer.observe(right)).toMatchObject({ state: "stable", estimate: { region: "right" } });
+  });
+
+  it("does not refresh stale gaze while a frame is rejected", () => {
+    const stabilizer = new GazeTemporalStabilizer();
+    stabilizer.observe(assessGazeFrame(baseFaceMesh()));
+    expect(stabilizer.observe(assessGazeFrame(null))).toMatchObject({
+      state: "rejected",
+      estimate: null,
+      reason: "missing_face",
+    });
+  });
+
+  it("clears pending transitions on reset", () => {
+    const stabilizer = new GazeTemporalStabilizer();
+    stabilizer.observe(assessGazeFrame(baseFaceMesh()));
+    stabilizer.observe(assessGazeFrame(shiftIris(baseFaceMesh(), 0.4, 0)));
+    stabilizer.reset();
+    expect(stabilizer.observe(assessGazeFrame(shiftIris(baseFaceMesh(), 0.4, 0)))).toMatchObject({
+      state: "stable",
+      estimate: { region: "right" },
+    });
   });
 });
 

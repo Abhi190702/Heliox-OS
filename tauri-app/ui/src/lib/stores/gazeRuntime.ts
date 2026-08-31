@@ -1,7 +1,7 @@
 import { writable } from "svelte/store";
 import type { GazeRegion } from "../gesture/gazeTracking";
 
-export type GazeRuntimePhase = "idle" | "loading" | "scanning" | "active" | "error";
+export type GazeRuntimePhase = "idle" | "loading" | "scanning" | "stabilizing" | "active" | "error";
 export type GazeDaemonStatus = "idle" | "sending" | "ingested" | "ignored" | "error";
 
 export interface GazeRuntimeState {

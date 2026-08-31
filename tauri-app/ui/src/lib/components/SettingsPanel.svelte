@@ -1325,6 +1325,8 @@
             {$_("settings.gaze_status_loading")}
           {:else if $gazeRuntime.phase === "scanning"}
             {$_("settings.gaze_status_scanning")}
+          {:else if $gazeRuntime.phase === "stabilizing"}
+            Gaze stabilizing
           {:else if $gazeRuntime.phase === "active" && $gazeRuntime.region}
             {$_("settings.gaze_status_active")}: {$gazeRuntime.region}
             ({Math.round(($gazeRuntime.confidence ?? 0) * 100)}%)
