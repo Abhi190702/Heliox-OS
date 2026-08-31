@@ -371,6 +371,7 @@ Open a [bug report](https://github.com/VyomKulshrestha/Heliox-OS/issues/new/choo
 - [Gesture and gaze control](GESTURES.md)
 - [Plugin marketplace](docs/PLUGIN_MARKETPLACE.md)
 - [Neural intent research controls](docs/NEURAL_INTENT.md)
+- [Intelligence evaluation and research map](docs/INTELLIGENCE_EVALUATION.md)
 - [Forensics runbook](docs/FORENSICS_RUNBOOK.md)
 - [Contributing](CONTRIBUTING.md)
 - [Website agent index](https://www.helioxos.dev/llms.txt) and [repository agent index](llms.txt)

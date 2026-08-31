@@ -51,10 +51,21 @@ The server exposes seven tools:
 Submitting is not the same as completing. The tool returns a task identifier;
 the host must poll `get_heliox_task_status` until the task reaches a terminal
 state. A preview is advisory and submission replans against current state.
+Hosts should send a stable optional `request_id` when retrying a submission;
+the daemon returns the original task for the same session and input, and
+rejects reuse with different input. Inputs and identifiers are length- and
+character-bounded by the published tool schema.
+
+The bridge uses explicit Heliox task handles rather than protocol sessions.
+This aligns with the [2026-07-28 MCP specification](https://blog.modelcontextprotocol.io/posts/2026-07-28/),
+but the seven tools do not claim the optional MCP Tasks extension. Compatibility
+is tested through the official Python MCP client.
 
 ## Security boundary
 
 - MCP has its own rotated runtime token and `mcp_local` RPC identity.
+- The configured daemon URL must be an unambiguous loopback WebSocket with no
+  credentials, query, fragment, or alternate path.
 - The identity can call only the nine RPC methods needed by the seven tools.
 - It cannot call raw `execute`, `confirm`, `update_config`, `store_api_key`, or
   arbitrary daemon methods.

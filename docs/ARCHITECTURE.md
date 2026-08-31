@@ -102,6 +102,11 @@ success. The host polls status until success, failure, cancellation, or another
 terminal state. Task status and cancellation are limited to tasks whose durable
 owner is `mcp-local`.
 
+An optional host `request_id` binds retries to the first durable task for that
+session and input. Reusing it with different input is rejected. The tool schema
+bounds input and identifiers, and the bridge accepts only an unambiguous
+loopback daemon URL.
+
 MCP task preview is advisory and side-effect free. Submission replans from
 current state and forces every proposed action through the existing visible
 confirmation dialog. There is no MCP confirmation primitive, so the calling
@@ -261,10 +266,14 @@ uncertainty, evidence, sources, and model version. It combines:
 - calibrated learned disk/process impact and verified historical failure risk;
 - an optional action-conditioned UI-JEPA embedding predictor.
 
-The optional JEPA path stays unavailable when validated weights are not staged
-and remains shadow-only unless its artifact records gating validation. Learned
-evidence may interrupt or add confirmation but can never remove a deterministic
-warning or grant authority.
+The optional JEPA path stays unavailable when compatible weights are not
+staged. Its exact ordered action vocabulary and finite tensor shapes must match
+the running build before it loads. It remains shadow-only unless the artifact
+also records sufficient samples, bounded validation error, and gating
+validation. Offline evaluation pairs predictions with observed outcomes and
+reports risk calibration, false negatives, transition fidelity, uncertainty,
+and latency. Learned evidence may interrupt or add confirmation but can never
+remove a deterministic warning or grant authority.
 
 The camera temporal verifier follows the same rule: MediaPipe must first prove
 a reliable hand exists; temporal evidence is bound to one gesture candidate and
@@ -347,6 +356,13 @@ Every specialist has action, confirmation, gateway, resource, token, action,
 latency, and concurrency contracts. Delegation has maximum depth 3 and fan-out
 4, rejects cycles, shares cancellation, and carries bounded context references
 and partial results.
+
+Model-produced decompositions are separately validated before any specialist
+runs. Unknown, self, or duplicate dependencies, unsupported specialist labels,
+invalid complexity, excessive fan-out, cycles, and deadlocks fail closed. If a
+prerequisite fails, dependent subtasks are marked skipped rather than
+force-scheduled. Ordinary action order remains sequential; only explicitly
+attested independent plans enter the bounded parallel API.
 
 The mesh exposes approved plugin tools as guarded external providers for
 diagnostics, but does not execute plugin code directly. Plugin calls remain

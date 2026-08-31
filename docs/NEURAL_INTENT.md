@@ -101,6 +101,9 @@ pilot-neurod-benchmark brainflow-synthetic --seconds 2
 
 # Public recorded EEG, downloaded on demand by MNE
 pilot-neurod-benchmark eegbci --subject 1 --runs 6 10 14
+
+# Score independent active and no-control trials from an operator manifest
+pilot-neurod-benchmark control-trials operator-labeled-trials.json
 ```
 
 The EEGBCI benchmark follows MNE's open motor-imagery CSP example: 7-30 Hz
@@ -265,6 +268,13 @@ and human tests are recorded. Classification accuracy alone is not a release
 gate; false committed actions, abstention, latency, recovery, comfort, and
 cross-session degradation matter more.
 
+The control-trial evaluator makes that boundary executable: it reports exact
+commit precision/recall/F1, missed active trials, idle abstention, false commits
+per idle hour, and median/p95 commit latency. Candidate future comparison
+corpora and their admission requirements are listed in
+[Intelligence evaluation and research map](INTELLIGENCE_EVALUATION.md); none is
+silently treated as live Heliox-user evidence.
+
 ## Source map
 
 | Surface | Location |
@@ -274,7 +284,7 @@ cross-session degradation matter more.
 | Least-privilege bridge | `rpc_client.py`, `security/rpc_identity.py` |
 | Heliox controller, fixed goals, provenance | `controller.py`, `goals.py`, `audit.py` |
 | Consented recording/export | `recording.py` |
-| No-hardware benchmarks | `benchmark.py` (`pilot-neurod-benchmark`) |
+| No-hardware and operator-trial benchmarks | `benchmark.py`, `evaluation.py` (`pilot-neurod-benchmark`) |
 | Desktop lifecycle | `tauri-app/src-tauri/src/commands.rs` (`start_neural_sidecar`, `stop_neural_sidecar`, export/status) |
 | Settings, stimulus and preview UI | `NeuralControlPanel.svelte`, `SSVEPStimulusGrid.svelte`, `NeuralControlOverlay.svelte` |
 | UI state | `tauri-app/ui/src/lib/stores/neural.ts` |
