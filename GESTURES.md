@@ -1,6 +1,6 @@
 # 🤚 Heliox OS — Gesture System v3 (30+ Gestures)
 
-Heliox OS includes a state-of-the-art webcam-based hand gesture recognition engine powered by [MediaPipe Hands](https://google.github.io/mediapipe/solutions/hands.html). It supports **30+ gestures** including both static poses and real-time motion tracking.
+Heliox OS includes an experimental webcam-based hand gesture recognition engine powered by [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js), with a legacy MediaPipe Hands compatibility backend. It supports **30+ gesture mappings** including static poses and motion rules; physical accuracy varies by camera, user, lighting, pose, and background.
 
 ## Architecture
 
@@ -52,13 +52,13 @@ UI Feedback (emoji badge, particle burst, gesture history)
 
 ## Debouncing & Stability
 
-The gesture engine uses a **4-layer anti-jitter system** to prevent false triggers:
+The gesture engine uses a layered anti-jitter system to reduce false triggers:
 
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
 | **Temporal Filtering** | One Euro filter smooths landmark positions before classification | Reduces single-frame jitter without adding perceptible lag |
 | **Quality Gate** | Confidence scaled by detection + geometric quality; sub-threshold frames don't advance the stabilizer | Prevents a degenerate/occluded pose from misfiring |
-| **Temporal Hand Verification** | Three-to-eight privacy-preserving hand signatures; resets immediately when MediaPipe loses the hand | Rejects face/background false positives and discontinuous motion; never creates a gesture |
+| **Temporal Hand Verification** | Three-to-eight privacy-preserving hand signatures bound to one gesture candidate; resets on no-hand, neutral, or candidate change | Rejects face/background false positives, pose transitions, and discontinuous motion; never creates a gesture |
 | **Frame Stabilizer** | Gesture must be detected for 5 consecutive frames | Eliminates transition noise |
 | **Cooldown Gate** | 1200ms lockout after each trigger | Prevents double-fires |
 | **Buffer Clearing** | Motion buffers reset after circular/push gestures | Prevents re-triggering |
@@ -86,7 +86,11 @@ things:
    confidence with a geometric self-consistency check (do finger tip-to-MCP
    distances fall in a plausible range) into a single score that scales down
    reported gesture confidence, so a degenerate/occluded/edge-on hand pose
-   gets suppressed rather than misfiring at full confidence.
+   gets suppressed rather than misfiring at full confidence. Rejection is
+   user-visible as missing confidence, low confidence, incomplete geometry,
+   too-small framing, or implausible/occluded geometry. Losing the hand also
+   clears every raw motion buffer so a newly acquired hand cannot inherit an
+   old swipe, circle, push, or cursor trail.
 
 This intentionally does **not** re-express every `classifyGesture()`
 threshold in a fully hand-local, scale-normalized coordinate frame — that
@@ -223,17 +227,18 @@ disambiguating signal, never a standalone command trigger on its own.
 eye-tracker hardware, so this is deliberately **not** pixel-precise
 pointing — that would need a real per-user calibration routine this
 feature doesn't attempt. Instead, `lib/gesture/gazeTracking.ts`'s
-`estimateGazeRegion()` reports one of five coarse regions
+`assessGazeFrame()` reports one of five coarse regions
 (`center`/`left`/`right`/`up`/`down`) from where the iris sits within each
 eye socket (MediaPipe's 478-point face mesh with iris refinement,
-indices 468/473), averaged across both eyes for robustness against a
-turned head foreshortening one eye's landmarks more than the other. A
-dead zone around the geometric center absorbs normal jitter so "center"
-doesn't flicker to a side reading on every frame. Pure geometry, no
-learned component, fully unit-tested (`gazeTracking.test.ts`) against
-synthetic fixtures — but like every other empirically-tuned threshold in
-this pipeline, the deadzone/discretization constants haven't been
-validated against a real camera in this environment.
+indices 468/473), averaged across both eyes. Before a region is accepted,
+Heliox rejects non-finite/incomplete landmarks, closed-eye or blink frames,
+extreme projected eye asymmetry from a turned head, implausible iris positions,
+and eye readings that disagree. Quality can only reduce confidence. A dead
+zone absorbs normal center jitter, and a two-sample hysteresis gate is required
+before a region change enters fusion. MediaPipe is the learned face/landmark
+model; Heliox's quality, discretization, and hysteresis layers are deterministic
+and unit-tested against synthetic fixtures. Their thresholds still require
+physical validation across users and cameras.
 
 **On-device processing, privacy-first**: `GestureControl.svelte` loads
 `@mediapipe/tasks-vision`'s `FaceLandmarker` as a separate model on the
@@ -243,10 +248,10 @@ legacy `@mediapipe/hands` WASM and Tasks-Vision WASM both install an
 Emscripten `Module` global and cannot safely coexist in one page. Keeping
 both models in the Tasks-Vision runtime prevents that initialization
 collision. Face tracking runs
-at a reduced sampling rate (every 6th frame — a coarse "which rough
+at a reduced sampling rate (at most once every 500ms — a coarse "which rough
 direction" signal doesn't need 30fps, and running two ML inference
 passes every single frame on the CPU delegate is a real cost worth
-avoiding). Region changes are sent immediately and an unchanged reading is
+avoiding). A confirmed region change is sent immediately and an unchanged reading is
 refreshed every 750ms so it remains inside the fusion engine's 1.5-second
 correlation window without producing per-frame RPC traffic. **Only the
 coarse region label + a confidence float are ever sent to the backend** —
@@ -291,10 +296,10 @@ MediaPipe model distribution URL, MD5 verified against the source's
 in the vendor directory, so no build-tooling changes were needed to add
 this second model.
 
-**Not verified in this pass**: real-camera accuracy of the coarse
-region estimation, and whether the confidence-bonus/deadzone constants
-hold up against actual users — same caveat as the 3D world-model layer
-above.
+**Not verified in this pass**: real-camera accuracy of the coarse region
+estimation and whether the confidence, quality, deadzone, and hysteresis
+constants hold up across actual users, eyewear, skin tones, lighting, cameras,
+and head poses — the same caveat as the 3D world-model layer above.
 
 ---
 
@@ -518,6 +523,40 @@ Uses an **8-point wrist history with Z-coordinate** from MediaPipe:
 
 ---
 
+## Research corpus and offline benchmark contract
+
+The implementation was reviewed against current model documentation and public
+research corpora. These sources are **evaluation candidates, not bundled
+training data**. Their licenses and access terms must be checked before any
+download or commercial use, and Heliox does not commit raw face/hand media.
+
+| Source | What it contributes | Heliox use now |
+|--------|---------------------|----------------|
+| [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js) and [Face Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker/web_js) | Official VIDEO-mode confidence, tracking, world-landmark, face-blendshape, and synchronous-web constraints | Runtime contract and threshold semantics |
+| [HaGRIDv2](https://github.com/hukenovs/hagrid) / [WACV paper](https://openaccess.thecvf.com/content/WACV2024/html/Kapitanov_HaGRID_--_HAnd_Gesture_Recognition_Image_Dataset_WACV_2024_paper.html) | Diverse subjects, lighting, distance, explicit `no_gesture` negatives, static/control poses | Candidate for licensed offline false-positive and coverage evaluation; not vendored |
+| [EgoGesture](https://nlpr.ia.ac.cn/iva/yfzhang/datasets/egogesture.html) | 83 static/dynamic egocentric gesture classes with train/validation/test sequences | Candidate dynamic-gesture stress corpus; not equivalent to Heliox's frontal webcam |
+| [MPIIGaze](https://collaborative-ai.org/research/datasets/MPIIGaze/) | 213,659 everyday laptop-use frames across months, with illumination and appearance variation | Research-only coarse-region evaluation candidate; non-commercial dataset terms apply |
+| [GazeCapture](https://openaccess.thecvf.com/content_cvpr_2016/html/Krafka_Eye_Tracking_for_CVPR_2016_paper.html) | Roughly 2.4M mobile frames from 1,474 subjects and calibration/no-calibration evidence | Scale/calibration reference; official release is research-use only |
+| [ETH-XGaze](https://ait.ethz.ch/xgaze) and [Gaze360](https://openaccess.thecvf.com/content_ICCV_2019/html/Kellnhofer_Gaze360_Physically_Unconstrained_Gaze_Estimation_in_the_Wild_ICCV_2019_paper.html) | Extreme head-pose, illumination, temporal, uncertainty, and cross-dataset protocols | Future robustness references; access/redistribution restrictions prevent bundling |
+
+`cameraSignalBenchmark.ts` evaluates already-recorded, timestamped detector
+outputs without opening a camera or invoking any cursor, workflow, daemon, or
+OS action. It reports:
+
+- hand-presence precision/recall/F1;
+- gesture-event precision/recall/F1 and false activations per minute;
+- coarse-gaze coverage, accuracy, rejection specificity, and excess region
+  transitions per minute.
+
+The test suite validates the metric math and synthetic detector edge cases. It
+does **not** establish real-camera accuracy. A release-quality physical corpus
+still needs consented users, multiple cameras, lighting/background/skin-tone/
+eyewear/head-pose coverage, explicit no-hand/no-gesture negatives, and a frozen
+person-disjoint test split. Keep raw media outside Git; only consented,
+de-identified detector outputs should enter local benchmark fixtures.
+
+---
+
 ## Configuration
 
 | Setting | Value | Description |
@@ -526,9 +565,15 @@ Uses an **8-point wrist history with Z-coordinate** from MediaPipe:
 | `GESTURE_COOLDOWN_MS` | 1200 | Milliseconds between gesture triggers |
 | `MOTION_BUFFER_SIZE` | 20 | Max frames in wrist/index history buffers |
 | `MAX_TRAIL_LENGTH` | 60 | Max points in air-drawing trail |
-| `modelComplexity` | 0 | MediaPipe model (0=lite, 1=full) |
-| `minDetectionConfidence` | 0.6 | Minimum hand detection confidence |
-| `minTrackingConfidence` | 0.5 | Minimum hand tracking confidence |
+| `modelComplexity` | 0 | Legacy MediaPipe Hands compatibility model (0=lite, 1=full) |
+| `minDetectionConfidence` | 0.7 | Minimum hand detection/handedness confidence accepted by either backend |
+| `minHandPresenceConfidence` | 0.7 | Tasks-Vision threshold before it re-runs palm detection |
+| `minTrackingConfidence` | 0.65 | Hand tracking confidence / bounding-box IoU threshold |
+| `minFaceDetectionConfidence` | 0.6 | Gaze face detection threshold |
+| `minFacePresenceConfidence` | 0.6 | Gaze face-presence threshold |
+| `face minTrackingConfidence` | 0.6 | Gaze face tracking threshold |
+| `GAZE_INFERENCE_INTERVAL_MS` | 500 | Maximum gaze sampling rate while sharing the UI thread with hand tracking |
+| `GAZE_HEARTBEAT_MS` | 750 | Refresh interval for a stable accepted gaze region |
 
 ---
 
@@ -566,6 +611,8 @@ To add a new gesture:
 | `tauri-app/ui/vite.config.ts` | `mediapipeTasksVisionAssets()` plugin — self-hosts the Tasks-vision WASM loader + vendored models (hand + face) at `/mediapipe/tasks-vision/*` |
 | `tauri-app/ui/src/lib/gesture/gazeTracking.ts` | Pure coarse gaze-region estimation from iris/eye-socket landmarks — third fusion modality, no calibration |
 | `tauri-app/ui/src/lib/gesture/gazeTracking.test.ts` | Unit tests for gaze-region discretization against synthetic face-mesh fixtures |
+| `tauri-app/ui/src/lib/gesture/cameraSignalBenchmark.ts` | Non-executing metrics for recorded hand, gesture-event, and coarse-gaze outputs |
+| `tauri-app/ui/src/lib/gesture/cameraSignalBenchmark.test.ts` | Metric arithmetic, timestamp validation, false-activation, and gaze-flicker tests |
 | `tauri-app/ui/src/lib/gesture/calibration.ts` | On-device gesture calibration — EMA, reversal detection, localStorage store |
 | `tauri-app/ui/src/lib/gesture/calibration.test.ts` | Unit tests for calibration EMA/clamping/reversal-pairing logic |
 | `tauri-app/ui/src/lib/utils/runtime.ts` | `isTauriRuntime()` — used to pick the native vs. daemon-RPC cursor path |

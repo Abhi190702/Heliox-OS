@@ -267,7 +267,12 @@ evidence may interrupt or add confirmation but can never remove a deterministic
 warning or grant authority.
 
 The camera temporal verifier follows the same rule: MediaPipe must first prove
-a hand exists; temporal evidence can only reduce or reject a candidate gesture.
+a reliable hand exists; temporal evidence is bound to one gesture candidate and
+can only reduce or reject it. A lost/rejected hand clears raw motion history so
+reacquisition cannot inherit a prior swipe, circle, push, or cursor trail. Gaze
+is separately quality-gated for finite eye geometry, blinks, head turn, eye
+agreement, and temporal region stability, then remains passive fusion context;
+it never creates an action.
 
 ### 7. Verified continuous learning
 
