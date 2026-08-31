@@ -154,6 +154,30 @@ def test_calibration_requires_registered_advantage_over_chance() -> None:
         calibrator._validate_metrics(metrics)
 
 
+def test_calibration_artifact_binds_acceptance_criteria_and_target_metrics(tmp_path: Path) -> None:
+    artifact = _artifact()
+    payload = artifact.model_dump(mode="json")
+    payload["metrics"]["per_class_recall"] = {
+        "unrelated-a": 1.0,
+        "unrelated-b": 1.0,
+        "unrelated-c": 1.0,
+        "unrelated-d": 1.0,
+    }
+
+    with pytest.raises(ValueError, match="cover every calibrated target"):
+        SSVEPCalibrationArtifact.model_validate(payload)
+
+    payload = artifact.model_dump(mode="json")
+    payload["metrics"]["balanced_accuracy"] = 0.2
+    with pytest.raises(ValueError, match="below its registered threshold"):
+        SSVEPCalibrationArtifact.model_validate(payload)
+
+    artifact.save(tmp_path / "calibration.json")
+    loaded = SSVEPCalibrationArtifact.load(tmp_path / "calibration.json")
+    assert loaded.minimum_per_class_recall == 0.5
+    assert loaded.maximum_expected_calibration_error == 0.25
+
+
 def test_sidecar_emits_only_signed_derived_intent_and_tracks_dwell() -> None:
     artifact = _artifact()
     source = SyntheticNeuralSource(target_hz=15, noise_uv=1.0, seed=99)

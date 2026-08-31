@@ -81,6 +81,10 @@ class SSVEPCalibrationArtifact(BaseModel):
     coefficients: tuple[tuple[float, ...], ...]
     intercepts: tuple[float, ...]
     metrics: CalibrationMetrics
+    minimum_balanced_accuracy: float = Field(default=0.65, ge=0, le=1)
+    minimum_per_class_recall: float = Field(default=0.50, ge=0, le=1)
+    maximum_expected_calibration_error: float = Field(default=0.25, ge=0, le=1)
+    minimum_chance_advantage: float = Field(default=0.10, ge=0, le=1)
 
     @model_validator(mode="after")
     def validate_shapes(self) -> Self:
@@ -93,6 +97,8 @@ class SSVEPCalibrationArtifact(BaseModel):
             raise ValueError("SSVEP frequencies must be unique")
         if set(self.class_order) != {target.target_id for target in self.targets}:
             raise ValueError("class_order must cover every target exactly once")
+        if set(self.metrics.per_class_recall) != set(self.class_order):
+            raise ValueError("per-class recall must cover every calibrated target exactly once")
         if len(self.feature_mean) != feature_count or len(self.feature_scale) != feature_count:
             raise ValueError("feature normalization shape is invalid")
         expected_rows = 1 if class_count == 2 else class_count
@@ -102,6 +108,16 @@ class SSVEPCalibrationArtifact(BaseModel):
             raise ValueError("classifier feature shape is invalid")
         if any(value <= 0 for value in self.feature_scale):
             raise ValueError("feature scales must be positive")
+        required_accuracy = max(
+            self.minimum_balanced_accuracy,
+            (1.0 / class_count) + self.minimum_chance_advantage,
+        )
+        if self.metrics.balanced_accuracy < required_accuracy:
+            raise ValueError("artifact balanced accuracy is below its registered threshold")
+        if min(self.metrics.per_class_recall.values()) < self.minimum_per_class_recall:
+            raise ValueError("artifact per-class recall is below its registered threshold")
+        if self.metrics.expected_calibration_error > self.maximum_expected_calibration_error:
+            raise ValueError("artifact calibration error exceeds its registered threshold")
         return self
 
     def content_payload(self) -> bytes:
@@ -338,6 +354,10 @@ class SSVEPCalibrator:
             coefficients=coefficients,
             intercepts=tuple(float(value) for value in model.intercept_),
             metrics=metrics,
+            minimum_balanced_accuracy=self._minimum_balanced_accuracy,
+            minimum_per_class_recall=self._minimum_per_class_recall,
+            maximum_expected_calibration_error=self._maximum_expected_calibration_error,
+            minimum_chance_advantage=self._minimum_chance_advantage,
         )
         calibration_id = hashlib.sha256(base.content_payload()).hexdigest()
         artifact = base.model_copy(update={"calibration_id": calibration_id})
