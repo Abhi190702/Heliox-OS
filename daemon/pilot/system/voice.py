@@ -75,6 +75,15 @@ def _looks_like_autonomous_voice_intent(text: str) -> bool:
     return normalized in _AUTONOMOUS_SHORT_DECISIONS or bool(_AUTONOMOUS_COMMAND_START.match(normalized))
 
 
+def _remove_phrase_case_insensitive(text: str, phrase: str) -> str:
+    """Remove one recognized phrase without lowercasing the remaining command."""
+    start = text.casefold().find(phrase.casefold())
+    if start < 0:
+        return text.strip(" \t,.:;!?-")
+    end = start + len(phrase)
+    return f"{text[:start]}{text[end:]}".strip(" \t,.:;!?-")
+
+
 # The currently in-flight speak() call, if any -- module-level so that ANY
 # two callers anywhere in the daemon (executor.py's cognitive-stress-gate
 # phrase, AutonomousExecutor's end-of-job announcement, server.py's voice
@@ -1658,7 +1667,7 @@ class ContinuousVoiceListener:
                 logger.debug("Heard: %s", transcript_lower)
 
                 wake_detected = False
-                command_text = transcript_lower
+                command_text = transcript.strip()
                 wake_free_allowed = (
                     self._wake_free_suppression_depth == 0
                     and capture_generation == self._wake_free_suppression_generation
@@ -1670,11 +1679,7 @@ class ContinuousVoiceListener:
                 for wake in self.wake_words:
                     if wake in transcript_lower:
                         wake_detected = True
-                        command_text = transcript_lower.replace(
-                            wake,
-                            "",
-                            1,
-                        ).strip(" \t,.:;!?-")
+                        command_text = _remove_phrase_case_insensitive(transcript, wake)
                         break
 
                 if wake_detected:
@@ -1686,7 +1691,7 @@ class ContinuousVoiceListener:
                     variant_hit = self._wake_calibrator.match_promoted_variant(transcript_lower)
                     if isinstance(variant_hit, str) and variant_hit:
                         wake_detected = True
-                        command_text = transcript_lower.replace(variant_hit, "").strip()
+                        command_text = _remove_phrase_case_insensitive(transcript, variant_hit)
                         self._wake_calibrator.confirm_pending_if_followed_by_hit()
                     else:
                         near_miss = self._wake_calibrator.check_near_miss(transcript_lower)
@@ -1699,7 +1704,7 @@ class ContinuousVoiceListener:
                             # voice policy/permission gates. A wake-only
                             # near-miss keeps the conservative repeated-
                             # confirmation calibration behavior.
-                            trailing_command = transcript_lower[len(near_miss) :].strip(" \t,.:;-")
+                            trailing_command = transcript[len(near_miss) :].strip(" \t,.:;-")
                             if len(trailing_command) >= 3:
                                 wake_detected = True
                                 command_text = trailing_command
@@ -1733,7 +1738,7 @@ class ContinuousVoiceListener:
                     # Consume before dispatch so room speech cannot enqueue
                     # multiple wake-free commands while this one is running.
                     self.clear_follow_up_window()
-                    command_text = transcript_lower.strip(" \t,.:;!?-")
+                    command_text = transcript.strip(" \t,.:;!?-")
                     logger.info("Conversational voice follow-up detected: '%s'", command_text)
 
                 logger.info(

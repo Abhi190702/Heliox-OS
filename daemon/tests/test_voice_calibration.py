@@ -210,7 +210,7 @@ async def test_close_wake_transcription_with_command_dispatches_immediately():
     await asyncio.wait_for(command_received.wait(), timeout=1)
     await task
 
-    on_command.assert_awaited_once_with("open github")
+    on_command.assert_awaited_once_with("open GitHub")
     listener._wake_calibrator.record_pending.assert_not_called()
 
 

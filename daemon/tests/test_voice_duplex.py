@@ -60,7 +60,7 @@ async def test_listener_accepts_one_wake_free_follow_up_inside_conversation_wind
 
     async def dispatch(command: str) -> None:
         received.append(command)
-        if command == "click on launch on the website":
+        if command == "Click on Launch on the website":
             follow_up_received.set()
 
     listener = ContinuousVoiceListener(
@@ -86,7 +86,7 @@ async def test_listener_accepts_one_wake_free_follow_up_inside_conversation_wind
     await listener._listen_loop()
     await asyncio.gather(*tuple(listener._command_tasks))
 
-    assert received == ["click on launch on the website"]
+    assert received == ["Click on Launch on the website"]
     assert listener.follow_up_remaining_seconds == 0
 
 
@@ -117,6 +117,35 @@ async def test_autonomous_listener_routes_natural_speech_without_wake_phrase():
     await asyncio.gather(*tuple(listener._command_tasks))
 
     dispatch.assert_awaited_once_with("click launch")
+
+
+@pytest.mark.asyncio
+async def test_listener_preserves_application_name_casing_after_wake_phrase():
+    received = asyncio.Event()
+    dispatch = AsyncMock(side_effect=lambda _command: received.set())
+    listener = ContinuousVoiceListener(
+        wake_words=["hey heliox"],
+        on_command=dispatch,
+        config=PilotConfig(),
+    )
+    listener._wake_calibrator = MagicMock()
+    transcripts = iter(["Hey Heliox, Open Visual Studio Code"])
+
+    async def transcribe(**_kwargs):
+        try:
+            return next(transcripts)
+        except StopIteration:
+            await received.wait()
+            listener._running = False
+            return "No speech detected"
+
+    listener._record_and_transcribe = transcribe
+    listener._running = True
+
+    await listener._listen_loop()
+    await asyncio.gather(*tuple(listener._command_tasks))
+
+    dispatch.assert_awaited_once_with("Open Visual Studio Code")
 
 
 @pytest.mark.asyncio
