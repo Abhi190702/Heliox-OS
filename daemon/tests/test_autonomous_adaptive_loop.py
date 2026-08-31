@@ -17,6 +17,7 @@ from pilot.actions import (
     VerificationResult,
 )
 from pilot.agents.autonomous import AutonomousExecutor, AutonomousJob, JobStep
+from pilot.agents.decomposer import Subtask, SubtaskStatus, TaskDecomposer, TaskDecomposition
 
 
 def _autonomous(*, plans, results, verifications, screen_vision=None) -> AutonomousExecutor:
@@ -47,6 +48,46 @@ def _open_app_plan() -> ActionPlan:
         explanation="Open Hermes",
         raw_input="Complete the task in Hermes",
     )
+
+
+@pytest.mark.asyncio
+async def test_failed_dependency_skips_downstream_subtask() -> None:
+    decomposition = TaskDecomposition(
+        goal="Prepare and publish",
+        is_complex=True,
+        subtasks=[
+            Subtask(order=0, title="Prepare", description="Prepare artifact"),
+            Subtask(order=1, title="Publish", description="Publish artifact", depends_on=["0"]),
+        ],
+    )
+    autonomous = AutonomousExecutor(
+        planner=None,
+        executor=None,
+        verifier=None,
+        decomposer=TaskDecomposer(model_router=None),
+    )
+
+    async def execute_step(_job, step, _goal, **_kwargs) -> None:
+        step.status = "failed"
+        step.error = "precondition failed"
+
+    autonomous._execute_goal_loop = AsyncMock(side_effect=execute_step)
+    job = AutonomousJob(
+        goal=decomposition.goal,
+        total_steps=2,
+        steps=[
+            JobStep(index=0, title="Prepare", description="Prepare artifact"),
+            JobStep(index=1, title="Publish", description="Publish artifact"),
+        ],
+    )
+
+    await autonomous._execute_multi_step(job, decomposition)
+
+    assert autonomous._execute_goal_loop.await_count == 1
+    assert decomposition.subtasks[0].status == SubtaskStatus.FAILED
+    assert decomposition.subtasks[1].status == SubtaskStatus.SKIPPED
+    assert job.steps[1].status == "skipped"
+    assert "dependencies did not succeed" in job.steps[1].error
 
 
 @pytest.mark.asyncio

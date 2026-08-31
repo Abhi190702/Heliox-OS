@@ -476,6 +476,8 @@ class VoiceGestureWorkflowEngine:
     async def _decompose(self, workflow_id: str, workflow: VoiceGestureWorkflow) -> VoiceGestureWorkflow | None:
         await self._workflow_store.set_state(workflow_id, WorkflowState.DECOMPOSING)
         decomposition = await self._decomposer.decompose(workflow.goal)
+        if decomposition.error:
+            raise RuntimeError(decomposition.error)
 
         if decomposition.is_complex and decomposition.subtasks:
             order = self._decomposer.get_execution_order(decomposition)

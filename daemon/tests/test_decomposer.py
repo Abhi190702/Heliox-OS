@@ -23,6 +23,7 @@ import pytest
 import pytest_asyncio
 
 from pilot.agents.decomposer import (
+    DecompositionValidationError,
     Subtask,
     SubtaskStatus,
     TaskDecomposer,
@@ -115,7 +116,7 @@ INVALID_JSON_RESPONSE = "I'm sorry, I cannot help with that."
 # Model returns valid JSON but with an empty subtasks list even when is_complex=True
 COMPLEX_NO_SUBTASKS_RESPONSE = json.dumps({"is_complex": True, "subtasks": []})
 
-# Model returns a plan with a dependency cycle (decomposer should still not crash)
+# Model returns a plan with a dependency cycle.
 CYCLE_RESPONSE = json.dumps(
     {
         "is_complex": True,
@@ -332,11 +333,12 @@ class TestDecomposeInvalidModelOutput:
         assert isinstance(result, TaskDecomposition)
 
     @pytest.mark.asyncio
-    async def test_invalid_json_falls_back_to_simple(self) -> None:
+    async def test_invalid_json_is_not_silently_treated_as_simple(self) -> None:
         decomposer = make_decomposer(INVALID_JSON_RESPONSE)
         result = await decomposer.decompose("Some task")
 
         assert result.is_complex is False
+        assert "could not be validated" in result.error
 
     @pytest.mark.asyncio
     async def test_invalid_json_produces_no_subtasks(self) -> None:
@@ -353,6 +355,7 @@ class TestDecomposeInvalidModelOutput:
 
         assert isinstance(result, TaskDecomposition)
         assert len(result.subtasks) == 0
+        assert "contains no subtasks" in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -427,23 +430,70 @@ class TestGetExecutionOrder:
         assert len(batches[0]) == 1
 
     @pytest.mark.asyncio
-    async def test_cycle_does_not_crash(self) -> None:
-        """A cyclic dependency graph must not cause an infinite loop or exception."""
+    async def test_cycle_is_rejected_by_model_output_validation(self) -> None:
         decomposer = make_decomposer(CYCLE_RESPONSE)
         result = await decomposer.decompose("Cyclic task")
-        # Should complete (decomposer has a deadlock-break path)
-        batches = decomposer.get_execution_order(result)
-        assert isinstance(batches, list)
+        assert result.subtasks == []
+        assert "cycle or deadlock" in result.error
 
     @pytest.mark.asyncio
-    async def test_cycle_all_subtasks_eventually_scheduled(self) -> None:
-        """Even with a cycle, every subtask should appear in exactly one batch."""
-        decomposer = make_decomposer(CYCLE_RESPONSE)
-        result = await decomposer.decompose("Cyclic task")
-        batches = decomposer.get_execution_order(result)
+    async def test_manual_cycle_fails_closed_in_scheduler(self) -> None:
+        decomposer = make_decomposer(NOT_COMPLEX_RESPONSE)
+        result = TaskDecomposition(
+            goal="Cyclic task",
+            is_complex=True,
+            subtasks=[
+                Subtask(order=0, title="A", description="A", depends_on=["1"]),
+                Subtask(order=1, title="B", description="B", depends_on=["0"]),
+            ],
+        )
 
-        scheduled = [st for batch in batches for st in batch]
-        assert len(scheduled) == len(result.subtasks)
+        with pytest.raises(DecompositionValidationError, match="cycle or deadlock"):
+            decomposer.get_execution_order(result)
+
+    @pytest.mark.asyncio
+    async def test_unknown_dependency_is_rejected(self) -> None:
+        response = json.dumps(
+            {
+                "is_complex": True,
+                "subtasks": [
+                    {
+                        "title": "A",
+                        "description": "A",
+                        "agent": "system",
+                        "depends_on": ["missing"],
+                        "estimated_complexity": 0.2,
+                    }
+                ],
+            }
+        )
+
+        result = await make_decomposer(response).decompose("Unknown dependency")
+
+        assert result.subtasks == []
+        assert "unknown dependency" in result.error
+
+    @pytest.mark.asyncio
+    async def test_unsupported_specialist_is_rejected(self) -> None:
+        response = json.dumps(
+            {
+                "is_complex": True,
+                "subtasks": [
+                    {
+                        "title": "A",
+                        "description": "A",
+                        "agent": "unreviewed-plugin",
+                        "depends_on": [],
+                        "estimated_complexity": 0.2,
+                    }
+                ],
+            }
+        )
+
+        result = await make_decomposer(response).decompose("Unsupported specialist")
+
+        assert result.subtasks == []
+        assert "unsupported specialist" in result.error
 
 
 # ---------------------------------------------------------------------------

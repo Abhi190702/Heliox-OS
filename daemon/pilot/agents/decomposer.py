@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -29,6 +30,13 @@ if TYPE_CHECKING:
     from pilot.models.router import ModelRouter
 
 logger = logging.getLogger("pilot.agents.decomposer")
+
+MAX_DECOMPOSED_SUBTASKS = 32
+ALLOWED_SPECIALISTS = frozenset({"system", "code", "web", "monitor", "communication"})
+
+
+class DecompositionValidationError(ValueError):
+    """Raised when model output is not a safe executable dependency graph."""
 
 
 class SubtaskStatus(StrEnum):
@@ -78,6 +86,7 @@ class TaskDecomposition:
     subtasks: list[Subtask] = field(default_factory=list)
     is_complex: bool = False
     estimated_total_time: str = ""
+    error: str = ""
     decomposition_id: str = field(default_factory=lambda: str(uuid.uuid4().hex)[:8])
 
     def to_dict(self) -> dict[str, Any]:
@@ -86,6 +95,7 @@ class TaskDecomposition:
             "goal": self.goal,
             "is_complex": self.is_complex,
             "estimated_total_time": self.estimated_total_time,
+            "error": self.error,
             "subtask_count": len(self.subtasks),
             "subtasks": [s.to_dict() for s in self.subtasks],
         }
@@ -133,24 +143,63 @@ class TaskDecomposer:
             prompt = DECOMPOSITION_PROMPT.format(goal=goal)
             response = await self._model.generate(prompt)
             data = json.loads(response)
+            if not isinstance(data, dict):
+                raise DecompositionValidationError("response must be a JSON object")
 
-            decomposition.is_complex = data.get("is_complex", False)
-            decomposition.estimated_total_time = data.get("estimated_total_time", "")
+            is_complex = data.get("is_complex", False)
+            if not isinstance(is_complex, bool):
+                raise DecompositionValidationError("is_complex must be a boolean")
+            raw_subtasks = data.get("subtasks", [])
+            if not isinstance(raw_subtasks, list):
+                raise DecompositionValidationError("subtasks must be a list")
+            if len(raw_subtasks) > MAX_DECOMPOSED_SUBTASKS:
+                raise DecompositionValidationError(f"subtask count exceeds the limit of {MAX_DECOMPOSED_SUBTASKS}")
+            if is_complex and not raw_subtasks:
+                raise DecompositionValidationError("complex decomposition contains no subtasks")
 
-            for i, st in enumerate(data.get("subtasks", [])):
+            decomposition.is_complex = is_complex
+            decomposition.estimated_total_time = str(data.get("estimated_total_time", ""))[:80]
+
+            for i, st in enumerate(raw_subtasks):
+                if not isinstance(st, dict):
+                    raise DecompositionValidationError(f"subtask {i} must be an object")
+                title = st.get("title", "")
+                description = st.get("description", "")
+                agent = st.get("agent", "system")
+                dependencies = st.get("depends_on", [])
+                complexity = st.get("estimated_complexity", 0.5)
+                if not isinstance(title, str) or not title.strip() or len(title) > 160:
+                    raise DecompositionValidationError(f"subtask {i} has an invalid title")
+                if not isinstance(description, str) or not description.strip() or len(description) > 4_000:
+                    raise DecompositionValidationError(f"subtask {i} has an invalid description")
+                if agent not in ALLOWED_SPECIALISTS:
+                    raise DecompositionValidationError(f"subtask {i} names unsupported specialist {agent!r}")
+                if not isinstance(dependencies, list) or not all(isinstance(dep, str) and dep for dep in dependencies):
+                    raise DecompositionValidationError(f"subtask {i} has invalid dependencies")
+                if len(set(dependencies)) != len(dependencies):
+                    raise DecompositionValidationError(f"subtask {i} repeats a dependency")
+                if isinstance(complexity, bool) or not isinstance(complexity, (int, float)):
+                    raise DecompositionValidationError(f"subtask {i} has invalid complexity")
+                complexity = float(complexity)
+                if not math.isfinite(complexity) or not 0.0 <= complexity <= 1.0:
+                    raise DecompositionValidationError(f"subtask {i} complexity must be between 0 and 1")
                 subtask = Subtask(
-                    title=st.get("title", f"Step {i + 1}"),
-                    description=st.get("description", ""),
-                    agent=st.get("agent", "system"),
-                    depends_on=st.get("depends_on", []),
-                    estimated_complexity=st.get("estimated_complexity", 0.5),
+                    title=title.strip(),
+                    description=description.strip(),
+                    agent=agent,
+                    depends_on=dependencies,
+                    estimated_complexity=complexity,
                     order=i,
                 )
                 decomposition.subtasks.append(subtask)
 
-        except Exception:
-            logger.debug("LLM decomposition failed, treating as simple", exc_info=True)
+            self.get_execution_order(decomposition)
+
+        except Exception as exc:
+            logger.warning("Task decomposition rejected: %s", exc)
             decomposition.is_complex = False
+            decomposition.subtasks.clear()
+            decomposition.error = f"Task decomposition could not be validated: {exc}"
 
         return decomposition
 
@@ -165,6 +214,14 @@ class TaskDecomposer:
         # Build adjacency by order index
         id_map = {str(i): st for i, st in enumerate(decomposition.subtasks)}
         id_map.update({st.id: st for st in decomposition.subtasks})
+        for st in decomposition.subtasks:
+            for dependency in st.depends_on:
+                if dependency not in id_map:
+                    raise DecompositionValidationError(
+                        f"subtask {st.order} references unknown dependency {dependency!r}"
+                    )
+                if id_map[dependency] is st:
+                    raise DecompositionValidationError(f"subtask {st.order} depends on itself")
 
         completed: set[str] = set()
         remaining = list(decomposition.subtasks)
@@ -180,7 +237,8 @@ class TaskDecomposer:
 
             if not ready:
                 # Break deadlock — force remaining into batch
-                ready = list(remaining)
+                blocked = ", ".join(str(st.order) for st in remaining)
+                raise DecompositionValidationError(f"dependency cycle or deadlock blocks subtasks: {blocked}")
 
             batches.append(ready)
             for st in ready:

@@ -305,6 +305,8 @@ class AutonomousExecutor:
             await self._notify("autonomous_started", job)
 
             decomposition = await self._decomposer.decompose(job.goal)
+            if decomposition.error:
+                raise RuntimeError(decomposition.error)
 
             if decomposition.is_complex and decomposition.subtasks:
                 # Complex task — execute each subtask
@@ -455,14 +457,27 @@ class AutonomousExecutor:
         batches = self._decomposer.get_execution_order(decomposition)
         job.status = JobStatus.RUNNING
 
-        step_idx = 0
+        dependency_map = {str(subtask.order): subtask for subtask in decomposition.subtasks}
+        dependency_map.update({subtask.id: subtask for subtask in decomposition.subtasks})
         for batch in batches:
             for subtask in batch:
-                if step_idx >= len(job.steps):
-                    break
+                step = job.steps[subtask.order]
+                job.current_step = subtask.order
+                failed_dependencies = [
+                    dependency
+                    for dependency in subtask.depends_on
+                    if dependency_map[dependency].status != SubtaskStatus.SUCCESS
+                ]
+                if failed_dependencies:
+                    reason = "Skipped because dependencies did not succeed: " + ", ".join(failed_dependencies)
+                    subtask.status = SubtaskStatus.SKIPPED
+                    subtask.error = reason
+                    step.status = "skipped"
+                    step.error = reason
+                    step.completed_at = time.time()
+                    await self._notify("autonomous_step_complete", job)
+                    continue
 
-                step = job.steps[step_idx]
-                job.current_step = step_idx
                 step.status = "running"
                 step.started_at = time.time()
                 await self._notify("autonomous_step_start", job)
@@ -477,7 +492,6 @@ class AutonomousExecutor:
 
                 step.completed_at = time.time()
                 await self._notify("autonomous_step_complete", job)
-                step_idx += 1
 
     async def _observe_screen_context(self, target_window: str | None = None) -> str:
         """Return a fresh foreground observation when screen vision is available."""
