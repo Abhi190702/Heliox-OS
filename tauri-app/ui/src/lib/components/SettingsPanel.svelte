@@ -88,6 +88,7 @@
   let speechToast = $state("");
   let speechSaving = $state(false);
   let speechTesting = $state(false);
+  let recognitionTesting = $state(false);
   let audioInputDevices = $state<
     Array<{
       id: string;
@@ -582,6 +583,31 @@
     speechTesting = false;
     speechToast = "Voice test stopped.";
     setTimeout(() => (speechToast = ""), 5000);
+  }
+
+  async function testSpeechRecognition() {
+    recognitionTesting = true;
+    speechToast = "Listening now—say one short phrase. It will not be executed.";
+    try {
+      const result = requireOkResult(
+        await call<{
+          status: string;
+          message?: string;
+          transcript?: string;
+          language?: string;
+          latency_ms?: number;
+        }>("voice_recognition_test", { timeout_seconds: 12 }),
+        "The microphone recognition test failed.",
+      );
+      const language = result.language ? ` · ${result.language}` : "";
+      const latency = typeof result.latency_ms === "number" ? ` · ${result.latency_ms} ms` : "";
+      speechToast = `Heard: “${result.transcript ?? ""}”${language}${latency}`;
+    } catch (error) {
+      speechToast = error instanceof Error ? `Recognition test failed: ${error.message}` : "Recognition test failed.";
+    } finally {
+      recognitionTesting = false;
+      setTimeout(() => (speechToast = ""), 12000);
+    }
   }
 
   function updateGpuLimit(e: Event) {
@@ -1630,6 +1656,16 @@
         <option value="pt">Portuguese</option>
         <option value="zh">Chinese</option>
       </select>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Test speech recognition</span>
+        <span class="setting-desc">Shows exactly what Heliox hears without executing the phrase.</span>
+      </div>
+      <button class="btn-save" onclick={testSpeechRecognition} disabled={speechSaving || recognitionTesting}>
+        {recognitionTesting ? "Listening…" : "Test microphone"}
+      </button>
     </div>
 
     <div class="setting-row">

@@ -253,6 +253,60 @@ async def test_server_surfaces_microphone_start_failure(monkeypatch):
     assert server._voice_listener is None
 
 
+@pytest.mark.asyncio
+async def test_server_recognition_test_starts_and_stops_temporary_listener(monkeypatch):
+    instances = []
+
+    class _DiagnosticListener:
+        is_running = False
+
+        def __init__(self, **_kwargs):
+            self.stopped = False
+            instances.append(self)
+
+        async def start(self):
+            self.is_running = True
+            return "started"
+
+        async def capture_diagnostic(self, timeout_seconds):
+            assert timeout_seconds == 12
+            return {"transcript": "open GitHub", "language": "en", "latency_ms": 180}
+
+        async def stop(self):
+            self.is_running = False
+            self.stopped = True
+
+    monkeypatch.setattr("pilot.system.voice.ContinuousVoiceListener", _DiagnosticListener)
+    server = PilotServer(PilotConfig())
+
+    result = await server._handle_voice_recognition_test({}, MagicMock())
+
+    assert result == {
+        "status": "ok",
+        "transcript": "open GitHub",
+        "language": "en",
+        "latency_ms": 180,
+    }
+    assert instances[0].stopped is True
+
+
+@pytest.mark.asyncio
+async def test_server_recognition_test_reuses_active_listener():
+    listener = MagicMock()
+    listener.is_running = True
+    listener.capture_diagnostic = AsyncMock(
+        return_value={"transcript": "show system information", "language": "en", "latency_ms": 120}
+    )
+    server = PilotServer(PilotConfig())
+    server._voice_listener = listener
+
+    result = await server._handle_voice_recognition_test({"timeout_seconds": 8}, MagicMock())
+
+    assert result["status"] == "ok"
+    listener.capture_diagnostic.assert_awaited_once_with(8.0)
+    listener.stop.assert_not_called()
+
+
 def test_listener_stats_expose_transient_signal_and_transcript_diagnostics():
     listener = ContinuousVoiceListener(config=PilotConfig())
     listener._recorder.frames_received = 42

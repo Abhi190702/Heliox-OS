@@ -9,6 +9,46 @@ from pilot.system.voice import ContinuousVoiceListener
 
 
 @pytest.mark.asyncio
+async def test_recognition_diagnostic_consumes_utterance_without_dispatching():
+    dispatch = AsyncMock()
+    listener = ContinuousVoiceListener(
+        wake_words=["hey heliox"],
+        on_command=dispatch,
+        config=PilotConfig(),
+    )
+    listener._wake_calibrator = MagicMock()
+    listener._running = True
+    transcripts = iter(["Hey Heliox, open GitHub", "No speech detected"])
+
+    async def transcribe(**_kwargs):
+        transcript = next(transcripts)
+        if transcript == "No speech detected":
+            listener._running = False
+        return transcript
+
+    listener._record_and_transcribe = transcribe
+    diagnostic_task = asyncio.create_task(listener.capture_diagnostic())
+    await asyncio.sleep(0)
+
+    await listener._listen_loop()
+    result = await diagnostic_task
+
+    assert result["transcript"] == "Hey Heliox, open GitHub"
+    dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_recognition_diagnostic_times_out_cleanly():
+    listener = ContinuousVoiceListener(config=PilotConfig())
+    listener._running = True
+
+    with pytest.raises(TimeoutError):
+        await listener.capture_diagnostic(0.01)
+
+    assert listener._diagnostic_waiter is None
+
+
+@pytest.mark.asyncio
 async def test_listener_keeps_listening_while_previous_command_runs():
     first_started = asyncio.Event()
     release_first = asyncio.Event()

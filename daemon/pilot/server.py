@@ -1370,6 +1370,7 @@ class PilotServer:
             "voice_listener_start": self._handle_voice_listener_start,
             "voice_listener_stop": self._handle_voice_listener_stop,
             "voice_listener_stats": self._handle_voice_listener_stats,
+            "voice_recognition_test": self._handle_voice_recognition_test,
             "interaction_status": self._handle_interaction_status,
             "list_audio_input_devices": self._handle_list_audio_input_devices,
             "speak_text": self._handle_speak_text,
@@ -9356,6 +9357,37 @@ def handle_tool(tool_name, params):
         if not self._voice_listener:
             return {"running": False, "message": "Voice listener not initialized"}
         return self._voice_listener.get_stats()
+
+    async def _handle_voice_recognition_test(self, params: dict, ws: ServerConnection) -> dict:
+        """Capture one utterance and return its transcript without executing it."""
+        from pilot.system.voice import ContinuousVoiceListener
+
+        try:
+            timeout_seconds = max(3.0, min(float(params.get("timeout_seconds", 12)), 30.0))
+        except (TypeError, ValueError):
+            return {"status": "error", "message": "Recognition-test timeout must be a number."}
+
+        listener = self._voice_listener
+        temporary_listener = listener is None or not listener.is_running
+        if temporary_listener:
+            listener = ContinuousVoiceListener(config=self.config)
+            start_result = await listener.start()
+            if not listener.is_running:
+                return {"status": "error", "message": start_result}
+
+        try:
+            result = await listener.capture_diagnostic(timeout_seconds)
+            return {"status": "ok", **result}
+        except TimeoutError:
+            return {
+                "status": "error",
+                "message": "No speech was recognized before the microphone test timed out.",
+            }
+        except RuntimeError as error:
+            return {"status": "error", "message": str(error)}
+        finally:
+            if temporary_listener:
+                await listener.stop()
 
     async def _handle_interaction_status(self, params: dict, ws: ServerConnection) -> dict:
         """Return the shared text/voice interaction state."""

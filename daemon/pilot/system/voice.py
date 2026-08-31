@@ -1494,6 +1494,7 @@ class ContinuousVoiceListener:
         self._task: asyncio.Task[None] | None = None
         self._transcriber_warmup_task: asyncio.Task[None] | None = None
         self._command_tasks: set[asyncio.Task[None]] = set()
+        self._diagnostic_waiter: asyncio.Future[dict[str, Any]] | None = None
         self._listening_for_command = False
         self._follow_up_until = 0.0
         self._wake_free_suppression_depth = 0
@@ -1623,6 +1624,10 @@ class ContinuousVoiceListener:
         self._running = False
         self._recorder.stop()
 
+        if self._diagnostic_waiter and not self._diagnostic_waiter.done():
+            self._diagnostic_waiter.cancel()
+        self._diagnostic_waiter = None
+
         if self._task:
             self._task.cancel()
 
@@ -1647,6 +1652,21 @@ class ContinuousVoiceListener:
 
         return "Voice listener stopped."
 
+    async def capture_diagnostic(self, timeout_seconds: float = 12.0) -> dict[str, Any]:
+        """Return one recognized utterance without routing it as a command."""
+        if not self._running:
+            raise RuntimeError("Voice listener is not running.")
+        if self._diagnostic_waiter and not self._diagnostic_waiter.done():
+            raise RuntimeError("A microphone recognition test is already running.")
+
+        waiter: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._diagnostic_waiter = waiter
+        try:
+            return await asyncio.wait_for(waiter, timeout=max(1.0, float(timeout_seconds)))
+        finally:
+            if self._diagnostic_waiter is waiter:
+                self._diagnostic_waiter = None
+
     async def _listen_loop(self) -> None:
         while self._running:
             try:
@@ -1663,6 +1683,17 @@ class ContinuousVoiceListener:
                 self.last_transcript = transcript.strip()
                 self.transcripts_received += 1
                 transcript_lower = transcript.lower().strip()
+
+                if self._diagnostic_waiter and not self._diagnostic_waiter.done():
+                    self._diagnostic_waiter.set_result(
+                        {
+                            "transcript": self.last_transcript,
+                            "language": self.last_detected_language,
+                            "latency_ms": round(self.last_transcription_ms),
+                        }
+                    )
+                    logger.info("Recognition test captured an utterance without dispatching it")
+                    continue
 
                 logger.debug("Heard: %s", transcript_lower)
 

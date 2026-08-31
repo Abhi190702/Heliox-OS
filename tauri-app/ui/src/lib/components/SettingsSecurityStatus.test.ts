@@ -27,6 +27,12 @@ describe("Settings security status wiring", () => {
     expect(source).toContain("disabled={speechSaving || audioInputDevices.length === 0}");
   });
 
+  it("offers a non-executing speech-recognition test", () => {
+    expect(source).toContain('>("voice_recognition_test", { timeout_seconds: 12 })');
+    expect(source).toContain("It will not be executed.");
+    expect(source).toContain("Test microphone");
+  });
+
   it("validates local and subscription model discovery in settings and first-run setup", () => {
     expect(source).toContain('"Ollama model discovery is unavailable."');
     expect(source).toContain('"Subscription status is unavailable."');
