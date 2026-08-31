@@ -15,7 +15,12 @@ from pilot.neural.decoder import (
     SSVEPTarget,
 )
 from pilot.neural.gate import NeuralIntentSigner
-from pilot.neural.protocol import NeuralIntentClass, NeuralScope, SignalQuality
+from pilot.neural.protocol import (
+    NeuralCalibrationMetricsV1,
+    NeuralIntentClass,
+    NeuralScope,
+    SignalQuality,
+)
 from pilot.neural.quality import NeuralSignalQualityAnalyzer
 from pilot.neural.service import NeuralDecoderService
 
@@ -107,6 +112,46 @@ def test_decoder_rejects_window_drift_and_weak_calibration() -> None:
             channel_names=("O1", "Oz", "O2"),
             reference="synthetic-common-reference",
         )
+
+
+def test_calibration_rejects_collapsed_or_overconfident_targets() -> None:
+    calibrator = SSVEPCalibrator(targets=TARGETS)
+    base = {
+        "epoch_count": 40,
+        "block_count": 4,
+        "balanced_accuracy": 0.8,
+        "expected_calibration_error": 0.1,
+        "per_class_recall": {target.target_id: 0.8 for target in TARGETS},
+    }
+    collapsed = NeuralCalibrationMetricsV1.model_validate(
+        {
+            **base,
+            "per_class_recall": {**base["per_class_recall"], "cancel": 0.2},
+        }
+    )
+    with pytest.raises(NeuralCalibrationError, match="collapsed target"):
+        calibrator._validate_metrics(collapsed)
+
+    overconfident = NeuralCalibrationMetricsV1.model_validate({**base, "expected_calibration_error": 0.4})
+    with pytest.raises(NeuralCalibrationError, match="sufficiently calibrated"):
+        calibrator._validate_metrics(overconfident)
+
+
+def test_calibration_requires_registered_advantage_over_chance() -> None:
+    calibrator = SSVEPCalibrator(
+        targets=TARGETS,
+        minimum_balanced_accuracy=0.0,
+        minimum_chance_advantage=0.2,
+    )
+    metrics = NeuralCalibrationMetricsV1(
+        epoch_count=40,
+        block_count=4,
+        balanced_accuracy=0.4,
+        expected_calibration_error=0.1,
+        per_class_recall={target.target_id: 0.6 for target in TARGETS},
+    )
+    with pytest.raises(NeuralCalibrationError, match="balanced accuracy"):
+        calibrator._validate_metrics(metrics)
 
 
 def test_sidecar_emits_only_signed_derived_intent_and_tracks_dwell() -> None:

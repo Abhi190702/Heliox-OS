@@ -214,6 +214,9 @@ class SSVEPCalibrator:
         targets: tuple[SSVEPTarget, ...],
         harmonics: int = 2,
         minimum_balanced_accuracy: float = 0.65,
+        minimum_per_class_recall: float = 0.50,
+        maximum_expected_calibration_error: float = 0.25,
+        minimum_chance_advantage: float = 0.10,
     ) -> None:
         if not 1 <= harmonics <= 5:
             raise ValueError("harmonics must be between one and five")
@@ -221,9 +224,28 @@ class SSVEPCalibrator:
             raise ValueError("at least two SSVEP targets are required")
         if not 0 <= minimum_balanced_accuracy <= 1:
             raise ValueError("minimum_balanced_accuracy must be between zero and one")
+        if not 0 <= minimum_per_class_recall <= 1:
+            raise ValueError("minimum_per_class_recall must be between zero and one")
+        if not 0 <= maximum_expected_calibration_error <= 1:
+            raise ValueError("maximum_expected_calibration_error must be between zero and one")
+        if not 0 <= minimum_chance_advantage <= 1:
+            raise ValueError("minimum_chance_advantage must be between zero and one")
         self._targets = targets
         self._harmonics = harmonics
         self._minimum_balanced_accuracy = minimum_balanced_accuracy
+        self._minimum_per_class_recall = minimum_per_class_recall
+        self._maximum_expected_calibration_error = maximum_expected_calibration_error
+        self._minimum_chance_advantage = minimum_chance_advantage
+
+    def _validate_metrics(self, metrics: CalibrationMetrics) -> None:
+        chance_floor = (1.0 / len(self._targets)) + self._minimum_chance_advantage
+        required_accuracy = max(self._minimum_balanced_accuracy, chance_floor)
+        if metrics.balanced_accuracy < required_accuracy:
+            raise NeuralCalibrationError("held-block balanced accuracy is below the registered calibration threshold")
+        if min(metrics.per_class_recall.values(), default=0.0) < self._minimum_per_class_recall:
+            raise NeuralCalibrationError("held-block per-class recall indicates a collapsed target")
+        if metrics.expected_calibration_error > self._maximum_expected_calibration_error:
+            raise NeuralCalibrationError("held-block probabilities are not sufficiently calibrated")
 
     def fit(
         self,
@@ -297,8 +319,7 @@ class SSVEPCalibrator:
             expected_calibration_error=_expected_calibration_error(held_probabilities, labels),
             per_class_recall=recalls,
         )
-        if metrics.balanced_accuracy < self._minimum_balanced_accuracy:
-            raise NeuralCalibrationError("held-block balanced accuracy is below the registered calibration threshold")
+        self._validate_metrics(metrics)
         model, mean, scale = self._fit_classifier(features, labels)
         coefficients = tuple(tuple(float(value) for value in row) for row in model.coef_)
         base = SSVEPCalibrationArtifact(
