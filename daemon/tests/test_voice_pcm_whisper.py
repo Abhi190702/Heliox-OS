@@ -22,12 +22,7 @@ def test_load_pcm_wav_for_whisper_without_ffmpeg(tmp_path):
 
     assert loaded is not None
     assert loaded.dtype == np.float32
-    np.testing.assert_allclose(
-        loaded,
-        source.astype(np.float32) / 32768.0,
-        rtol=0,
-        atol=1e-7,
-    )
+    assert np.allclose(loaded, source.astype(np.float32) / 32768.0, rtol=0, atol=1e-7)
 
 
 def test_load_pcm_wav_for_whisper_downmixes_and_resamples(tmp_path):
@@ -45,7 +40,7 @@ def test_load_pcm_wav_for_whisper_downmixes_and_resamples(tmp_path):
 
     assert loaded is not None
     assert loaded.shape == (16000,)
-    np.testing.assert_allclose(loaded, 0.25, rtol=0, atol=1e-5)
+    assert np.allclose(loaded, 0.25, rtol=0, atol=1e-5)
 
 
 def test_normalize_voice_audio_raises_quiet_signal_with_bounded_gain():
@@ -54,7 +49,7 @@ def test_normalize_voice_audio_raises_quiet_signal_with_bounded_gain():
     normalized = _normalize_voice_audio(audio)
 
     assert normalized.dtype == np.float32
-    np.testing.assert_allclose(normalized, [-0.5, 0.0, 0.5], atol=1e-6)
+    assert np.allclose(normalized, [-0.5, 0.0, 0.5], atol=1e-6)
 
 
 def test_normalize_voice_audio_does_not_amplify_near_silence():
@@ -62,7 +57,7 @@ def test_normalize_voice_audio_does_not_amplify_near_silence():
 
     normalized = _normalize_voice_audio(audio)
 
-    np.testing.assert_array_equal(normalized, audio)
+    assert np.array_equal(normalized, audio)
 
 
 def test_band_limit_voice_audio_keeps_speech_and_removes_rumble():
