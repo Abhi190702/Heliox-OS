@@ -4857,6 +4857,7 @@ class PilotServer:
         voice_recorder_fields = {
             "input_device",
             "vad_energy_threshold",
+            "vad_adaptive_threshold_enabled",
             "vad_silence_ms",
             "vad_max_utterance_seconds",
         }

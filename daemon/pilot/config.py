@@ -147,6 +147,7 @@ class VoiceConfig:
     # boundaries. Approximate defaults, not tuned against real microphone
     # hardware; revisit if real usage shows false starts/premature cutoffs.
     vad_energy_threshold: float = 0.02
+    vad_adaptive_threshold_enabled: bool = True
     # A short conversational pause should complete the utterance quickly.
     # 450 ms still tolerates natural spacing between words while avoiding the
     # 1+ second dead-air penalty that makes always-listening control feel laggy.
@@ -691,6 +692,7 @@ def _validate_config_types(raw: dict) -> None:
             "whisper_model": str,
             "input_device": str,
             "vad_energy_threshold": (int, float),
+            "vad_adaptive_threshold_enabled": bool,
             "vad_silence_ms": (int, float),
             "vad_max_utterance_seconds": (int, float),
             "barge_in_enabled": bool,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pilot.system.vad import EndpointEvent, UtteranceEndpointer, frame_rms
+from pilot.system.vad import AdaptiveEnergyThreshold, EndpointEvent, UtteranceEndpointer, frame_rms
 
 
 def test_frame_rms_of_silence_is_zero():
@@ -24,6 +24,34 @@ def test_frame_rms_scales_with_amplitude():
     quiet = np.full(160, 1000, dtype=np.int16)
     loud = np.full(160, 10000, dtype=np.int16)
     assert frame_rms(loud) > frame_rms(quiet)
+
+
+class TestAdaptiveEnergyThreshold:
+    def test_uses_configured_baseline_during_warmup(self):
+        tracker = AdaptiveEnergyThreshold(0.02, warmup_frames=3)
+        tracker.observe(0.001)
+        tracker.observe(0.001)
+        assert tracker.threshold == 0.02
+        assert tracker.noise_floor is None
+
+    def test_becomes_more_sensitive_in_a_quiet_room(self):
+        tracker = AdaptiveEnergyThreshold(0.02, warmup_frames=3)
+        for value in (0.001, 0.0012, 0.0011):
+            tracker.observe(value)
+        assert 0.005 <= tracker.threshold < 0.02
+
+    def test_rises_above_baseline_in_a_noisy_room(self):
+        tracker = AdaptiveEnergyThreshold(0.02, warmup_frames=3)
+        for value in (0.02, 0.021, 0.019):
+            tracker.observe(value)
+        assert tracker.threshold > 0.02
+        assert tracker.threshold <= 0.08
+
+    def test_low_percentile_ignores_occasional_speech_spikes(self):
+        tracker = AdaptiveEnergyThreshold(0.02, warmup_frames=5)
+        for value in (0.004, 0.004, 0.004, 0.004, 0.5):
+            tracker.observe(value)
+        assert tracker.noise_floor == pytest.approx(0.004)
 
 
 class TestUtteranceEndpointer:

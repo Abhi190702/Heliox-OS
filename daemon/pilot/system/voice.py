@@ -23,7 +23,7 @@ from typing import Any
 
 from pilot.config import PilotConfig
 from pilot.system.platform_detect import CURRENT_PLATFORM, Platform, run_powershell
-from pilot.system.vad import EndpointEvent, UtteranceEndpointer, frame_rms
+from pilot.system.vad import AdaptiveEnergyThreshold, EndpointEvent, UtteranceEndpointer, frame_rms
 from pilot.system.voice_calibration import WakeWordCalibrator
 
 logger = logging.getLogger("pilot.system.voice")
@@ -999,10 +999,14 @@ class _ContinuousRecorder:
         silence_frames: int = 12,
         max_utterance_seconds: float = 20.0,
         preferred_device: str = "auto",
+        adaptive_threshold_enabled: bool = True,
     ) -> None:
         self.sample_rate = sample_rate
         self.frame_size = max(1, int(sample_rate * frame_ms / 1000))
+        self.frame_ms = frame_ms
         self.energy_threshold = energy_threshold
+        self.adaptive_threshold_enabled = adaptive_threshold_enabled
+        self._adaptive_threshold = AdaptiveEnergyThreshold(energy_threshold)
         self.start_frames = start_frames
         self.silence_frames = silence_frames
         self.max_frames = max(1, int(max_utterance_seconds * 1000 / frame_ms))
@@ -1028,7 +1032,7 @@ class _ContinuousRecorder:
 
     def _make_endpointer(self) -> UtteranceEndpointer:
         return UtteranceEndpointer(
-            energy_threshold=self.energy_threshold,
+            energy_threshold=self.effective_energy_threshold,
             start_frames=self.start_frames,
             silence_frames=self.silence_frames,
             max_frames=self.max_frames,
@@ -1117,7 +1121,9 @@ class _ContinuousRecorder:
         self.frames_received += 1
         self.last_frame_rms = signal_rms
         self.peak_frame_rms = max(self.peak_frame_rms, signal_rms)
-        if signal_rms >= self.energy_threshold:
+        if self.adaptive_threshold_enabled:
+            self._adaptive_threshold.observe(signal_rms)
+        if signal_rms >= self.effective_energy_threshold:
             self.last_above_threshold_at = time.time()
         loop = self._loop
         queue = self._queue
@@ -1231,6 +1237,18 @@ class _ContinuousRecorder:
     def is_active(self) -> bool:
         return self._stream is not None or self._soundcard_recorder is not None
 
+    @property
+    def noise_floor_rms(self) -> float | None:
+        if not self.adaptive_threshold_enabled:
+            return None
+        return self._adaptive_threshold.noise_floor
+
+    @property
+    def effective_energy_threshold(self) -> float:
+        if not self.adaptive_threshold_enabled:
+            return self.energy_threshold
+        return self._adaptive_threshold.threshold
+
     async def wait_until_receiving(self, timeout: float = 1.0) -> bool:
         """Confirm an opened backend is actually delivering audio frames.
 
@@ -1327,7 +1345,8 @@ class _ContinuousRecorder:
 
             if not endpointer.is_speaking:
                 preroll.append(frame)
-                if len(preroll) > self.start_frames + 1:
+                preroll_frames = max(self.start_frames + 1, int(300 / self.frame_ms))
+                if len(preroll) > preroll_frames:
                     preroll.pop(0)
                 continue
 
@@ -1410,6 +1429,7 @@ class ContinuousVoiceListener:
             silence_frames=max(1, int(self.config.voice.vad_silence_ms / 50)),
             max_utterance_seconds=self.config.voice.vad_max_utterance_seconds,
             preferred_device=self.config.voice.input_device,
+            adaptive_threshold_enabled=self.config.voice.vad_adaptive_threshold_enabled,
         )
 
     @property
@@ -1807,6 +1827,9 @@ class ContinuousVoiceListener:
             "input_error": self._recorder.last_error,
             "capture_backend": self._recorder.capture_backend,
             "energy_threshold": self._recorder.energy_threshold,
+            "adaptive_threshold_enabled": self._recorder.adaptive_threshold_enabled,
+            "effective_energy_threshold": self._recorder.effective_energy_threshold,
+            "noise_floor_rms": self._recorder.noise_floor_rms,
             "frames_received": self._recorder.frames_received,
             "last_frame_rms": self._recorder.last_frame_rms,
             "peak_frame_rms": self._recorder.peak_frame_rms,
