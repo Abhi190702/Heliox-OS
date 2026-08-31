@@ -11,20 +11,38 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import json
 import logging
+import math
 import uuid
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
+from urllib.parse import urlsplit
 
 import websockets
 from mcp.server import MCPServer
 from mcp_types import ToolAnnotations
+from pydantic import StringConstraints
 
 from pilot import __version__
 from pilot.config import RUNTIME_DIR, PilotConfig
 
 logger = logging.getLogger("pilot.mcp")
+
+TaskInput = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20_000)]
+SessionId = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=80, pattern=r"^[A-Za-z0-9._:-]+$"),
+]
+TaskId = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"),
+]
+RequestId = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, max_length=128, pattern=r"^[A-Za-z0-9._:-]*$"),
+]
 
 
 def _package_version() -> str:
@@ -76,13 +94,33 @@ class HelioxDaemonClient:
         token_file: str | Path | None = None,
         timeout_seconds: float = 15.0,
     ) -> None:
+        if not math.isfinite(timeout_seconds) or not 0.1 <= timeout_seconds <= 120:
+            raise ValueError("timeout_seconds must be between 0.1 and 120")
         config = PilotConfig.load()
         host = config.server.host
         if host in {"0.0.0.0", "::", "[::]"}:
             host = "127.0.0.1"
         self._uri = uri or f"ws://{host}:{config.server.port}"
+        self._validate_loopback_uri(self._uri)
         self._token_file = Path(token_file) if token_file else RUNTIME_DIR / "mcp_auth_token"
         self._timeout_seconds = timeout_seconds
+
+    @staticmethod
+    def _validate_loopback_uri(uri: str) -> None:
+        parsed = urlsplit(uri)
+        if parsed.scheme not in {"ws", "wss"} or parsed.hostname is None or parsed.port is None:
+            raise ValueError("daemon URL must be a WebSocket URL with an explicit port")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("daemon URL must not contain credentials, a query, or a fragment")
+        if parsed.path not in {"", "/"}:
+            raise ValueError("daemon URL must target the Heliox WebSocket root")
+        hostname = parsed.hostname.casefold()
+        try:
+            is_loopback = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            is_loopback = hostname == "localhost"
+        if not is_loopback:
+            raise ValueError("local Heliox MCP may connect only to a loopback daemon")
 
     def _read_token(self) -> str:
         try:
@@ -213,7 +251,7 @@ def create_mcp_server(client: RpcClient | None = None) -> MCPServer:
         annotations=_MODEL_READ_ONLY,
         structured_output=True,
     )
-    async def preview_heliox_task(input: str, session_id: str = "default") -> dict[str, Any]:
+    async def preview_heliox_task(input: TaskInput, session_id: SessionId = "default") -> dict[str, Any]:
         return await daemon.call(
             "mcp_plan_task",
             {"input": input, "session_id": session_id},
@@ -229,10 +267,14 @@ def create_mcp_server(client: RpcClient | None = None) -> MCPServer:
         annotations=_SUBMIT,
         structured_output=True,
     )
-    async def submit_heliox_task(input: str, session_id: str = "default") -> dict[str, Any]:
+    async def submit_heliox_task(
+        input: TaskInput,
+        session_id: SessionId = "default",
+        request_id: RequestId = "",
+    ) -> dict[str, Any]:
         return await daemon.call(
             "mcp_submit_task",
-            {"input": input, "session_id": session_id},
+            {"input": input, "session_id": session_id, "request_id": request_id},
         )
 
     @mcp.tool(
@@ -244,7 +286,7 @@ def create_mcp_server(client: RpcClient | None = None) -> MCPServer:
         annotations=_READ_ONLY,
         structured_output=True,
     )
-    async def get_heliox_task_status(task_id: str) -> dict[str, Any]:
+    async def get_heliox_task_status(task_id: TaskId) -> dict[str, Any]:
         return await daemon.call("mcp_task_status", {"task_id": task_id})
 
     @mcp.tool(
@@ -256,7 +298,7 @@ def create_mcp_server(client: RpcClient | None = None) -> MCPServer:
         annotations=_CANCEL,
         structured_output=True,
     )
-    async def cancel_heliox_task(task_id: str) -> dict[str, Any]:
+    async def cancel_heliox_task(task_id: TaskId) -> dict[str, Any]:
         return await daemon.call("mcp_cancel_task", {"task_id": task_id})
 
     return mcp

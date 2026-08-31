@@ -59,6 +59,10 @@ async def test_local_mcp_lists_bounded_tools_with_truthful_annotations() -> None
     assert tools["preview_heliox_task"].annotations.read_only_hint is True
     assert tools["submit_heliox_task"].annotations.read_only_hint is False
     assert tools["submit_heliox_task"].annotations.destructive_hint is True
+    submit_schema = tools["submit_heliox_task"].input_schema["properties"]
+    assert submit_schema["input"]["maxLength"] == 20_000
+    assert submit_schema["session_id"]["maxLength"] == 80
+    assert submit_schema["request_id"]["maxLength"] == 128
     assert "approve" not in " ".join(tools).lower()
 
 
@@ -84,10 +88,29 @@ async def test_local_mcp_submission_and_status_preserve_async_contract() -> None
     assert daemon.calls == [
         (
             "mcp_submit_task",
-            {"input": "inspect system health", "session_id": "codex"},
+            {"input": "inspect system health", "session_id": "codex", "request_id": ""},
         ),
         ("mcp_task_status", {"task_id": "task-1"}),
     ]
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "ws://192.168.1.10:8765",
+        "ws://example.com:8765",
+        "ws://user:secret@127.0.0.1:8765",
+        "ws://127.0.0.1:8765/other",
+    ],
+)
+def test_daemon_client_rejects_nonlocal_or_ambiguous_urls(uri: str, tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        HelioxDaemonClient(uri=uri, token_file=tmp_path / "token")
+
+
+def test_daemon_client_accepts_ipv4_ipv6_and_localhost_loopback(tmp_path: Path) -> None:
+    for uri in ("ws://127.0.0.1:8765", "ws://[::1]:8765", "ws://localhost:8765"):
+        HelioxDaemonClient(uri=uri, token_file=tmp_path / "token")
 
 
 @pytest.mark.asyncio

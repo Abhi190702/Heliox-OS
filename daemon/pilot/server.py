@@ -9,6 +9,7 @@ import csv
 import json
 import logging
 import math
+import re
 import secrets
 import signal
 import sys
@@ -623,6 +624,7 @@ class PilotServer:
         self._mcp_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
         self._trigger_engine: Any = None
         self._mcp_task_results: dict[str, dict[str, Any]] = {}
+        self._mcp_idempotency: dict[str, tuple[str, str]] = {}
         self._mcp_reserved_task_id = ""
         # Cognitive intelligence (lightweight heuristic engine)
         self._cognitive_engine: Any = None
@@ -3596,6 +3598,20 @@ class PilotServer:
             raise ValueError("input exceeds the 20,000 character limit")
         return value
 
+    @staticmethod
+    def _mcp_session_id(params: dict[str, Any]) -> str:
+        value = str(params.get("session_id") or "default").strip()
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,80}", value):
+            raise ValueError("session_id must use 1-80 letters, digits, dots, underscores, colons, or hyphens")
+        return value
+
+    @staticmethod
+    def _mcp_request_id(params: dict[str, Any]) -> str:
+        value = str(params.get("request_id") or "").strip()
+        if value and not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", value):
+            raise ValueError("request_id must use at most 128 safe identifier characters")
+        return value
+
     async def _handle_mcp_plan_task(
         self,
         params: dict[str, Any],
@@ -3613,12 +3629,13 @@ class PilotServer:
             }
         try:
             user_input = self._mcp_task_input(params)
+            session_id = self._mcp_session_id(params)
         except ValueError as exc:
             return {"status": "error", "message": str(exc)}
 
         plan = await self._planner.plan(
             user_input,
-            session_id=str(params.get("session_id") or "mcp-preview"),
+            session_id=session_id,
         )
         if plan.error:
             return {"status": "error", "message": plan.error}
@@ -3659,18 +3676,42 @@ class PilotServer:
         self._require_rpc_role(ws, RpcClientRole.MCP_LOCAL)
         if self._durable_tasks is None:
             return {"status": "unavailable", "message": "Durable task store is not initialized"}
+        try:
+            user_input = self._mcp_task_input(params)
+            session_suffix = self._mcp_session_id(params)
+            request_id = self._mcp_request_id(params)
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
+
+        idempotency_key = f"{session_suffix}:{request_id}" if request_id else ""
+        if idempotency_key:
+            previous = self._mcp_idempotency.get(idempotency_key)
+            if previous is not None:
+                previous_task_id, previous_input = previous
+                if previous_input != user_input:
+                    return {
+                        "status": "error",
+                        "message": "request_id was already used for different task input",
+                    }
+                return {
+                    "status": "submitted",
+                    "task_id": previous_task_id,
+                    "requires_user_approval": True,
+                    "duplicate": True,
+                    "message": "The matching MCP task was already submitted; poll its existing task id.",
+                }
+
         if self._interactive_request_active or any(not task.done() for task in self._mcp_tasks.values()):
             return {
                 "status": "busy",
                 "message": "Heliox is already handling an interactive task.",
             }
-        try:
-            user_input = self._mcp_task_input(params)
-        except ValueError as exc:
-            return {"status": "error", "message": str(exc)}
 
         task_id = str(uuid.uuid4())
-        session_suffix = _sanitize_summary(params.get("session_id") or "default", limit=80)
+        if idempotency_key:
+            self._mcp_idempotency[idempotency_key] = (task_id, user_input)
+            while len(self._mcp_idempotency) > 100:
+                self._mcp_idempotency.pop(next(iter(self._mcp_idempotency)))
         self._mcp_reserved_task_id = task_id
 
         async def _run() -> dict[str, Any]:

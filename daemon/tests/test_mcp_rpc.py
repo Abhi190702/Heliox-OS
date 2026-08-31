@@ -96,6 +96,55 @@ async def test_mcp_submit_runs_as_mcp_local_and_returns_without_waiting() -> Non
 
 
 @pytest.mark.asyncio
+async def test_mcp_submit_request_id_is_idempotent_and_input_bound() -> None:
+    server, socket = _authorized_server()
+    server._durable_tasks = SimpleNamespace()
+    blocker = asyncio.Event()
+
+    async def _execute(params, ws):
+        await blocker.wait()
+        return {"status": "success", "task_id": params["task_id"]}
+
+    server._handle_execute = AsyncMock(side_effect=_execute)
+    params = {"input": "show system info", "session_id": "codex", "request_id": "retry-1"}
+    first = await server._handle_mcp_submit_task(params, socket)
+    duplicate = await server._handle_mcp_submit_task(params, socket)
+    conflict = await server._handle_mcp_submit_task(
+        {**params, "input": "open calculator"},
+        socket,
+    )
+
+    assert duplicate["task_id"] == first["task_id"]
+    assert duplicate["duplicate"] is True
+    assert conflict == {
+        "status": "error",
+        "message": "request_id was already used for different task input",
+    }
+    assert len(server._mcp_tasks) == 1
+    blocker.set()
+    await asyncio.wait_for(next(iter(server._mcp_tasks.values())), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_mcp_rejects_unsafe_session_and_request_identifiers() -> None:
+    server, socket = _authorized_server()
+    server._durable_tasks = SimpleNamespace()
+
+    unsafe_session = await server._handle_mcp_submit_task(
+        {"input": "status", "session_id": "../../shared"},
+        socket,
+    )
+    unsafe_request = await server._handle_mcp_submit_task(
+        {"input": "status", "session_id": "codex", "request_id": "bad request"},
+        socket,
+    )
+
+    assert unsafe_session["status"] == "error"
+    assert unsafe_request["status"] == "error"
+    assert server._mcp_tasks == {}
+
+
+@pytest.mark.asyncio
 async def test_mcp_cancel_stops_task_before_durable_registration() -> None:
     server, socket = _authorized_server()
     server._durable_tasks = SimpleNamespace(get=AsyncMock(return_value=None))
