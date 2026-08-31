@@ -76,7 +76,7 @@ async def benchmark_manifest(
     rows: list[dict[str, Any]] = []
     base_dir = manifest_path.resolve().parent
 
-    for line_number, raw_line in enumerate(manifest_path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, raw_line in enumerate(manifest_path.read_text(encoding="utf-8-sig").splitlines(), start=1):
         if not raw_line.strip():
             continue
         sample = json.loads(raw_line)

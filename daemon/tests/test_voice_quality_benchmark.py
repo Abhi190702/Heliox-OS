@@ -77,3 +77,18 @@ async def test_manifest_rejects_missing_audio(tmp_path):
 
     with pytest.raises(FileNotFoundError):
         await benchmark_manifest(manifest)
+
+
+@pytest.mark.asyncio
+async def test_manifest_accepts_windows_utf8_bom(tmp_path):
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"RIFF")
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text('{"audio":"sample.wav","text":"hello"}\n', encoding="utf-8-sig")
+
+    async def transcribe(_audio_path: str, _language: str, _model: str, _engine: str):
+        return {"text": "hello", "language": "en"}
+
+    report = await benchmark_manifest(manifest, transcriber=transcribe)
+
+    assert report["overall"]["wer"] == 0.0
