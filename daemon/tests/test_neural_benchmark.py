@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 import numpy as np
@@ -96,3 +97,48 @@ def test_eegbci_benchmark_rejects_non_imagery_or_single_run_inputs() -> None:
         benchmark.benchmark_eegbci(subject=1, runs=(6,))
     with pytest.raises(ValueError, match="motor-imagery"):
         benchmark.benchmark_eegbci(subject=1, runs=(1, 2))
+
+
+def test_control_trial_manifest_scores_the_full_commit_gate(tmp_path) -> None:
+    manifest = tmp_path / "trials.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "evidence_kind": "recorded_eeg",
+                "trials": [
+                    {
+                        "duration_seconds": 2,
+                        "expected_intent": "focus_left",
+                        "predicted_intent": "focus_left",
+                        "committed": True,
+                        "latency_ms": 800,
+                    },
+                    {
+                        "duration_seconds": 60,
+                        "expected_intent": None,
+                        "predicted_intent": None,
+                        "committed": False,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = benchmark.benchmark_control_trials(manifest)
+
+    assert report["evidence_kind"] == "recorded_eeg"
+    assert report["precision"] == 1.0
+    assert report["idle_abstention_rate"] == 1.0
+    assert report["median_commit_latency_ms"] == 800.0
+
+
+def test_control_trial_manifest_rejects_unknown_fields(tmp_path) -> None:
+    manifest = tmp_path / "trials.json"
+    manifest.write_text(
+        json.dumps({"trials": [{"duration_seconds": 1, "unexpected": True}]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unknown fields"):
+        benchmark.benchmark_control_trials(manifest)

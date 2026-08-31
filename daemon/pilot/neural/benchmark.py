@@ -15,6 +15,7 @@ from sklearn.model_selection import LeaveOneGroupOut, cross_val_predict
 from sklearn.pipeline import Pipeline
 
 from pilot.neural.acquisition import BrainFlowNeuralSource, NeuralAcquisitionError
+from pilot.neural.evaluation import NeuralIntentTrial, evaluate_neural_intent_trials
 from pilot.neural.protocol import NeuralIntentClass
 from pilot.neural.quality import NeuralSignalQualityAnalyzer
 
@@ -249,6 +250,44 @@ def benchmark_eegbci(
     )
 
 
+def benchmark_control_trials(manifest: Path) -> dict[str, object]:
+    """Evaluate independent full-control trials exported by a test operator."""
+
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    raw_trials = payload.get("trials") if isinstance(payload, dict) else None
+    if not isinstance(raw_trials, list):
+        raise ValueError("control-trial manifest must contain a trials array")
+    trials: list[NeuralIntentTrial] = []
+    for index, item in enumerate(raw_trials):
+        if not isinstance(item, dict):
+            raise ValueError(f"control trial {index} must be an object")
+        unknown = set(item) - {
+            "duration_seconds",
+            "expected_intent",
+            "predicted_intent",
+            "committed",
+            "latency_ms",
+        }
+        if unknown:
+            raise ValueError(f"control trial {index} has unknown fields: {sorted(unknown)}")
+        expected = item.get("expected_intent")
+        predicted = item.get("predicted_intent")
+        trials.append(
+            NeuralIntentTrial(
+                duration_seconds=float(item["duration_seconds"]),
+                expected_intent=NeuralIntentClass(expected) if expected is not None else None,
+                predicted_intent=NeuralIntentClass(predicted) if predicted is not None else None,
+                committed=bool(item.get("committed", False)),
+                latency_ms=float(item["latency_ms"]) if item.get("latency_ms") is not None else None,
+            )
+        )
+    return {
+        "evidence_kind": str(payload.get("evidence_kind", "operator_labeled_trials")),
+        "evaluation": "full neural intent commit gate",
+        **evaluate_neural_intent_trials(trials).to_dict(),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Heliox no-hardware neural benchmarks")
     subparsers = parser.add_subparsers(dest="benchmark", required=True)
@@ -264,6 +303,11 @@ def main() -> None:
     eegbci.add_argument("--subject", type=int, default=1)
     eegbci.add_argument("--runs", type=int, nargs="+", default=[6, 10, 14])
     eegbci.add_argument("--data-dir", type=Path)
+    control_trials = subparsers.add_parser(
+        "control-trials",
+        help="score operator-labeled active and no-control trials from JSON",
+    )
+    control_trials.add_argument("manifest", type=Path)
     args = parser.parse_args()
     if args.benchmark == "brainflow-synthetic":
         print(json.dumps(asdict(benchmark_brainflow_synthetic(seconds=args.seconds)), indent=2))
@@ -274,6 +318,8 @@ def main() -> None:
             data_dir=args.data_dir,
         )
         print(json.dumps(asdict(result), indent=2))
+    elif args.benchmark == "control-trials":
+        print(json.dumps(benchmark_control_trials(args.manifest), indent=2))
 
 
 if __name__ == "__main__":
