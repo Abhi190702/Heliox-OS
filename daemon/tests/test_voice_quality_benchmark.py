@@ -8,12 +8,21 @@ from benchmarks.voice_quality import benchmark_manifest, score_transcript
 
 
 def test_score_transcript_normalizes_case_and_punctuation():
-    assert score_transcript("Open GitHub!", "open github") == {"wer": 0.0, "cer": 0.0}
+    assert score_transcript("Open GitHub!", "open github") == {
+        "wer": 0.0,
+        "cer": 0.0,
+        "word_errors": 0,
+        "word_count": 2,
+        "char_errors": 0,
+        "char_count": 11,
+    }
 
 
 def test_score_transcript_reports_word_and_character_errors():
     scores = score_transcript("open github", "open gitlab")
     assert scores["wer"] == 0.5
+    assert scores["word_errors"] == 1
+    assert scores["word_count"] == 2
     assert 0.0 < scores["cer"] < 1.0
 
 
@@ -68,6 +77,34 @@ async def test_manifest_benchmark_reports_quality_latency_and_slices(tmp_path):
         "en|indian|clean",
         "en|indian|musan-noise-10db",
     }
+
+
+@pytest.mark.asyncio
+async def test_manifest_uses_corpus_weighted_error_rates_and_nearest_rank_p95(tmp_path):
+    samples = []
+    hypotheses = {}
+    for index, (reference, hypothesis) in enumerate(
+        (
+            ("one", "wrong"),
+            ("one two three four five six seven eight nine", "one two three four five six seven eight nine"),
+        )
+    ):
+        audio = tmp_path / f"sample-{index}.wav"
+        audio.write_bytes(b"RIFF")
+        samples.append(json.dumps({"audio": audio.name, "text": reference}))
+        hypotheses[str(audio)] = hypothesis
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text("\n".join(samples), encoding="utf-8")
+
+    async def transcribe(audio_path: str, _language: str, _model: str, _engine: str):
+        return {"text": hypotheses[audio_path], "language": "en"}
+
+    report = await benchmark_manifest(manifest, transcriber=transcribe)
+
+    assert report["overall"]["wer"] == 0.1
+    assert report["overall"]["word_errors"] == 1
+    assert report["overall"]["word_count"] == 10
+    assert report["overall"]["latency_p95_ms"] == max(sample["latency_ms"] for sample in report["samples"])
 
 
 @pytest.mark.asyncio

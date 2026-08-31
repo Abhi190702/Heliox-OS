@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import re
 import statistics
 import time
@@ -44,22 +45,38 @@ def error_rate(reference: Sequence[Any], hypothesis: Sequence[Any]) -> float:
     return edit_distance(reference, hypothesis) / len(reference)
 
 
-def score_transcript(reference: str, hypothesis: str) -> dict[str, float]:
+def score_transcript(reference: str, hypothesis: str) -> dict[str, float | int]:
     normalized_reference = normalize_transcript(reference)
     normalized_hypothesis = normalize_transcript(hypothesis)
+    reference_words = normalized_reference.split()
+    hypothesis_words = normalized_hypothesis.split()
+    word_errors = edit_distance(reference_words, hypothesis_words)
+    char_errors = edit_distance(list(normalized_reference), list(normalized_hypothesis))
     return {
-        "wer": error_rate(normalized_reference.split(), normalized_hypothesis.split()),
+        "wer": error_rate(reference_words, hypothesis_words),
         "cer": error_rate(list(normalized_reference), list(normalized_hypothesis)),
+        "word_errors": word_errors,
+        "word_count": len(reference_words),
+        "char_errors": char_errors,
+        "char_count": len(normalized_reference),
     }
 
 
 def _summarize(rows: list[dict[str, Any]]) -> dict[str, float | int]:
     latencies = sorted(float(row["latency_ms"]) for row in rows)
-    p95_index = max(0, min(len(latencies) - 1, int(len(latencies) * 0.95) - 1))
+    p95_index = max(0, min(len(latencies) - 1, math.ceil(len(latencies) * 0.95) - 1))
+    word_errors = sum(int(row["word_errors"]) for row in rows)
+    word_count = sum(int(row["word_count"]) for row in rows)
+    char_errors = sum(int(row["char_errors"]) for row in rows)
+    char_count = sum(int(row["char_count"]) for row in rows)
     return {
         "samples": len(rows),
-        "wer": round(statistics.fmean(float(row["wer"]) for row in rows), 4),
-        "cer": round(statistics.fmean(float(row["cer"]) for row in rows), 4),
+        "wer": round(word_errors / word_count if word_count else float(word_errors > 0), 4),
+        "cer": round(char_errors / char_count if char_count else float(char_errors > 0), 4),
+        "word_errors": word_errors,
+        "word_count": word_count,
+        "char_errors": char_errors,
+        "char_count": char_count,
         "latency_p50_ms": round(statistics.median(latencies), 1),
         "latency_p95_ms": round(latencies[p95_index], 1),
     }
