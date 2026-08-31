@@ -108,4 +108,54 @@ describe("TemporalGestureVerifier", () => {
     expect(reacquired.reason).toBe("warming_up");
     expect(reacquired.observedFrames).toBe(1);
   });
+
+  it("does not let neutral frames warm up a later gesture", () => {
+    const verifier = new TemporalGestureVerifier();
+    for (const timestampMs of [0, 33, 66]) {
+      expect(
+        verifier.observe({
+          mediaPipeHandPresent: true,
+          landmarks: hand(),
+          candidate: "",
+          timestampMs,
+        }).reason,
+      ).toBe("no_candidate");
+    }
+
+    const firstGestureFrame = verifier.observe({
+      mediaPipeHandPresent: true,
+      landmarks: hand(),
+      candidate: "thumbs_up",
+      timestampMs: 99,
+    });
+    expect(firstGestureFrame).toMatchObject({ accepted: false, reason: "warming_up", observedFrames: 1 });
+  });
+
+  it("resets temporal evidence when the classified gesture changes", () => {
+    const verifier = new TemporalGestureVerifier();
+    for (const timestampMs of [0, 33, 66]) {
+      verifier.observe({
+        mediaPipeHandPresent: true,
+        landmarks: hand(),
+        candidate: "palm",
+        timestampMs,
+      });
+    }
+
+    const changed = verifier.observe({
+      mediaPipeHandPresent: true,
+      landmarks: hand(),
+      candidate: "fist",
+      timestampMs: 99,
+    });
+    expect(changed).toMatchObject({ accepted: false, reason: "candidate_changed", observedFrames: 1 });
+    expect(
+      verifier.observe({
+        mediaPipeHandPresent: true,
+        landmarks: hand(),
+        candidate: "fist",
+        timestampMs: 132,
+      }).accepted,
+    ).toBe(false);
+  });
 });

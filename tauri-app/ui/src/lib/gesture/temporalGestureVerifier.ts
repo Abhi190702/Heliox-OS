@@ -13,7 +13,14 @@ export interface TemporalGestureVerification {
   confidenceMultiplier: number;
   continuity: number;
   observedFrames: number;
-  reason: "verified" | "no_hand" | "invalid_hand" | "warming_up" | "discontinuous_motion";
+  reason:
+    | "verified"
+    | "no_hand"
+    | "invalid_hand"
+    | "no_candidate"
+    | "candidate_changed"
+    | "warming_up"
+    | "discontinuous_motion";
 }
 
 interface TemporalFrame {
@@ -70,6 +77,7 @@ function meanStep(left: number[], right: number[]): number {
  */
 export class TemporalGestureVerifier {
   private frames: TemporalFrame[] = [];
+  private candidate = "";
 
   observe(input: TemporalGestureInput): TemporalGestureVerification {
     if (!input.mediaPipeHandPresent) {
@@ -79,6 +87,16 @@ export class TemporalGestureVerifier {
     if (!finiteHand(input.landmarks)) {
       this.reset();
       return this.result(false, 0, 0, "invalid_hand");
+    }
+    if (!input.candidate) {
+      this.reset();
+      return this.result(false, 0, 0, "no_candidate");
+    }
+
+    const candidateChanged = this.candidate !== "" && input.candidate !== this.candidate;
+    if (input.candidate !== this.candidate) {
+      this.frames = [];
+      this.candidate = input.candidate;
     }
 
     // Prefer metric world landmarks when MediaPipe Tasks provides them.
@@ -102,6 +120,9 @@ export class TemporalGestureVerifier {
 
     this.frames.push(next);
     if (this.frames.length > MAX_FRAMES) this.frames.shift();
+    if (candidateChanged) {
+      return this.result(false, 0, continuity, "candidate_changed");
+    }
     if (this.frames.length < MIN_FRAMES) {
       return this.result(false, 0, continuity, "warming_up");
     }
@@ -114,6 +135,7 @@ export class TemporalGestureVerifier {
 
   reset(): void {
     this.frames = [];
+    this.candidate = "";
   }
 
   private result(
