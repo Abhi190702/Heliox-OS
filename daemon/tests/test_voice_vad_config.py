@@ -4,6 +4,7 @@ from pilot.config import PilotConfig, _merge_config
 def test_defaults():
     config = PilotConfig()
     assert config.voice.vad_energy_threshold == 0.02
+    assert config.voice.transcription_engine == "auto"
     assert config.voice.vad_adaptive_threshold_enabled is True
     assert config.voice.vad_silence_ms == 450.0
     assert config.voice.vad_max_utterance_seconds == 20.0
@@ -17,6 +18,7 @@ def test_voice_section_merges_vad_and_barge_in_settings():
     raw = {
         "voice": {
             "vad_energy_threshold": 0.05,
+            "transcription_engine": "openai_whisper",
             "vad_adaptive_threshold_enabled": False,
             "vad_silence_ms": 500.0,
             "vad_max_utterance_seconds": 15.0,
@@ -27,6 +29,7 @@ def test_voice_section_merges_vad_and_barge_in_settings():
     merged = _merge_config(config, raw)
 
     assert merged.voice.vad_energy_threshold == 0.05
+    assert merged.voice.transcription_engine == "openai_whisper"
     assert merged.voice.vad_adaptive_threshold_enabled is False
     assert merged.voice.vad_silence_ms == 500.0
     assert merged.voice.vad_max_utterance_seconds == 15.0

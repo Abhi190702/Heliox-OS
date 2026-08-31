@@ -575,7 +575,7 @@ async def listen(
     audio_path = await _record_audio(duration)
 
     try:
-        result = await _transcribe_whisper(audio_path, language, model)
+        result = await _transcribe_speech(audio_path, language, model)
         return result["text"]
 
     except ImportError:
@@ -793,6 +793,7 @@ async def _record_audio(duration: int) -> str:
 
 
 _whisper_model_cache: dict[str, Any] = {}
+_faster_whisper_model_cache: dict[tuple[str, str, str], Any] = {}
 
 
 def _load_pcm_wav_for_whisper(audio_path: str) -> Any | None:
@@ -913,6 +914,64 @@ def _get_whisper_model(model_name: str) -> Any:
     return _whisper_model_cache[model_name]
 
 
+def _faster_whisper_runtime() -> tuple[str, str]:
+    """Choose a conservative local compute mode for Faster-Whisper."""
+    try:
+        import ctranslate2
+
+        if ctranslate2.get_cuda_device_count() > 0:
+            return "cuda", "float16"
+    except (ImportError, RuntimeError):
+        pass
+    return "cpu", "int8"
+
+
+def _get_faster_whisper_model(model_name: str) -> Any:
+    from faster_whisper import WhisperModel
+
+    device, compute_type = _faster_whisper_runtime()
+    cache_key = (model_name, device, compute_type)
+    if cache_key not in _faster_whisper_model_cache:
+        _faster_whisper_model_cache[cache_key] = WhisperModel(
+            model_name,
+            device=device,
+            compute_type=compute_type,
+        )
+    return _faster_whisper_model_cache[cache_key]
+
+
+async def _transcribe_faster_whisper(
+    audio_path: str,
+    language: str,
+    model_name: str,
+) -> dict[str, str]:
+    """Transcribe locally through CTranslate2 with command-aware decoding."""
+
+    def _do() -> dict[str, str]:
+        model = _get_faster_whisper_model(model_name)
+        kwargs: dict[str, Any] = {
+            "beam_size": 5,
+            "temperature": 0,
+            "condition_on_previous_text": False,
+            "initial_prompt": _VOICE_TRANSCRIPTION_PROMPT,
+            "hotwords": _VOICE_TRANSCRIPTION_PROMPT,
+            # Endpointing already isolated the utterance. A second VAD can
+            # remove short commands such as "stop" or "close".
+            "vad_filter": False,
+        }
+        if language != "auto":
+            kwargs["language"] = language
+        segments, info = model.transcribe(audio_path, **kwargs)
+        text = " ".join(segment.text.strip() for segment in segments if segment.text.strip())
+        detected_language = getattr(info, "language", None)
+        return {
+            "text": text.strip(),
+            "language": detected_language or (language if language != "auto" else "en"),
+        }
+
+    return await asyncio.to_thread(_do)
+
+
 async def _transcribe_whisper(
     audio_path: str,
     language: str,
@@ -928,6 +987,7 @@ async def _transcribe_whisper(
         if language != "auto":
             kwargs["language"] = language
         kwargs["temperature"] = 0
+        kwargs["beam_size"] = 5
         kwargs["condition_on_previous_text"] = False
         kwargs["initial_prompt"] = _VOICE_TRANSCRIPTION_PROMPT
 
@@ -946,6 +1006,31 @@ async def _transcribe_whisper(
         }
 
     return await asyncio.to_thread(_do)
+
+
+async def _transcribe_speech(
+    audio_path: str,
+    language: str,
+    model_name: str,
+    engine: str = "auto",
+) -> dict[str, str]:
+    """Use the requested local ASR engine with a fail-soft auto fallback."""
+    normalized_engine = engine.strip().casefold()
+    if normalized_engine not in {"auto", "faster_whisper", "openai_whisper"}:
+        raise ValueError(f"Unsupported transcription engine: {engine}")
+
+    if normalized_engine in {"auto", "faster_whisper"}:
+        try:
+            return await _transcribe_faster_whisper(audio_path, language, model_name)
+        except ImportError:
+            if normalized_engine == "faster_whisper":
+                raise
+        except Exception as error:
+            if normalized_engine == "faster_whisper":
+                raise
+            logger.warning("Faster-Whisper unavailable; using OpenAI Whisper: %s", error)
+
+    return await _transcribe_whisper(audio_path, language, model_name)
 
 
 async def _transcribe_windows(audio_path: str) -> str:
@@ -1509,7 +1594,10 @@ class ContinuousVoiceListener:
 
         started = time.perf_counter()
         try:
-            await asyncio.to_thread(_get_whisper_model, self.config.voice.whisper_model)
+            if self.config.voice.transcription_engine in {"auto", "faster_whisper"}:
+                await asyncio.to_thread(_get_faster_whisper_model, self.config.voice.whisper_model)
+            else:
+                await asyncio.to_thread(_get_whisper_model, self.config.voice.whisper_model)
             logger.info(
                 "Voice recognizer warmup completed (model=%s, duration_ms=%.0f)",
                 self.config.voice.whisper_model,
@@ -1750,10 +1838,11 @@ class ContinuousVoiceListener:
     async def _transcribe_path(self, audio_path: str) -> str:
         """Transcribes an already-recorded WAV file with multilingual support."""
         try:
-            result = await _transcribe_whisper(
+            result = await _transcribe_speech(
                 audio_path,
                 self.config.voice.language,
                 self.config.voice.whisper_model,
+                self.config.voice.transcription_engine,
             )
 
             self.last_detected_language = result["language"]
@@ -1817,6 +1906,7 @@ class ContinuousVoiceListener:
             "listening_for_command": self._listening_for_command,
             "language": self.last_detected_language,
             "configured_language": self.config.voice.language,
+            "transcription_engine": self.config.voice.transcription_engine,
             "whisper_model": self.config.voice.whisper_model,
             "vad_recorder_active": self._recorder.is_active,
             "input_device": self._recorder.input_device,

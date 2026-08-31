@@ -138,6 +138,9 @@ class ServerConfig:
 @dataclass
 class VoiceConfig:
     language: str = "auto"  # auto detect or manual language code
+    # Faster-Whisper is preferred for substantially lower local latency and
+    # memory use. "auto" retains the proven OpenAI Whisper fallback.
+    transcription_engine: str = "auto"
     whisper_model: str = "base"
     # Stable "host API::device name" identifier returned by
     # list_audio_input_devices. "auto" preserves automatic selection.
@@ -689,6 +692,7 @@ def _validate_config_types(raw: dict) -> None:
         },
         "voice": {
             "language": str,
+            "transcription_engine": str,
             "whisper_model": str,
             "input_device": str,
             "vad_energy_threshold": (int, float),
