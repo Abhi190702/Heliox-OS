@@ -144,7 +144,14 @@ def test_contract_serializes_enum_domains_and_approval_state() -> None:
     assert payload["predicted_state"]["system"]["approval_state"] == "required"
 
 
-def _write_jepa_weights(path, *, validated: bool = False) -> None:
+def _write_jepa_weights(
+    path,
+    *,
+    validated: bool = False,
+    action_types: list[str] | None = None,
+    training_samples: int = 128,
+    validation_error: float = 0.2,
+) -> None:
     import numpy as np
 
     action_count = len(tuple(ActionType))
@@ -153,9 +160,13 @@ def _write_jepa_weights(path, *, validated: bool = False) -> None:
         state_weight=np.eye(3, dtype=np.float32),
         action_weight=np.full((action_count, 3), 0.2, dtype=np.float32),
         bias=np.zeros(3, dtype=np.float32),
+        action_types=np.array(
+            action_types or [action_type.value for action_type in ActionType],
+            dtype=np.str_,
+        ),
         model_version=np.array("ui-jepa-test-v1"),
-        training_samples=np.array(128),
-        validation_error=np.array(0.2),
+        training_samples=np.array(training_samples),
+        validation_error=np.array(validation_error),
         validated_for_gating=np.array(validated),
     )
 
@@ -207,6 +218,46 @@ def test_unvalidated_ui_jepa_cannot_add_gating_evidence(tmp_path) -> None:
 
     assert prediction is not None
     assert prediction.risk_evidence == ()
+
+
+def test_ui_jepa_requires_exact_action_vocabulary(tmp_path) -> None:
+    weights = tmp_path / "ui_jepa.npz"
+    reordered = [action_type.value for action_type in ActionType]
+    reordered[0], reordered[1] = reordered[1], reordered[0]
+    _write_jepa_weights(weights, action_types=reordered)
+
+    predictor = UiJepaPredictor(weights)
+
+    assert predictor.is_loaded is False
+    assert predictor.status()["action_vocabulary_bound"] is False
+    assert "action vocabulary" in predictor.status()["load_error"]
+
+
+def test_ui_jepa_gating_requires_quality_metadata(tmp_path) -> None:
+    weights = tmp_path / "ui_jepa.npz"
+    _write_jepa_weights(
+        weights,
+        validated=True,
+        training_samples=20,
+        validation_error=0.8,
+    )
+
+    predictor = UiJepaPredictor(weights)
+
+    assert predictor.is_loaded is True
+    assert predictor.validated_for_gating is False
+    assert predictor.status()["mode"] == "shadow"
+    assert len(predictor.status()["gating_rejection_reasons"]) == 2
+
+
+def test_ui_jepa_gating_accepts_bound_validated_artifact(tmp_path) -> None:
+    weights = tmp_path / "ui_jepa.npz"
+    _write_jepa_weights(weights, validated=True)
+
+    predictor = UiJepaPredictor(weights)
+
+    assert predictor.validated_for_gating is True
+    assert predictor.status()["gating_rejection_reasons"] == []
 
 
 def test_hybrid_model_fuses_visual_and_structured_predictions(tmp_path) -> None:

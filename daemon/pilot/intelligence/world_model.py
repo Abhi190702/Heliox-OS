@@ -439,6 +439,9 @@ class UiJepaPredictor:
     gating validation.
     """
 
+    MIN_GATING_SAMPLES = 100
+    MAX_GATING_VALIDATION_ERROR = 0.35
+
     def __init__(self, weights_path: str | Path | None = None) -> None:
         self._weights_path = Path(weights_path) if weights_path else Path(__file__).with_name("ui_jepa_weights.npz")
         self._state_weight: np.ndarray | None = None
@@ -448,6 +451,9 @@ class UiJepaPredictor:
         self._training_samples = 0
         self._validation_error: float | None = None
         self._validated_for_gating = False
+        self._action_vocabulary_bound = False
+        self._load_error = "weights file not found"
+        self._gating_rejection_reasons: tuple[str, ...] = ()
         self._try_load()
 
     @property
@@ -466,38 +472,72 @@ class UiJepaPredictor:
             "training_samples": self._training_samples,
             "validation_error": self._validation_error,
             "validated_for_gating": self._validated_for_gating,
+            "action_vocabulary_bound": self._action_vocabulary_bound,
             "latent_dimension": latent_dim,
             "mode": "gating" if self._validated_for_gating else "shadow",
+            "load_error": self._load_error,
+            "gating_rejection_reasons": list(self._gating_rejection_reasons),
         }
 
     def _try_load(self) -> None:
         try:
-            data = np.load(self._weights_path, allow_pickle=False)
-            state_weight = data["state_weight"]
-            action_weight = data["action_weight"]
-            bias = data["bias"]
-            action_count = len(tuple(ActionType))
-            if (
-                state_weight.ndim != 2
-                or state_weight.shape[0] != state_weight.shape[1]
-                or bias.shape != (state_weight.shape[0],)
-                or action_weight.shape != (action_count, state_weight.shape[0])
-            ):
-                return
-            self._state_weight = state_weight.astype(np.float32)
-            self._action_weight = action_weight.astype(np.float32)
-            self._bias = bias.astype(np.float32)
-            self._model_version = (
-                str(data["model_version"].item()) if "model_version" in data.files else "ui-jepa-legacy"
-            )
-            self._training_samples = int(data["training_samples"].item()) if "training_samples" in data.files else 0
-            self._validation_error = (
-                float(data["validation_error"].item()) if "validation_error" in data.files else None
-            )
-            self._validated_for_gating = (
-                bool(data["validated_for_gating"].item()) if "validated_for_gating" in data.files else False
-            )
-        except (FileNotFoundError, KeyError, OSError, ValueError):
+            with np.load(self._weights_path, allow_pickle=False) as data:
+                state_weight = data["state_weight"]
+                action_weight = data["action_weight"]
+                bias = data["bias"]
+                expected_actions = tuple(action_type.value for action_type in ActionType)
+                stored_actions = (
+                    tuple(str(value) for value in data["action_types"].tolist()) if "action_types" in data.files else ()
+                )
+                self._action_vocabulary_bound = stored_actions == expected_actions
+                if not self._action_vocabulary_bound:
+                    self._load_error = "artifact action vocabulary is missing or does not match this build"
+                    return
+                if (
+                    state_weight.ndim != 2
+                    or state_weight.shape[0] != state_weight.shape[1]
+                    or bias.shape != (state_weight.shape[0],)
+                    or action_weight.shape != (len(expected_actions), state_weight.shape[0])
+                    or not np.all(np.isfinite(state_weight))
+                    or not np.all(np.isfinite(action_weight))
+                    or not np.all(np.isfinite(bias))
+                ):
+                    self._load_error = "artifact tensor shapes or values are invalid"
+                    return
+                self._state_weight = state_weight.astype(np.float32)
+                self._action_weight = action_weight.astype(np.float32)
+                self._bias = bias.astype(np.float32)
+                self._model_version = (
+                    str(data["model_version"].item())[:120] if "model_version" in data.files else "ui-jepa-unversioned"
+                )
+                self._training_samples = int(data["training_samples"].item()) if "training_samples" in data.files else 0
+                raw_validation_error = (
+                    float(data["validation_error"].item()) if "validation_error" in data.files else None
+                )
+                self._validation_error = (
+                    raw_validation_error
+                    if raw_validation_error is not None
+                    and np.isfinite(raw_validation_error)
+                    and 0.0 <= raw_validation_error <= 1.0
+                    else None
+                )
+                requested_gating = (
+                    bool(data["validated_for_gating"].item()) if "validated_for_gating" in data.files else False
+                )
+                reasons: list[str] = []
+                if not requested_gating:
+                    reasons.append("artifact is designated for shadow evaluation")
+                if self._training_samples < self.MIN_GATING_SAMPLES:
+                    reasons.append(f"training sample count is below {self.MIN_GATING_SAMPLES}")
+                if self._validation_error is None:
+                    reasons.append("validation error is missing or invalid")
+                elif self._validation_error > self.MAX_GATING_VALIDATION_ERROR:
+                    reasons.append(f"validation error exceeds {self.MAX_GATING_VALIDATION_ERROR:.2f}")
+                self._gating_rejection_reasons = tuple(reasons)
+                self._validated_for_gating = requested_gating and not reasons
+                self._load_error = ""
+        except (FileNotFoundError, KeyError, OSError, TypeError, ValueError) as exc:
+            self._load_error = str(exc) or exc.__class__.__name__
             return
 
     def predict_optional(
